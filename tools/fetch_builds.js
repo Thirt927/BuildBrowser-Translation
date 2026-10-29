@@ -21,6 +21,8 @@ function arg(name, fallback) {
 const WEEKLY = Number(arg("weekly", 50));
 const ALLTIME = Number(arg("alltime", 30));
 const CONCURRENCY = Number(arg("concurrency", 3));
+const IDS = String(arg("ids", "")).trim();
+const IDS_ONLY = !!arg("ids-only", false);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -74,51 +76,82 @@ function keyOf(build) {
 
 async function main() {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  const heroes = await getJson("/v1/assets/heroes?only_active=true");
-  const active = heroes
-    .filter((h) => h && h.id != null && !h.disabled)
-    .map((h) => ({ id: h.id, name: h.name, class_name: h.class_name }))
-    .sort((a, b) => a.id - b.id);
-  console.log("heroes:", active.length);
 
-  const jobs = [];
-  for (const hero of active) {
-    jobs.push({ hero, sort: "weekly_favorites", limit: WEEKLY });
-    if (ALLTIME > 0) jobs.push({ hero, sort: "favorites", limit: ALLTIME });
+  let existing = null;
+  if (IDS_ONLY) {
+    if (!fs.existsSync(OUT)) throw new Error("--ids-only needs an existing " + OUT + ", run a normal fetch first");
+    existing = JSON.parse(fs.readFileSync(OUT, "utf8"));
+    console.log("loaded existing cache:", existing.builds.length, "builds");
   }
 
-  const fetched = await pool(jobs, CONCURRENCY, async (job) => {
-    const q =
-      "/v1/builds?hero_id=" +
-      job.hero.id +
-      "&sort_by=" +
-      job.sort +
-      "&sort_direction=desc&limit=" +
-      job.limit +
-      "&only_latest=true";
-    let rows = [];
-    try {
-      rows = await getJson(q);
-    } catch (e) {
-      console.warn("skip", job.hero.name, job.sort, e.message);
-    }
-    console.log("  " + job.hero.name + " " + job.sort + ": " + rows.length);
-    return rows.map((r) => ({ ...r, _sort: job.sort }));
-  });
+  let active = existing ? existing.heroes : null;
+  if (!active) {
+    const heroes = await getJson("/v1/assets/heroes?only_active=true");
+    active = heroes
+      .filter((h) => h && h.id != null && !h.disabled)
+      .map((h) => ({ id: h.id, name: h.name, class_name: h.class_name }))
+      .sort((a, b) => a.id - b.id);
+    console.log("heroes:", active.length);
+  }
 
   const byId = new Map();
-  for (const rows of fetched) {
-    for (const row of rows) {
-      const id = keyOf(row);
-      if (!byId.has(id)) byId.set(id, row);
+  if (existing) for (const row of existing.builds) byId.set(keyOf(row), row);
+
+  if (!IDS_ONLY) {
+    const jobs = [];
+    for (const hero of active) {
+      jobs.push({ hero, sort: "weekly_favorites", limit: WEEKLY });
+      if (ALLTIME > 0) jobs.push({ hero, sort: "favorites", limit: ALLTIME });
+    }
+
+    const fetched = await pool(jobs, CONCURRENCY, async (job) => {
+      const q =
+        "/v1/builds?hero_id=" +
+        job.hero.id +
+        "&sort_by=" +
+        job.sort +
+        "&sort_direction=desc&limit=" +
+        job.limit +
+        "&only_latest=true";
+      let rows = [];
+      try {
+        rows = await getJson(q);
+      } catch (e) {
+        console.warn("skip", job.hero.name, job.sort, e.message);
+      }
+      console.log("  " + job.hero.name + " " + job.sort + ": " + rows.length);
+      return rows.map((r) => ({ ...r, _sort: job.sort }));
+    });
+
+    for (const rows of fetched) {
+      for (const row of rows) byId.set(keyOf(row), row);
     }
   }
+
+  if (IDS) {
+    const ids = IDS.split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s) && Number(s) > 0);
+    console.log("fetching build ids:", ids.length);
+    const rows = await pool(ids, CONCURRENCY, async (id) => {
+      try {
+        const r = await getJson("/v1/builds?build_id=" + id + "&limit=1");
+        return r && r[0] ? { ...r[0], _sort: "selected" } : null;
+      } catch (e) {
+        console.warn("skip build", id, e.message);
+        return null;
+      }
+    });
+    for (const row of rows) if (row) byId.set(keyOf(row), row);
+    console.log("after ids:", byId.size, "builds");
+  }
+
   const builds = [...byId.values()];
   const out = {
     fetched_at: new Date().toISOString(),
     source: API + "/v1/builds",
     heroes: active,
-    requested: { weekly: WEEKLY, alltime: ALLTIME },
+    requested: { weekly: WEEKLY, alltime: ALLTIME, ids: IDS ? IDS.split(",").length : 0 },
     builds,
   };
   fs.writeFileSync(OUT, JSON.stringify(out));

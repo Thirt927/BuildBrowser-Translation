@@ -61,6 +61,13 @@ node tools/fetch_builds.js --weekly 50 --alltime 30
 node tools/build_tm.js --seed samples/sample-build-code.txt
 ```
 
+想把自己常用的某条出装也收进译文库,用它在游戏详情页可复制的 Build ID:
+
+```powershell
+node tools/fetch_builds.js --ids-only --ids "674881,722319"
+node tools/build_tm.js
+```
+
 - 翻译时会先把装备名 / 英雄名 / 段位名替换成占位符,译完再还原成官方中文名,避免机翻把 `Spirit Snatch`
   翻成奇怪的东西。
 - 结果按"规范化文本的双哈希"存储,同一段描述出现在不同副本/不同出装里都能命中。
