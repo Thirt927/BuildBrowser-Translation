@@ -102,10 +102,14 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<Reduced
 
 ```powershell
 node tests\translate_simtest.js
+node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ```
 
-离线模拟 Panorama 的 `$` API 与出装浏览器 DOM,验证:token 不被动、中文不被动、文本输入框不被动、
-未知文本保持原样、译文库命中后能写回。
+- `translate_simtest.js`:离线模拟 Panorama 的 `$` API,验证 token 不被动、中文不被动、
+  文本输入框不被动、未知文本保持原样、译文库命中后能写回。
+- `layout_dom_simtest.js`:用游戏原版反编译布局搭出真实的嵌套面板树(列表 → 详情 →
+  出装分类 → 装备注释 / 装备提示),灌入真实出装文本,验证各位置的文本都会被替换。
+  需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条)。
 
 ## 已知限制
 
