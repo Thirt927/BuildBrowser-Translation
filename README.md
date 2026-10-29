@@ -50,11 +50,20 @@ Deadlock 出装浏览器(Build Browser)汉化 mod。把出装列表、出装详�
 
 厂商/玩家撰写的出装文本无法预知,所以 `tools/` 里有一套离线流水线:
 
+一步到位(推荐):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\refresh_tm.ps1 -GameCitadel "<Deadlock>/game/citadel"
+```
+
+分步执行:
+
 ```powershell
 # 1) 从本机游戏文件生成官方中英术语表(英雄/装备/段位/技能)
 node tools/build_glossary.js --game-root "<Deadlock>/game/citadel"
 
-# 2) 抓取 deadlock-api 上各英雄的热门公开出装(默认每英雄 50 条周热门 + 30 条历史热门)
+# 2) 抓取 deadlock-api 上各英雄的热门公开出装(默认每英雄 50 条周热门 + 30 条历史热门;
+#    scripts/refresh_tm.ps1 默认用 100 + 60,覆盖更全)
 node tools/fetch_builds.js --weekly 50 --alltime 30
 
 # 3) 提取所有玩家文本 -> 免费 Bing 翻译 -> 写入 mod/panorama/scripts/bba_tm.js

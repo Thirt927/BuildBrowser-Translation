@@ -236,12 +236,9 @@
 
   function boot() {
     buildTermRegex();
-    var tmCount = 0;
-    if (G.BBA_TM) {
-      try {
-        tmCount = Object.keys(G.BBA_TM).length;
-      } catch (e) {}
-    }
+    // bba_tm.js publishes the entry count; counting 58k keys at boot would stall
+    // the UI for tens of milliseconds on every layout instance.
+    var tmCount = G.BBA_TM_COUNT || 0;
     $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ")");
     $.Schedule(0.05, tick);
   }

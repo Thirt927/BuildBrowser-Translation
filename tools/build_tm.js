@@ -381,7 +381,7 @@ async function main() {
     "// " + entries.size + " texts, " + new Date().toISOString() + "\n" +
     "(function () {\n  var T = {" +
     [...entries].map(([k, v]) => JSON.stringify(k) + ":" + JSON.stringify(v)).join(",") +
-    "};\n  var g = globalThis || this;\n  g.BBA_TM = T;\n})();\n";
+    "};\n  var g = globalThis || this;\n  g.BBA_TM = T;\n  g.BBA_TM_COUNT = " + entries.size + ";\n})();\n";
   fs.mkdirSync(path.dirname(OUT_JS), { recursive: true });
   fs.writeFileSync(OUT_JS, body);
   console.log("bba_tm.js:", (fs.statSync(OUT_JS).size / (1024 * 1024)).toFixed(2), "MB");
