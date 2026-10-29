@@ -116,6 +116,17 @@ node tests\translate_simtest.js
   更新 `mod/panorama/layout/` 里的覆盖文件(保持原有结构,只加 `<scripts>`)。
 - 修改的是纯 UI 显示,不读写游戏内存、不与服务器通信、不改动任何游戏数据。
 
+## 排查
+
+1. 确认 `addons` 里只有一份 `pak13_dir.vpk`,并且**完全重启**过游戏(不是退回主菜单)。
+2. 别的 mod 如果也覆盖了这四个布局,文件名编号更大的 pak 会抢先;用 VPKEdit 看一眼各 pak
+   的文件树,冲突时把本 mod 改成更大的编号(改 `scripts/build.ps1` 里的 `$PakName`)。
+3. 需要看日志时,给 Deadlock 加启动项 `-condebug`,打开一次商城/出装浏览器后,
+   在 `game/citadel/console.log` 里搜 `[BBT]`,正常应看到
+   `[BBT] v1.0.0 loaded (tm=..., glossary=1)`。
+4. 布局覆盖失效最常见的原因是游戏更新后布局结构变了:重跑一遍
+   `Source 2 Viewer` 反编译 + 对比,再按 README 的构建步骤重新打包。
+
 ## 目录结构
 
 ```
