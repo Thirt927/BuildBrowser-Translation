@@ -287,7 +287,17 @@ async function main() {
   if (seedArg && seedArg !== true) {
     for (const file of String(seedArg).split(",")) {
       const p = path.isAbsolute(file) ? file : path.join(__dirname, "..", file);
-      if (fs.existsSync(p)) seeds.push(decode(fs.readFileSync(p, "utf8")));
+      if (!fs.existsSync(p)) continue;
+      // A seed file may hold one share code or several (one per line).
+      for (const line of fs.readFileSync(p, "utf8").split(/[\r\n]+/)) {
+        const code = line.trim();
+        if (code.length < 20) continue;
+        try {
+          seeds.push(decode(code));
+        } catch (e) {
+          console.warn("skip bad seed code in", p + ":", e.message);
+        }
+      }
     }
   }
 
