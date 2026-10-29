@@ -1,0 +1,12 @@
+# build output
+dist/
+
+# tool caches (raw API dumps + translation cache)
+tools/cache/
+
+# local scratch copy of the user's pasted share code
+/1.txt
+
+# scratch
+*.tmp
+*.log

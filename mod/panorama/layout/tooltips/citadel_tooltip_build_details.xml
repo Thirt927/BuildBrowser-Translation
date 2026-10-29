@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BuildBrowser Translation - override of panorama/layout/tooltips/citadel_tooltip_build_details.xml
+  Base structure decompiled from the shipped citadel_tooltip_build_details.vxml_c
+  (Source 2 Viewer), unchanged except for the added scripts include.
+-->
+<root>
+	<styles>
+		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
+		<include src="s2r://panorama/styles/tooltips/citadel_tooltip_build_details.vcss" />
+	</styles>
+	<scripts>
+		<!-- bba_tm.js is loaded by the long-lived build browser / shop layouts and
+		     shared through globalThis; tooltips only need the translator. -->
+		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_translate.vjs_c" />
+	</scripts>
+	<Panel class="BuildDetailsTooltip" hittest="false" hittestchildren="false">
+		<CitadelBuildDetails id="TooltipBuildDetails" hide_mods="true" />
+	</Panel>
+</root>

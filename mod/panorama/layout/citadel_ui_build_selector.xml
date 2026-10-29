@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BuildBrowser Translation - override of panorama/layout/citadel_ui_build_selector.xml
+  Base structure decompiled from the shipped citadel_ui_build_selector.vxml_c
+  (Source 2 Viewer), unchanged except for the added scripts/styles includes.
+-->
+<root>
+	<styles>
+		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
+		<include src="s2r://panorama/styles/citadel_ui_build_selector.vcss" />
+	</styles>
+	<scripts>
+		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_tm.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_translate.vjs_c" />
+	</scripts>
+	<snippets>
+		<snippet name="HeroBuildListItem">
+			<Panel class="HeroBuildListItem">
+				<ProgressBarWithMiddle id="BuildPreviewProgressBar" />
+				<Panel id="BuildNameArea">
+					<Panel class="nameRow">
+						<Panel class="BuildTagContainer">
+							<CitadelBuildTag class="BuildTag Small" id="BuildTag1" />
+							<CitadelBuildTag class="BuildTag Small" id="BuildTag2" />
+							<CitadelBuildTag class="BuildTag Small" id="BuildTag3" />
+						</Panel>
+						<Panel class="PopularityContainer">
+							<Panel id="DailyFavorite" class="PopularityTag" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_DailyFavorite_Tooltip )" onmouseout="UIHideTextTooltip()">
+								<Label id="DailyLabel" text="#Citadel_HeroBuilds_DailyFavorite" />
+							</Panel>
+							<Panel id="WeeklyFavorite" class="PopularityTag" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_WeeklyFavorite_Tooltip )" onmouseout="UIHideTextTooltip()">
+								<Label id="WeeklyLabel" text="#Citadel_HeroBuilds_WeeklyFavorite" />
+							</Panel>
+							<Panel id="AllTimeFavorite" class="PopularityTag">
+								<Label id="AllTimeLabel" text="#Citadel_HeroBuilds_AllTimeFavorite" />
+							</Panel>
+						</Panel>
+						<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+						<Label id="OldIcon" class="InfoIcon" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_OldButtonTooltip )" onmouseout="UIHideTextTooltip()" />
+					</Panel>
+					<Label class="SelectedBuild" text="#Citadel_HeroBuilds_Selected" />
+					<CitadelButton class="Small" text="#Citadel_HeroBuilds_UseBuild" onactivate="CitadelBuildBrowserPopupConfirmBuild()" />
+					<Panel id="SelectedBuildIndicator">
+						<Panel class="tag_backer" />
+						<Label text="#Citadel_HeroBuilds_Selected" />
+					</Panel>
+				</Panel>
+				<Panel id="RightPanel">
+					<Panel class="InfoContainer">
+						<Panel class="ProgressBarContainer">
+							<ProgressBar id="WeaponProgressBar" />
+							<ProgressBar id="VitalityProgressBar" />
+							<ProgressBar id="SpiritProgressBar" />
+						</Panel>
+						<Panel id="FavoriteIcon" class="HeroBuildTypeIcon" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_FavoriteButtonTooltip )" onmouseout="UIHideTextTooltip()" />
+						<CitadelAvatarImage id="AuthorAvatar" />
+					</Panel>
+				</Panel>
+			</Panel>
+		</snippet>
+		<snippet name="SearchTag">
+			<Panel class="SearchTag">
+				<CitadelBuildTag class="BuildTag Small" id="BuildTag" onactivate="CitadelBuildBrowserAssignSearchTag()" />
+				<Button class="CloseButton" id="RemoveTagButton" onactivate="CitadelBuildBrowserRemoveSearchTag()" />
+			</Panel>
+		</snippet>
+	</snippets>
+	<CitadelHeroBuildsSelector>
+		<Panel class="HeroSelectorHeader">
+			<Panel class="SearchContainer">
+				<Panel class="SearchTagsContainer">
+					<Panel class="AddTagButton" onactivate="CitadelBuildBrowserAddSearchTag()">
+						<Label text="#Citadel_HeroBuilds_AddTag" />
+					</Panel>
+					<Panel id="SearchTagList" />
+				</Panel>
+				<Panel id="SearchBox">
+					<TextEntry id="SearchTextEntry" acceptsfocus="true" acceptsinput="true" placeholder="#Citadel_HeroBuilds_SearchText" onactivate="CitadelBuildBrowserRefresh(true)" />
+					<Button id="ClearSearchButton" onactivate="CitadelBuildBrowserClearSearch();" />
+				</Panel>
+				<Panel id="RefreshButton" onactivate="CitadelBuildBrowserRefresh(true)" />
+			</Panel>
+			<Panel class="HeroSelectorTabContainer">
+				<Panel class="MyBuilds HeroSelectorTab" onactivate="CitadelBuildBrowserSetTabFilter(1)">
+					<Panel class="tab_bg" />
+					<Panel class="tab_icon" />
+					<Label class="TabLabel" text="#Citadel_HeroBuilds_Tab_MyBuilds" />
+				</Panel>
+				<Panel class="PublicBuilds HeroSelectorTab" onactivate="CitadelBuildBrowserSetTabFilter(2)">
+					<Panel class="tab_bg" />
+					<Panel class="tab_icon" />
+					<Label class="TabLabel" text="#Citadel_HeroBuilds_Tab_PublicBuilds" />
+				</Panel>
+			</Panel>
+		</Panel>
+		<Panel class="MainContainer">
+			<Panel id="HeroBuildList" acceptsfocus="true" />
+			<Panel id="HeroBuildListLoading">
+				<Panel class="Spinner" />
+			</Panel>
+			<CitadelBuildDetails id="BuildDetails" />
+			<Panel id="PublishBuildContainer" hittest="true">
+				<Panel class="PublishInfo">
+					<Label class="HeroBuildsTitle" text="#Citadel_HeroBuilds_PublishBuildTitle" />
+					<Label class="HeroBuildsDesc" text="#Citadel_HeroBuilds_PublishBuildDesc" />
+					<Label class="HeroBuildsSubTitle" text="#Citadel_HeroBuilds_BuildNameTitle" />
+					<TextEntry id="HeroBuildNameTextEntry" placeholder="#Citadel_HeroBuilds_NameLabel" undohistroy="enabled" maxchars="50" />
+					<Label class="HeroBuildsSubTitle" text="#Citadel_HeroBuilds_BuildDescriptionTitle" />
+					<TextEntry id="HeroBuildDescriptionTextEntry" placeholder="#Citadel_HeroBuilds_DescriptionLabel" undohistroy="enabled" maxchars="4096" multiline="true" />
+					<Label id="HeroBuildVersion" text="#Citadel_HeroBuilds_PublishDialogVersion" />
+				</Panel>
+				<Panel id="PublishBuildButton" class="actionItemButton" onmouseactivate="CitadelBuildDetailsPublishSelectedBuild()">
+					<Label text="#Citadel_HeroBuilds_PublishBuildLabel" />
+				</Panel>
+			</Panel>
+		</Panel>
+	</CitadelHeroBuildsSelector>
+</root>
