@@ -117,6 +117,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<Reduced
 ```powershell
 node tests\translate_simtest.js
 node tests\tools_simtest.js
+node tests\scene_verify.js
 node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ```
 
@@ -124,6 +125,8 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
   文本输入框不被动、未知文本保持原样、译文库命中后能写回、副本名的"的副本"标记保留。
 - `tools_simtest.js`:纯离线,验证出装码 解码/编码 无损往返、裸 protobuf 解码、
   旧译文库可解析(累积合并)、术语保护与还原。
+- `scene_verify.js`:针对"右侧详情 / 悬停提示 / 商店页"三个用户关心场景,在仓库自带的
+  4 个覆盖布局上灌真实样本文本,验证译文命中(不依赖游戏文件)。
 - `layout_dom_simtest.js`:用游戏原版反编译布局搭出真实的嵌套面板树(列表 → 详情 →
   出装分类 → 装备注释 / 装备提示),灌入真实出装文本,验证各位置的文本都会被替换。
   需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条),缺省时自动 SKIP。
@@ -153,6 +156,9 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
    `[BBT] v1.0.0 loaded (tm=..., glossary=1)`。
 4. 布局覆盖失效最常见的原因是游戏更新后布局结构变了:重跑一遍
    `Source 2 Viewer` 反编译 + 对比,再按 README 的构建步骤重新打包。
+   反编译出的新布局(例如右侧详情布局 `citadel_ui_build_details.xml`)用
+   `node tools\inject_scripts.js <反编译文件>` 一条命令生成覆盖,自动落到
+   `mod/panorama/layout/`,再重跑 build.ps1。
 
 ## 目录结构
 

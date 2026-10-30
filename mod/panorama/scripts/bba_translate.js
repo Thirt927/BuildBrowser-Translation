@@ -258,7 +258,15 @@
     // bba_tm.js publishes the entry count; counting 58k keys at boot would stall
     // the UI for tens of milliseconds on every layout instance.
     var tmCount = G.BBA_TM_COUNT || 0;
-    $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ")");
+    var layoutTag = "";
+    try {
+      var ctx = $.GetContextPanel();
+      if (ctx && ctx.tag) layoutTag = String(ctx.tag);
+    } catch (e) {}
+    // The tag tells you WHICH layout actually carries the scanner; use it with
+    // -condebug to check that every layout surface that shows player text is
+    // really covered (e.g. a game update may spawn a new out-of-tree layout).
+    $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ") in layout: " + (layoutTag || "?") + "");
     $.Schedule(0.05, tick);
   }
 

@@ -5,6 +5,24 @@
 
 ## 一、已确认的问题
 
+### 布局覆盖(2026-10-30 用户反馈,优先级最高)
+
+0a.【待修·高】**出装浏览器右侧详情"换出装不更新"**:`citadel_ui_build_selector.xml`
+   里的 `<CitadelBuildDetails id="BuildDetails"/>` 是游戏**独立布局文件**(推测为
+   `citadel_ui_build_details.xml`),本仓库没有它的覆盖 → 右侧文本不在任何扫描树内,
+   换出装后新文本永远不被翻译。修复:反编译该布局 + `node tools/inject_scripts.js`
+   生成覆盖(工具已加,见下)。需用户从本机游戏反编译后提供 XML。
+0b.【待修·高】**装备悬停提示的作者注释不翻译**:翻译机制本身已验证可用
+   (`tests/scene_verify.js` 场景 2 PASS:"Rend > Heal > Repeat."→"撕裂 > 治疗 > 重复。"),
+   游戏内不生效的原因可能是:① 游戏更新后 `tooltips/citadel_tooltip_mod_details.xml`
+   结构/文件路径变了,覆盖失效;② 被编号更大的其它 pak 压住。诊断:启动项加
+   `-condebug`,进游戏后在 `console.log` 搜 `[BBT]`(现在会打印加载它的布局 tag,
+   如 `[BBT] v1.0.0 loaded (...) in layout: CitadelTooltipModDetails`),确认哪些布局
+   真正带了扫描器;再用 VPKEdit 对比各 pak 的同名文件。
+0c.【已修】新增 `tools/inject_scripts.js`:对反编译布局一条命令注入 `<scripts>` 引用
+   (幂等、可 `--no-tm` 跳过译文库引用),产物自动落入 `mod/panorama/layout/`,
+   `build.ps1` 会随编译。
+
 ### 工具链(tools/)
 
 1.【已修】**出装码编码是有损的**:`build_code.js` 的 `encode()` 丢掉 `ability_order`(样本里 16 条
