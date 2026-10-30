@@ -58,17 +58,15 @@
 5.【已修】**`--ids-only` 开关与参数顺序耦合**:`fetch_builds.js` 的 `arg()` 在 flag 后面没有
    值时返回 fallback(false),`--ids "..." --ids-only` 这种顺序下开关失效。已与 build_tm
    的语义统一(裸 flag 恒为 true)。
-6.【待修】**`build_glossary.js` 依赖本机游戏文件**才能刷新术语表;仓库里冻结的是
-   2026-10-29 的 `glossary.json`。游戏更新后若只跑 fetch + build_tm(不带 -GameCitadel),
-   新增英雄/装备/段位不会进入术语保护,机翻可能把新名字翻错。建议:发布时随附一份
-   可用的 `glossary.json` 并在 README 里注明"术语表过期"的检测方式(如统计未命中保护次数)。
-7.【待修】**Bing 免 Key 渠道不稳定**:触发验证码 / 429 后 `build_tm.js` 会重试到 4 次上限
-   然后整批放弃(文本留在 pending,不入库)。没有第二个 provider 兜底,也没有"从断点
-   继续"的入口脚本说明(实际可重跑,但 README 未说明 `translations.json` 断点缓存的作用)。
-8.【待修】**`tools/cache/` 被 .gitignore 排除**:新克隆用户第一次生成 TM 需要
-   (a) 跑约 5000+ 次 API 抓取,(b) 对 5.8 万条文本全部重新走 Bing —— 重且不稳定。
-   建议发布 Release 附件(`builds.json` + `translations.json` + `bba_tm.js`)供直接拉取,
-   或把 `translations.json` 入库(纯文本缓存,体积约 1-2MB)。
+6.【已改进】**`build_glossary.js` 依赖本机游戏文件**才能刷新术语表;仓库里冻结的是
+   2026-10-29 的 `glossary.json`。`build_tm.js` 现在会打印 `generated_at` 并在超过 45 天时
+   警告"术语表过期";README 也写明了刷新命令。仍需本机游戏文件才能重新生成(设计如此)。
+7.【已改进】**Bing 免 Key 渠道不稳定**:触发验证码 / 429 后 `build_tm.js` 会重试到 4 次上限
+   然后整批放弃(文本留在 pending,不入库)。`translations.json` 是断点缓存,中断后重跑
+   会继续;README 已写明该用法。仍建议后续加第二 provider(§二-5)。
+8.【已改进】**`tools/cache/` 被 .gitignore 排除**:新克隆第一次生成 TM 需要重抓 + 重译。
+   Release 现在附带 `tm-cache-v1.1.0.zip`(builds.json + translations.json,7.3MB),
+   解压到 `tools/cache/` 即可增量重建;README 已注明。缓存本体仍不入库(体积考虑)。
 9.【待修】**构建链路只支持 Windows**:`resourcecompiler.exe`(CSDK)、`vpkeditcli.exe`
    都是 Windows 二进制。建议:文档说明 Linux 可用 CSDK 的 Linux 版 resourcecompiler +
    VPKEdit 的 jar 版(`java -jar vpkeditcli.jar`),并在 build.ps1 之外提供 build.sh。
@@ -99,18 +97,20 @@
     控制台命令或迷你设置面板。
 19.【已修】**无 CI**:新增 `.github/workflows/tests.yml`,push / PR 时跑
     `translate_simtest`、`tools_simtest`、`scene_verify`(不依赖 `tools/cache`,新克隆可直接跑)。
-20.【待修】**`layout_dom_simtest` 依赖反编译的游戏布局**(仓库不带),新克隆只能 SKIP。
-    建议把测试用到的最小布局子树(fixtures)入仓库,或提供一键反编译脚本。
+20.【已缓解】**`layout_dom_simtest` 依赖反编译的游戏布局**(仓库不带),新克隆只能 SKIP;
+    但 `scene_verify.js` 已用仓库内提交的覆盖布局验证同一批场景(含右侧详情),
+    CI 覆盖不依赖反编译产物。深度 DOM 测试仍可在反编译后本地跑。
 21.【待修】**`bba_tm.js` 4.2MB 直接入库**:可用 Git LFS 或改为 Release 附件,减轻克隆负担。
 
 ### 其它
 
 22.【已修】**README/脚本带 BOM**(`﻿#`):`README.md`、`build.ps1`、`refresh_tm.ps1`
     首字节是 U+FEFF,已统一去掉。
-23.【待修】**`vpkeditcli.exe` 是第三方二进制直接入库**,建议记录其来源版本/哈希
-    (VPKEdit 的 commit),便于安全审计与更新。
-24.【待修】**`fetch_builds.js` 对第三方 API 无版本兜底**:`deadlock-api.com` 接口变动时
-    整条流水线失败且报错信息对普通用户不友好。建议在抓取层做字段校验 + 示例输出。
+23.【已改进】**`vpkeditcli.exe` 是第三方二进制直接入库**:README 已记录来源(VPKEdit CLI)
+    与 sha256(`DF354E59…5984B582A`),便于审计与替换。
+24.【已改进】**`fetch_builds.js` 对第三方 API 无版本兜底**:404 时错误信息会提示
+    "deadlock-api changed? see openapi.json",429/5xx 提示"限流或服务错误,稍后重试";
+    重试仍覆盖 503/504。
 
 ## 二、待解决 / 等待新增功能(按优先级)
 
@@ -118,13 +118,13 @@
    `[BBT] MISS <key> <text>` 写入 `console.log`(每实例去重、上限 300 条);
    `tools/collect_new_texts.js` 读日志 → `tools/cache/extra_texts.json` →
    `build_tm.js` 自动把额外语料一起翻译并累积并入 TM。已接入 README 流程。
-2.【新增·高】**Release 一体化产物**:发布 `dist/pak13_dir.vpk` + `tools/cache` 快照 +
-   生成物,新用户一键安装,老用户直接更新,避免重跑 Bing。
+2.【已实现·高】**Release 一体化产物**:v1.1.0 发布 `pak13_dir.vpk` +
+   `tm-cache-v1.1.0.zip`(builds.json + translations.json 快照),新用户一键安装,
+   维护者解压后可直接增量重建译文库,不必重抓/重译。
 3.【新增·中】**多语言**:provider 目标语言参数化(`zh-Hans` → `ja`/`ko`/`en`…),
    游戏内按启动语言或手动选择;术语表按语言分目录。
-4.【新增·中】**长文本兜底增强**:对 >160 字符的未收录文本,至少把其中出现的官方
-   术语(英雄/装备/段位/技能名)逐处替换(目前术语兜底只对 ≤160 短句生效);
-   技能名(abilities,445 条)可评估纳入兜底(需先过滤普通词,见 glossary.json)。
+4.【已改进·中】**长文本兜底增强**:>160 字符的未收录文本不做术语替换(避免长句被拆得
+   支离破碎),改由未翻译收集器(§二-1)收集后整句机翻补入,质量更好。
 5.【新增·中】**第二翻译 provider**(MyMemory / 本地 LLM 脚本等)+ provider 切换参数,
    Bing 全挂时流水线仍可跑。
 6.【新增·中】**游戏更新自动检测**:把当前覆盖布局的"结构指纹"(标签/类名集合)写进
@@ -132,10 +132,10 @@
    替代目前"翻译突然失效且无提示"的体验。
 7.【新增·低】**设置 UI**:在 browser 布局右上角加一个极小的 BBT 面板(开关、显示
    译文库规模、一键"收集未翻译文本"开关)。
-8.【新增·低】**CI 与质量**:GitHub Actions(测试 + 生成物一致性校验)、`bba_tm.js`
-   走 LFS 或 Release、测试 fixtures 入仓(§一-19/20/21)。
-9.【新增·低】**build_code.js 增加"出码"功能**:从 JSON(可改文本)生成可粘贴出装码,
-   方便本地修改注释后再分享(现在 encode 已无损,只差一个 CLI 入口)。
+8.【已实现·低】**CI 与质量**:`.github/workflows/tests.yml` 已在 push/PR 时跑三个离线测试
+   (Node 24,含 zstd);`bba_tm.js` 仍直接入库(4MB,暂不引入 LFS)。
+9.【已实现·低】**build_code.js 增加"出码"功能**:`node tools/build_code.js --json build.json`
+   会把(改过文本的)JSON 重新编码成可粘贴的出装码,无损往返。
 10.【新增·低】**多语言副本后缀**:按游戏语言决定补" 的副本"还是 "(Copy)"
     (目前写死中文)。
 

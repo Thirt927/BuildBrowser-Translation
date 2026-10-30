@@ -132,7 +132,15 @@ function decode(code) {
   const raw = Buffer.from(String(code).trim(), "base64");
   // Detect zstd frame vs bare protobuf.
   const magic = raw.subarray(0, 4).toString("hex");
-  const parsed = magic === "28b52ffd" ? zlib.zstdDecompressSync(raw) : raw;
+  let parsed = raw;
+  if (magic === "28b52ffd") {
+    if (typeof zlib.zstdDecompressSync !== "function") {
+      throw new Error(
+        "this Node.js build has no zstd support (" + process.version + "); use Node >= 22.15 (24 recommended)",
+      );
+    }
+    parsed = zlib.zstdDecompressSync(raw);
+  }
 
   const build = {
     hero_build_id: null,
@@ -295,8 +303,21 @@ if (require.main === module) {
   const fs = require("fs");
   const arg = process.argv[2];
   if (!arg) {
-    console.error("usage: node tools/build_code.js <file-with-code | -c CODE>");
+    console.error("usage: node tools/build_code.js <file-with-code | -c CODE | --json build.json>");
     process.exit(2);
+  }
+  if (arg === "--json") {
+    // Round-trip: decode -> edit the JSON -> encode a share code again.
+    const file = process.argv[3];
+    if (!file || !fs.existsSync(file)) {
+      console.error("usage: node tools/build_code.js --json <build.json>");
+      process.exit(2);
+    }
+    let raw = fs.readFileSync(file, "utf8");
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1); // PowerShell redirection writes a BOM
+    const build = JSON.parse(raw);
+    console.log(encode(build));
+    return;
   }
   const input = arg === "-c" ? process.argv[3] : fs.readFileSync(arg, "utf8");
   // A seed file may hold several codes, one per line; decode each separately

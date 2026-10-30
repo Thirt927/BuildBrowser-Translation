@@ -123,11 +123,17 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<CSDK>" 
 `build_tm.js` 会把 `extra_texts.json` 当作额外语料,和热门出装一起走术语保护 + 机翻,
 并**累积合并**旧译文库,不会丢已有条目。
 
+> 翻译缓存 `tools/cache/translations.json` 是断点续跑的依据:Bing 触发验证码/限流、
+> 或手工中断后,重新执行 `node tools/build_tm.js` 会从已翻译的部分继续,不会重头再来。
+> Release 页的 `tm-cache-v1.1.0.zip` 里带了 `builds.json` + `translations.json` 快照,
+> 解压到 `tools/cache/` 后可直接增量重建,不必重新抓取 6,800 条出装、重跑全部机翻。
+
 ### 解析复制出来的出装码
 
 ```powershell
 node tools/build_code.js samples/sample-build-code.txt          # 输出完整 JSON(名称/描述/分类/每件装备注释)
 node tools/build_code.js -c "<code>"    # 直接传码
+node tools/build_code.js --json build.json   # 把(改过文本的)JSON 重新编码成可粘贴的出装码
 ```
 
 格式为 `base64(zstd(CMsgHeroBuild protobuf))`;也接受未压缩的裸 protobuf(按 zstd 魔数
@@ -139,8 +145,10 @@ node tools/build_code.js -c "<code>"    # 直接传码
 
 依赖:
 
+- Node.js **≥ 22.15**(推荐 24;出装码是 base64(zstd),需要内置 zstd 解压)
 - Reduced CSDK 12(提供 `resourcecompiler.exe`)
-- `tools/vpkeditcli.exe`(已随仓库附带,来自 VPKEdit)
+- `tools/vpkeditcli.exe`(已随仓库附带,来自 VPKEdit CLI;sha256 `DF354E59…5984B582A`,
+  需要更新时用 [VPKEdit](https://github.com/ValveResourceFormat/VPKEdit) 的 `vpkeditcli` 覆盖)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<Reduced_CSDK_12 根目录>"

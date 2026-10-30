@@ -363,6 +363,17 @@ async function main() {
   }
 
   const glossary = loadGlossary();
+  if (glossary && glossary.generated_at) {
+    const ageDays = (Date.now() - new Date(glossary.generated_at).getTime()) / 86400000;
+    console.log("glossary generated_at:", glossary.generated_at, "(" + Math.round(ageDays) + " days ago)");
+    if (ageDays > 45) {
+      console.warn(
+        "glossary looks stale — rerun: node tools/build_glossary.js --game-root \"<Deadlock>/game/citadel\"",
+      );
+    }
+  } else {
+    console.warn("glossary has no generated_at; new heroes/items may be translated wrong");
+  }
   const protector = buildProtector(glossary);
   console.log("protected terms:", protector.terms.length);
 

@@ -53,7 +53,10 @@ function getJson(pathname, attempt) {
         } else if ((res.statusCode === 429 || res.statusCode >= 500) && attempt < 5) {
           sleep(2000 * attempt).then(() => resolve(getJson(pathname, attempt + 1)));
         } else {
-          reject(new Error(pathname + " -> HTTP " + res.statusCode + ": " + data.slice(0, 200)));
+          const hint = res.statusCode === 404
+            ? " (endpoint missing: deadlock-api changed? see openapi.json)"
+            : " (rate limited or API error; retry later)";
+          reject(new Error(pathname + " -> HTTP " + res.statusCode + hint + ": " + data.slice(0, 200)));
         }
       });
     });
