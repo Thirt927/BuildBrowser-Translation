@@ -19,9 +19,10 @@
    `-condebug`,进游戏后在 `console.log` 搜 `[BBT]`(现在会打印加载它的布局 tag,
    如 `[BBT] v1.0.0 loaded (...) in layout: CitadelTooltipModDetails`),确认哪些布局
    真正带了扫描器;再用 VPKEdit 对比各 pak 的同名文件。
-0c.【已修】新增 `tools/inject_scripts.js`:对反编译布局一条命令注入 `<scripts>` 引用
-   (幂等、可 `--no-tm` 跳过译文库引用),产物自动落入 `mod/panorama/layout/`,
-   `build.ps1` 会随编译。
+0c.【已修】新增 `tools/inject_scripts.js` 与 `tools/get_layouts.ps1`:
+   对反编译布局一条命令注入 `<scripts>` 引用(幂等、可 `--no-tm` 跳过译文库引用),
+   产物自动落入 `mod/panorama/layout/`,`build.ps1` 会随编译。`get_layouts.ps1`
+   支持一次处理多个布局(传入 S2V 导出目录 + 布局名列表)。
 
 ### 工具链(tools/)
 
