@@ -31,10 +31,10 @@ if (!input || !fs.existsSync(input)) {
 
 const withTm = process.argv.indexOf("--no-tm") < 0;
 let xml = fs.readFileSync(input, "utf8");
-if (xml.indexOf("bba_translate") >= 0) {
-  console.log("already has the BBT scripts include; nothing to do");
-  process.exit(0);
-}
+
+// Stripping the existing <scripts> block happens below; re-running this tool
+// on a decompiled layout that already carries BBT includes simply refreshes the
+// override's structure (game updates), so no early exit here.
 
 // Strip existing <scripts> blocks so re-running stays idempotent.
 xml = xml.replace(/\s*<scripts>[\s\S]*?<\/scripts>/g, "");

@@ -3,6 +3,35 @@
 > 2026-10-30 代码审查整理。标记:【已修】= 本次已在仓库中修复并有测试;【待修】= 已确认的问题,尚未改;
 > 【新增】= 计划中 / 等待新增的功能。
 
+## 0. 当前行动清单(按顺序,全部完成即收口"右侧详情 + 悬停提示"问题)
+
+1. ☐ **S2V 导出布局**(Windows,约 30 秒):用 Source 2 Viewer 打开
+   `game\citadel\*.vpk`,搜索并 **Decompile & Export**(保持原路径)到任一文件夹:
+   - `citadel_ui_build_details`(右侧详情,当前缺失的关键布局;布局名若与推测不符,
+     以 S2V 搜索 `BuildDetails` 命中的实际文件为准)
+   - `tooltips/citadel_tooltip_mod_details`(确认当前版本结构是否漂移)
+   - 可选:搜索 `CitadelBuildDetails` 引用的其它独立布局文件
+2. ☐ **生成覆盖**(仓库目录内):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导出目录>" -Names "citadel_ui_build_details,tooltips/citadel_tooltip_mod_details" -NoTm
+   ```
+   (`-NoTm`:这些布局共享 globalThis 上的译文库,无需各自内嵌 4MB 脚本)
+3. ☐ **验证 + 重打包**:
+   ```powershell
+   node tests\scene_verify.js        # 原 FAIL 项应变 PASS
+   powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<CSDK12根目录>"
+   ```
+   替换 `game\citadel\addons\pak13_dir.vpk`,**完全重启游戏**。
+4. ☐ **游戏内确认**:进商城/出装浏览器 → 换一条出装,右侧详情与悬停注释出中文。
+   若仍不生效,按 README"排查" 2/3:检查 addons 里有无**编号更小**的 pak 覆盖同名布局,
+   并确认 `gameinfo.gi` 的 SearchPaths 含 `Mod citadel` + `Game citadel/addons`(游戏更新会重置)。
+5. ☐ **补一次全量刷新**(可选,让译文库覆盖你的个人出装):
+   ```powershell
+   node tools\fetch_builds.js --author "<你的SteamID64>" --weekly 100 --alltime 60
+   node tools\build_tm.js
+   ```
+   完成后把本清单勾掉并提交,留作后续刷新节奏的参照(游戏补丁后重跑 2–5)。
+
 ## 一、已确认的问题
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
