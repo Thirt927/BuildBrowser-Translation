@@ -156,7 +156,7 @@ async function main() {
   }
 
   if (AUTHOR) {
-    if (!/^\d{4,12}$/.test(AUTHOR)) {
+    if (!/^\d{4,20}$/.test(AUTHOR)) {
       console.warn("author " + AUTHOR + " is not a Steam account id, skipping");
     } else {
       console.log("fetching public builds by author:", AUTHOR);

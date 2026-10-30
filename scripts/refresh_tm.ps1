@@ -1,4 +1,4 @@
-﻿# BuildBrowser Translation - refresh the offline translation memory
+# BuildBrowser Translation - refresh the offline translation memory
 # ------------------------------------------------------------------
 # 1) regenerate the official EN->CN glossary from the local game files (optional, needs -GameCitadel)
 # 2) fetch popular public builds from deadlock-api

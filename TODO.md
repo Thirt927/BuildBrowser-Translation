@@ -5,53 +5,43 @@
 
 ## 0. 当前行动清单(按顺序,全部完成即收口"右侧详情 + 悬停提示"问题)
 
-1. ☐ **S2V 导出布局**(Windows,约 30 秒):用 Source 2 Viewer 打开
-   `game\citadel\*.vpk`,搜索并 **Decompile & Export**(保持原路径)到任一文件夹:
-   - `citadel_ui_build_details`(右侧详情,当前缺失的关键布局;布局名若与推测不符,
-     以 S2V 搜索 `BuildDetails` 命中的实际文件为准)
-   - `tooltips/citadel_tooltip_mod_details`(确认当前版本结构是否漂移)
-   - 可选:搜索 `CitadelBuildDetails` 引用的其它独立布局文件
-2. ☐ **生成覆盖**(仓库目录内):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导出目录>" -Names "citadel_ui_build_details,tooltips/citadel_tooltip_mod_details" -NoTm
-   ```
-   (`-NoTm`:这些布局共享 globalThis 上的译文库,无需各自内嵌 4MB 脚本)
-3. ☐ **验证 + 重打包**:
-   ```powershell
-   node tests\scene_verify.js        # 原 FAIL 项应变 PASS
-   powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<CSDK12根目录>"
-   ```
-   替换 `game\citadel\addons\pak13_dir.vpk`,**完全重启游戏**。
+1. ☑ **S2V 导出布局**:已导出并随仓库生成覆盖(2026-10-30,游戏版本当日):
+   - `citadel_ui_build_details` → `mod/panorama/layout/citadel_ui_build_details.xml`
+   - `tooltips/citadel_tooltip_mod_details` → `mod/panorama/layout/tooltips/…`
+   - `tooltips/citadel_tooltip_build_details` → 同上(结构已确认与当前版本一致)
+2. ☑ **生成覆盖**:用 `tools/inject_scripts.js` 注入;三个布局都**带 TM**(修复 tooltip
+   根上下文 `tm=0` 的问题),`bba_tm.js` 增加了"每个 JS 上下文只构建一次"的早退守卫,
+   多布局重复 include 不再重复构建 5.8 万条。
+3. ☑ **验证 + 重打包**:`node tests\scene_verify.js` 全 PASS(新增右侧详情
+   `.BuildName` / `.BuildDescription` 的真实布局断言),已重新打包部署。
 4. ☐ **游戏内确认**:进商城/出装浏览器 → 换一条出装,右侧详情与悬停注释出中文。
-   若仍不生效,按 README"排查" 2/3:检查 addons 里有无**编号更小**的 pak 覆盖同名布局,
+   若仍不生效,按 README"排查"2/3:检查 addons 里有无**编号更小**的 pak 覆盖同名布局,
    并确认 `gameinfo.gi` 的 SearchPaths 含 `Mod citadel` + `Game citadel/addons`(游戏更新会重置)。
-5. ☐ **补一次全量刷新**(可选,让译文库覆盖你的个人出装):
-   ```powershell
-   node tools\fetch_builds.js --author "<你的SteamID64>" --weekly 100 --alltime 60
-   node tools\build_tm.js
-   ```
-   完成后把本清单勾掉并提交,留作后续刷新节奏的参照(游戏补丁后重跑 2–5)。
+   日志里现在会打印 `in layout: <面板类型>`,可直接确认哪些布局带了扫描器。
+5. ☑ **补一次全量刷新**(可选,让译文库覆盖你的个人出装):
+   `node tools\fetch_builds.js --ids-only --author "76561199479487287"` 已执行
+   (该账号当前没有公开出装,返回 0;流水线本身可用)。
+   另已修复 `--author` 只接受 12 位以内数字、会拒绝 SteamID64 的 bug。
 
 ## 一、已确认的问题
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
-0a.【待修·高】**出装浏览器右侧详情"换出装不更新"**:`citadel_ui_build_selector.xml`
-   里的 `<CitadelBuildDetails id="BuildDetails"/>` 是游戏**独立布局文件**(推测为
-   `citadel_ui_build_details.xml`),本仓库没有它的覆盖 → 右侧文本不在任何扫描树内,
-   换出装后新文本永远不被翻译。修复:反编译该布局 + `node tools/inject_scripts.js`
-   生成覆盖(工具已加,见下)。需用户从本机游戏反编译后提供 XML。
-0b.【待修·高】**装备悬停提示的作者注释不翻译**:翻译机制本身已验证可用
-   (`tests/scene_verify.js` 场景 2 PASS:"Rend > Heal > Repeat."→"撕裂 > 治疗 > 重复。"),
-   游戏内不生效的原因可能是:① 游戏更新后 `tooltips/citadel_tooltip_mod_details.xml`
-   结构/文件路径变了,覆盖失效;② 被编号更大的其它 pak 压住。诊断:启动项加
-   `-condebug`,进游戏后在 `console.log` 搜 `[BBT]`(现在会打印加载它的布局 tag,
-   如 `[BBT] v1.0.0 loaded (...) in layout: CitadelTooltipModDetails`),确认哪些布局
-   真正带了扫描器;再用 VPKEdit 对比各 pak 的同名文件。
+0a.【已修·高】**出装浏览器右侧详情"换出装不更新"**:根因是 `citadel_ui_build_details`
+   是独立布局,引擎把它挂在选择器树之外(或刷新时重设文本),扫描器既到不了它、
+   旧的 WeakMap 缓存又会在引擎重设原文时跳过重写。修复:
+   - 新增 `mod/panorama/layout/citadel_ui_build_details.xml` 覆盖(带脚本 + TM);
+   - `bba_translate.js` 改为"与当前显示文本比较",引擎重置为英文后必定重译(附回归测试);
+   - `scene_verify.js` 增加对 `.BuildName` / `.BuildDescription` 的真实布局断言。
+0b.【已修·高】**装备悬停提示的作者注释不翻译**:根因是 tooltip 布局所在 JS 上下文
+   没有译文库(启动日志里出现 `tm=0` 的单例)。修复:tooltip 覆盖也 include
+   `bba_tm.vjs_c`,并加早退守卫避免重复构建;`scene_verify` 场景 2 已 PASS。
 0c.【已修】新增 `tools/inject_scripts.js` 与 `tools/get_layouts.ps1`:
    对反编译布局一条命令注入 `<scripts>` 引用(幂等、可 `--no-tm` 跳过译文库引用),
    产物自动落入 `mod/panorama/layout/`,`build.ps1` 会随编译。`get_layouts.ps1`
    支持一次处理多个布局(传入 S2V 导出目录 + 布局名列表)。
+   ⚠ 注意:未传 `--out` 且路径不含 `layout/` 时,工具会把子目录布局拍平到 layout 根目录
+   (本次已用 `--out` 修正 tooltip 路径)。
 
 ### 工具链(tools/)
 
@@ -98,28 +88,25 @@
     列表里副本与原件无法区分。现在 `wasCopy` 命中会在译文后补回" 的副本"(有测试)。
 15.【已修】**TextEntry 判定过窄**:`isTextEntry` 只认 `maxchars` 为 number;引擎若把
     属性值暴露为 string("50"),输入框会被当成普通 Label 改写。现在 number/string 都认。
-16.【待修】**长文本无兜底**:译文库未收录的 >160 字符描述保持全英文(只有 ≤160 的短句
-    做术语替换)。这是离线设计的固有限制,改进方向见 §二-4(未翻译收集器)。
-17.【待修】**tooltip 布局依赖宿主加载 TM**:`citadel_tooltip_*.xml` 不引 `bba_tm.js`,
-    靠宿主(browser/shop)布局把 `BBA_TM` 挂到 globalThis。若玩家从未打开过承载 TM 的
-    布局(例如重启后直接进商店),tooltip 里只有术语兜底。可选改进:tooltip 脚本在
-    `BBA_TM` 缺失时一次性懒加载 `bba_tm.vjs_c`(代价是一次 ~4MB 脚本解析),或把 TM
-    拆"热/冷"两段(常用热门文本随 tooltip 走,全量随 browser 走)。
+16.【已改进】**长文本无兜底**:译文库未收录的 >160 字符描述仍保持英文(只有 ≤160 的短句
+    做术语替换)。现在由**未翻译收集器**(§二-1)把游戏内实际出现的未知文本写进
+    `console.log`,离线补译后重新打包;跑一轮游戏即可覆盖当天的冷门/新出装。
+17.【已修】**tooltip 布局依赖宿主加载 TM**:`citadel_tooltip_*.xml` 现在也 include
+    `bba_tm.vjs_c`(启动日志中的 `tm=0` 单例即此问题的证据)。为避免多实例重复构建,
+    `bba_tm.js` 生成时带 `if (globalThis.BBA_TM) return;` 早退守卫。
 18.【待修】**没有运行时开关/配置**:译文显示开关、是否保留"的副本"标记、DEBUG 详细
     日志等都要改源码重新打包。`BBT_STATS`/`BBT_VERSION` 已挂 globalThis,可加一条
     控制台命令或迷你设置面板。
-19.【待修】**无 CI**:仓库没有任何自动化检查(两个离线测试一条命令就能跑),
-    提交的 `bba_tm.js`/`bba_glossary.js` 是生成物,无法保证与 `tools/` 一致。
-    建议 GitHub Actions:push 时跑 `node tests/translate_simtest.js` +
-    `node tests/tools_simtest.js`,并校验 `bba_tm.js` 可被 `loadExistingTm()` 解析。
+19.【已修】**无 CI**:新增 `.github/workflows/tests.yml`,push / PR 时跑
+    `translate_simtest`、`tools_simtest`、`scene_verify`(不依赖 `tools/cache`,新克隆可直接跑)。
 20.【待修】**`layout_dom_simtest` 依赖反编译的游戏布局**(仓库不带),新克隆只能 SKIP。
     建议把测试用到的最小布局子树(fixtures)入仓库,或提供一键反编译脚本。
 21.【待修】**`bba_tm.js` 4.2MB 直接入库**:可用 Git LFS 或改为 Release 附件,减轻克隆负担。
 
 ### 其它
 
-22.【待修】**README/脚本带 BOM**(`﻿#`):`README.md`、`build.ps1`、`refresh_tm.ps1`
-    首字节是 U+FEFF。PowerShell 能容忍,但部分工具链会报警。统一去 BOM。
+22.【已修】**README/脚本带 BOM**(`﻿#`):`README.md`、`build.ps1`、`refresh_tm.ps1`
+    首字节是 U+FEFF,已统一去掉。
 23.【待修】**`vpkeditcli.exe` 是第三方二进制直接入库**,建议记录其来源版本/哈希
     (VPKEdit 的 commit),便于安全审计与更新。
 24.【待修】**`fetch_builds.js` 对第三方 API 无版本兜底**:`deadlock-api.com` 接口变动时
@@ -127,10 +114,10 @@
 
 ## 二、待解决 / 等待新增功能(按优先级)
 
-1.【新增·高】**未翻译文本收集器**:游戏内把"未知且非中文"的文本(带哈希 key、所在
-   布局 id)写入 `console.log`(或用本地文件若引擎允许),配 `tools/collect_new_texts.js`
-   把日志转成待译清单 → 进 Bing → 增量并入 TM。让译文库随玩家实际游玩自动增长,
-   解决"冷门/新出装仍是英文"的核心痛点。
+1.【已实现·高】**未翻译文本收集器**:游戏内把"未知且非中文"的文本以
+   `[BBT] MISS <key> <text>` 写入 `console.log`(每实例去重、上限 300 条);
+   `tools/collect_new_texts.js` 读日志 → `tools/cache/extra_texts.json` →
+   `build_tm.js` 自动把额外语料一起翻译并累积并入 TM。已接入 README 流程。
 2.【新增·高】**Release 一体化产物**:发布 `dist/pak13_dir.vpk` + `tools/cache` 快照 +
    生成物,新用户一键安装,老用户直接更新,避免重跑 Bing。
 3.【新增·中】**多语言**:provider 目标语言参数化(`zh-Hans` → `ja`/`ko`/`en`…),

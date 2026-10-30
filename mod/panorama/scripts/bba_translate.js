@@ -18,11 +18,15 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.0.0";
+  var VERSION = "1.1.0";
   var DEBUG = false;
   var POLL_INTERVAL = 0.15; // seconds between scans
   var SCAN_BUDGET = 6000; // panels visited per tick
   var TERM_FALLBACK_MAX = 160; // only short labels get glossary substitution
+  // Unseen English text is logged as "[BBT] MISS <key> <text>" so
+  // tools/collect_new_texts.js can harvest it and grow the translation memory.
+  var COLLECT_MISSES = true;
+  var MISS_CAP = 300; // per layout instance and session
 
   var G = globalThis || this || {};
   var GLOSS = G.BBA_GLOSSARY || null;
@@ -144,22 +148,39 @@
 
   // ---------- DOM scan ----------
 
-  var stats = { translated: 0, fallback: 0, scanned: 0 };
-  // Remember the last value we wrote per panel so the poll loop does not
-  // re-set an already-translated label every 150ms (and can notice when the
-  // engine resets the text, which re-arms the write).
-  var lastWritten = new WeakMap();
-
+  var stats = { translated: 0, fallback: 0, scanned: 0, misses: 0 };
+  // Write only when the label currently shows something else. Comparing against
+  // the live text (instead of a "last written" cache) is what makes the scanner
+  // re-apply after the engine resets a label to its original English on refresh.
   function writeText(panel, value) {
-    var prev = lastWritten.get(panel);
-    if (prev === value) return false;
+    var current;
+    try { current = panel.text; } catch (e) { return false; }
+    if (typeof current === "string" && current === value) return false;
     try {
       panel.text = value;
-      lastWritten.set(panel, value);
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  var missSeen = Object.create(null);
+
+  function noteMiss(raw, panel) {
+    if (!COLLECT_MISSES || stats.misses >= MISS_CAP) return;
+    try {
+      // Custom panels can expose their type name through .text; never collect that.
+      if (panel && panel.paneltype && raw === panel.paneltype) return;
+    } catch (e) {}
+    var flat = flatten(raw);
+    if (flat.length < 4 || flat.length > 2000) return;
+    if (!/[A-Za-z]{2}/.test(flat)) return;
+    if (/^https?:\/\//i.test(flat)) return;
+    var k = keyOf(flat);
+    if (missSeen[k]) return;
+    missSeen[k] = 1;
+    stats.misses += 1;
+    $.Msg("[BBT] MISS " + k + " " + flat);
   }
 
   function isTextEntry(panel) {
@@ -204,6 +225,8 @@
     }
 
     if (/[\u3400-\u9fff]/.test(raw)) return; // already Chinese (or mixed with Chinese)
+
+    noteMiss(raw, panel);
 
     if (normalize(raw).length <= TERM_FALLBACK_MAX) {
       var mixed = substituteTerms(raw);

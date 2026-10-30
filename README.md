@@ -1,4 +1,4 @@
-﻿# BuildBrowser Translation
+# BuildBrowser Translation
 
 Deadlock 出装浏览器(Build Browser)汉化 mod。把出装列表、出装详情、商城出装页和装备悬停提示里
 **玩家撰写的英文说明**显示成中文,不需要 OCR、不需要本地翻译服务、不需要联网,装好即用。
@@ -38,9 +38,11 @@ Deadlock 出装浏览器(Build Browser)汉化 mod。把出装列表、出装详�
 
 ## 工作原理
 
-1. **布局覆盖**:`mod/panorama/layout/` 里覆盖了游戏原版的四个布局(结构由 Source 2 Viewer 从
+1. **布局覆盖**:`mod/panorama/layout/` 里覆盖了游戏原版的五个布局(结构由 Source 2 Viewer 从
    官方 `*.vxml_c` 反编译后原样保留,只增加了 `<scripts>` 引用):
-   - `citadel_ui_build_selector.xml`(出装浏览器主体:列表 + 右侧详情)
+   - `citadel_ui_build_selector.xml`(出装浏览器主体:列表 + 右侧详情的宿主)
+   - `citadel_ui_build_details.xml`(右侧详情面板本体:`.BuildName` / `.BuildDescription`;
+     引擎可能把它挂到选择器之外,所以必须单独覆盖)
    - `citadel_shop_mods_build.xml`(商城出装页 / 详情里的装备区)
    - `tooltips/citadel_tooltip_build_details.xml`(出装悬浮详情)
    - `tooltips/citadel_tooltip_mod_details.xml`(装备悬停提示)
@@ -101,6 +103,25 @@ node tools/build_tm.js
 - 结果按"规范化文本的双哈希"存储,同一段描述出现在不同副本/不同出装里都能命中。
 - `--seed` 可传入你复制出来的出装码文件(一行一条可以传多条),让这些出装(尤其是你自己的出装)
   进入译文库;多个文件用逗号分隔。
+
+### 游戏内自动收集未翻译文本
+
+出装浏览器的公开列表按**每日收藏**排序,而 deadlock-api 只提供每周/历史收藏,所以总会有
+"当天的冷门/新出装"不在离线译文库里。这些文本现在会在游戏内被记录下来,再自动补进译文库:
+
+1. 给 Deadlock 加启动项 `-condebug`,正常浏览/切换出装(每个布局实例最多记 300 条,去重);
+2. `game/citadel/console.log` 里会出现:
+   `[BBT] MISS <key> <英文原文>`
+3. 收集并翻译:
+
+```powershell
+node tools/collect_new_texts.js                    # 自动找 console.log,合并进 tools/cache/extra_texts.json
+node tools/build_tm.js                             # 翻译新增文本并重建 bba_tm.js
+powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<CSDK>" -Deploy
+```
+
+`build_tm.js` 会把 `extra_texts.json` 当作额外语料,和热门出装一起走术语保护 + 机翻,
+并**累积合并**旧译文库,不会丢已有条目。
 
 ### 解析复制出来的出装码
 
@@ -165,12 +186,14 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ## 排查
 
 1. 确认 `addons` 里只有一份 `pak13_dir.vpk`,并且**完全重启**过游戏(不是退回主菜单)。
-2. 别的 mod 如果也覆盖了这四个布局,文件名编号**更小**的 pak 会抢先(addons 里
+2. 别的 mod 如果也覆盖了这五个布局,文件名编号**更小**的 pak 会抢先(addons 里
    所有 `pak##_dir.vpk` 小编号优先,见"安装");用 VPKEdit 看一眼各 pak
    的文件树,冲突时把本 mod 改成更小的编号(改 `scripts/build.ps1` 的 `-PakName` 参数)。
 3. 需要看日志时,给 Deadlock 加启动项 `-condebug`,打开一次商城/出装浏览器后,
    在 `game/citadel/console.log` 里搜 `[BBT]`,正常应看到
-   `[BBT] v1.0.0 loaded (tm=..., glossary=1)`。
+   `[BBT] v1.1.0 loaded (tm=..., glossary=1) in layout: <面板类型>`:
+   这条日志会告诉你是**哪个布局**真正带上了扫描器(右侧详情应为 `CitadelBuildDetails`,
+   装备提示应为 `CitadelTooltipModDetails`)。同一行之后的 `[BBT] MISS ...` 就是待补译文本。
 4. 布局覆盖失效最常见的原因是游戏更新后布局结构变了:重跑一遍
    `Source 2 Viewer` 反编译 + 对比,再按 README 的构建步骤重新打包。
    反编译出的新布局(例如右侧详情布局 `citadel_ui_build_details.xml`)用

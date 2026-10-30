@@ -1,4 +1,4 @@
-﻿// Offline harness for mod/panorama/scripts/bba_translate.js.
+// Offline harness for mod/panorama/scripts/bba_translate.js.
 // Recreates the small slice of the Panorama JS API the script uses, feeds it a
 // fake build-browser DOM built from the sample share code (1.txt) and checks
 // that TM lookups, token skipping and TextEntry protection behave as intended.
@@ -110,7 +110,18 @@ check("fixture translation applied", panels[6].text === FIXTURE_CN);
   check("copy name translated with marker", !!hit && panels[1].text === hit + " 的副本");
 }
 check("some texts translated", stats.translated > 0);
-console.log("translated=" + stats.translated + " glossary=" + stats.fallback + " scanned=" + stats.scanned);
+
+// Regression: the engine repaints labels with their original English (hover,
+// resize, re-selection). The scanner must re-apply the translation instead of
+// assuming "we already wrote this panel" (the old WeakMap cache did exactly
+// that and left labels stuck in English).
+panels[6].text = FIXTURE_TEXT;
+panels[2].text = build.description;
+for (let i = 0; i < 4 && sandbox.__queue.length; i += 1) sandbox.__queue.shift()();
+check("fixture re-applied after engine reset", panels[6].text === FIXTURE_CN);
+check("description re-applied after engine reset", /[\u3400-\u9fff]/.test(panels[2].text));
+
+console.log("translated=" + stats.translated + " glossary=" + stats.fallback + " scanned=" + stats.scanned + " miss=" + stats.misses);
 console.log("log:", sandbox.__log.slice(0, 3).join(" | "));
 
 if (failures) {

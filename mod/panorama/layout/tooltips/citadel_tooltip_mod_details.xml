@@ -1,11 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  BuildBrowser Translation - override of panorama/layout/tooltips/citadel_tooltip_mod_details.xml
-  Base structure decompiled from the shipped citadel_tooltip_mod_details.vxml_c
-  (Source 2 Viewer 20.1), unchanged except for the added scripts include.
-  This is the tooltip shown when hovering an item; its "BuildInfo" block renders
-  the build author's English annotation (#Citadel_Item_Build_Annotation).
--->
+<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
 <root>
 	<styles>
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
@@ -16,11 +9,11 @@
 		<include src="s2r://panorama/styles/tooltips/citadel_tooltip_mod_details.vcss" />
 	</styles>
 	<scripts>
-		<!-- bba_tm.js is loaded by the long-lived build browser / shop layouts and
-		     shared through globalThis; tooltips only need the translator. -->
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_tm.vjs_c" />
 		<include src="s2r://panorama/scripts/bba_translate.vjs_c" />
 	</scripts>
+
 	<snippets>
 		<snippet name="ImportantStatBox">
 			<Panel class="ImportantStatBox TopBottomFlow">

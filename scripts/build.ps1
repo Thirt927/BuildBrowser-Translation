@@ -1,4 +1,4 @@
-﻿# BuildBrowser Translation - build script
+# BuildBrowser Translation - build script
 # ------------------------------------------------------------------
 # Pipeline: mod/panorama sources -> resourcecompiler -> vpkeditcli -> dist/pak13_dir.vpk
 #

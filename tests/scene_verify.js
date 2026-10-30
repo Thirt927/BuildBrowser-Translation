@@ -182,6 +182,27 @@ console.log("\n=== Scene 1: build browser right-hand panel (CitadelBuildDetails)
       "missing - decompile it and run tools/inject_scripts.js (or tools/get_layouts.ps1), then rebuild",
     );
   }
+
+  // The separate details layout is what actually owns .BuildName/.BuildDescription.
+  // Run the scanner on it directly: this is the surface that used to stay English
+  // when switching builds (engine refresh).
+  if (fs.existsSync(detailsPath)) {
+    const details = loadLayout("citadel_ui_build_details");
+    let nameLabel = null, descLabel = null;
+    walk(details, (p) => {
+      if (!nameLabel && p.classes.includes("BuildName")) nameLabel = p;
+      if (!descLabel && p.classes.includes("BuildDescription")) descLabel = p;
+    });
+    if (!nameLabel || !descLabel) {
+      report("details layout has .BuildName/.BuildDescription", false, "structure changed?");
+    } else {
+      nameLabel.text = build.name;
+      descLabel.text = build.description;
+      runScript(details);
+      report("details: build name translated", CJK.test(nameLabel.text), nameLabel.text.slice(0, 40));
+      report("details: build description translated", CJK.test(descLabel.text), descLabel.text.slice(0, 40));
+    }
+  }
 }
 
 // =====================================================================
