@@ -28,6 +28,14 @@ Deadlock 出装浏览器(Build Browser)汉化 mod。把出装列表、出装详�
 
 卸载:删除 `addons\pak13_dir.vpk` 即可。
 
+> **首次安装 / 找不到生效时检查 `gameinfo.gi`**:`game/citadel/gameinfo.gi` 的
+> `SearchPaths` 里必须有 `Mod citadel` 和 `Game citadel/addons`(该文件偶尔随游戏更新被重置,
+> 需要重新编辑)。参考 [Deadlock Modding Notes](https://deadlockmodding.pages.dev/installing-mods)。
+>
+> **pak 编号决定优先级**:addons 里所有 `pak##_dir.vpk` 中**编号小者优先**。本 mod 是
+> `pak13_dir.vpk`;如果你还装了别的 mod 且它也覆盖了同样的布局,编号比 13 小的那个会
+> 压住本 mod(这常表现为"部分位置不翻译")。用 VPKEdit 看各 pak 的文件树即可定位。
+
 ## 工作原理
 
 1. **布局覆盖**:`mod/panorama/layout/` 里覆盖了游戏原版的四个布局(结构由 Source 2 Viewer 从
@@ -74,6 +82,14 @@ node tools/build_tm.js --seed samples/sample-build-code.txt
 
 ```powershell
 node tools/fetch_builds.js --ids-only --ids "674881,722319"
+node tools/build_tm.js
+```
+
+或者直接把**你自己的 Steam 账号 ID** 传进去(你的全部公开出装都会进译文库,
+它们通常不在热门榜上,没有这一步很容易漏译):
+
+```powershell
+node tools/fetch_builds.js --author "你的SteamID64"   # 会同时抓热门榜
 node tools/build_tm.js
 ```
 
@@ -149,8 +165,9 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ## 排查
 
 1. 确认 `addons` 里只有一份 `pak13_dir.vpk`,并且**完全重启**过游戏(不是退回主菜单)。
-2. 别的 mod 如果也覆盖了这四个布局,文件名编号更大的 pak 会抢先;用 VPKEdit 看一眼各 pak
-   的文件树,冲突时把本 mod 改成更大的编号(改 `scripts/build.ps1` 里的 `$PakName`)。
+2. 别的 mod 如果也覆盖了这四个布局,文件名编号**更小**的 pak 会抢先(addons 里
+   所有 `pak##_dir.vpk` 小编号优先,见"安装");用 VPKEdit 看一眼各 pak
+   的文件树,冲突时把本 mod 改成更小的编号(改 `scripts/build.ps1` 的 `-PakName` 参数)。
 3. 需要看日志时,给 Deadlock 加启动项 `-condebug`,打开一次商城/出装浏览器后,
    在 `game/citadel/console.log` 里搜 `[BBT]`,正常应看到
    `[BBT] v1.0.0 loaded (tm=..., glossary=1)`。

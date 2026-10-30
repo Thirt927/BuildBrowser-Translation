@@ -28,6 +28,10 @@ const ALLTIME = Number(arg("alltime", 30));
 const CONCURRENCY = Number(arg("concurrency", 3));
 const IDS = String(arg("ids", "")).trim();
 const IDS_ONLY = !!arg("ids-only", false);
+// Your own Steam account id: every public build you authored is fetched too,
+// so the in-game TM always knows your texts (they rarely hit popularity
+// rankings and would otherwise fall out of coverage).
+const AUTHOR = String(arg("author", "")).trim();
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -151,12 +155,29 @@ async function main() {
     console.log("after ids:", byId.size, "builds");
   }
 
+  if (AUTHOR) {
+    if (!/^\d{4,12}$/.test(AUTHOR)) {
+      console.warn("author " + AUTHOR + " is not a Steam account id, skipping");
+    } else {
+      console.log("fetching public builds by author:", AUTHOR);
+      try {
+        const rows = await getJson("/v1/builds/by-author/" + AUTHOR + "?limit=200");
+        for (const r of rows || []) {
+          byId.set(keyOf(r), { ...r, _sort: "author" });
+        }
+        console.log("author builds merged: " + (rows || []).length);
+      } catch (e) {
+        console.warn("author fetch failed:", e.message);
+      }
+    }
+  }
+
   const builds = [...byId.values()];
   const out = {
     fetched_at: new Date().toISOString(),
     source: API + "/v1/builds",
     heroes: active,
-    requested: { weekly: WEEKLY, alltime: ALLTIME, ids: IDS ? IDS.split(",").length : 0 },
+    requested: { weekly: WEEKLY, alltime: ALLTIME, ids: IDS ? IDS.split(",").length : 0, author: AUTHOR },
     builds,
   };
   fs.writeFileSync(OUT, JSON.stringify(out));

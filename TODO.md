@@ -121,3 +121,25 @@
    方便本地修改注释后再分享(现在 encode 已无损,只差一个 CLI 入口)。
 10.【新增·低】**多语言副本后缀**:按游戏语言决定补" 的副本"还是 "(Copy)"
     (目前写死中文)。
+
+## 三、外部资源调研(2026-10-30,deadlock-api / Deadlock Modding Notes)
+
+- **deadlock-api OpenAPI**(`/openapi.json`,132 个端点)对本项目的可用项:
+  - `GET /v1/builds/by-author/{account_id}`——【已接入】`fetch_builds.js --author <SteamID64>`,
+    作者自己的公开出装保证进译文库(它们通常不在热门榜上)。
+  - `GET /v1/patches`(RSS,最新 pub_date 2026-10-15)——【待做】"游戏更新检测"信号源:
+    刷新流水线时拉一次 patches,把最新 patch 日期写进 `builds.json` 元数据;比上次新就提示
+    "游戏更新过,布局/术语表可能需要刷新"(与二-6 合并实现)。
+  - `/v1/builds` 列表行自带完整 `hero_build` 文本,现有抓取不需要补细节请求。
+  - 资产端点(items/heroes/ranks)**只有英文侧**,不能替代本地游戏文件生成术语表,
+    但可用来检测"游戏加了新英雄/装备而 glossary.json 未刷新"(一-6 的改进路线)。
+  - 限流:IP 200req/min、Key 400req/min;503/504 带 Retry-After——`fetch_builds.js`
+    的重试已覆盖,无需改。
+- **Deadlock Modding Notes**(deadlockmodding.pages.dev):
+  - `installing-mods`:mods 放 `game/citadel/addons/`,需 `gameinfo.gi` 的 SearchPaths 含
+    `Mod citadel` + `Game citadel/addons`(该文件随游戏更新可能被重置);
+    **`pak##_dir.vpk` 小编号优先**(01–99)——已写进 README,也是"部分位置不翻译"的头号嫌疑。
+  - `csdk12-packing`:CSDK12 官方打包工具 CS2/Multichunk Workshop Manager,单 VPK 2GB 上限
+    (Multichunk 拆块)。我们 vpkeditcli 路线不受影响(TM 才 4MB)。
+  - `asset-structure`:全资产类型/编译器对照,扩展 mod 时用。
+  - CSDK12 的 addon 目录结构与 build.ps1 交叉验证一致。
