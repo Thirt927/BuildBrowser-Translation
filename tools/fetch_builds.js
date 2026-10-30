@@ -15,7 +15,12 @@ const agent = new https.Agent({ keepAlive: true, maxSockets: 8 });
 
 function arg(name, fallback) {
   const i = process.argv.indexOf("--" + name);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  if (i < 0) return fallback;
+  const next = process.argv[i + 1];
+  // A bare flag (--ids-only, --dry) is present regardless of what follows, so
+  // argument order no longer matters.
+  if (next === undefined || next.startsWith("--")) return true;
+  return next;
 }
 
 const WEEKLY = Number(arg("weekly", 50));

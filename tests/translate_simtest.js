@@ -101,6 +101,14 @@ check("chinese untouched", panels[4].text === "已经翻译好的中文");
 check("TextEntry untouched", panels[7].text === "Copy of a build name");
 check("unknown text untouched", panels[3].text === build.description.toUpperCase());
 check("fixture translation applied", panels[6].text === FIXTURE_CN);
+// The sample build name ends with "的副本" (a duplicated build); the lookup
+// strips the suffix to find the translation and re-appends the marker so the
+// copy stays distinguishable in the list.
+{
+  const base = flat(build.name).replace(/\s*(的副本|\(Copy\)|\(copy\)|Copy)$/, "");
+  const hit = sandbox.BBA_TM[hash32(base, 5381).toString(36) + "-" + hash32(base, 52711).toString(36)];
+  check("copy name translated with marker", !!hit && panels[1].text === hit + " 的副本");
+}
 check("some texts translated", stats.translated > 0);
 console.log("translated=" + stats.translated + " glossary=" + stats.fallback + " scanned=" + stats.scanned);
 console.log("log:", sandbox.__log.slice(0, 3).join(" | "));

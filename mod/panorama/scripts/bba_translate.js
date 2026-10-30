@@ -72,19 +72,21 @@
     if (!tm) return null;
     var flat = flatten(raw);
     if (!flat) return null;
-    var candidates = [flat];
+    // Candidates: [text, wasCopySuffixStripped]. The stripped-suffix variant
+    // is reported back so the caller can re-append the copy marker.
+    var candidates = [[flat, false]];
     var noSuffix = flat.replace(COPY_SUFFIX, "");
-    if (noSuffix && noSuffix !== flat) candidates.push(noSuffix);
+    if (noSuffix && noSuffix !== flat) candidates.push([noSuffix, true]);
     if (/<[^>]+>/.test(flat)) {
       // Some labels are html=true and wrap the user text in markup.
       var plain = flatten(flat.replace(/<[^>]+>/g, " "));
-      candidates.push(plain);
+      candidates.push([plain, false]);
       var plainNoSuffix = plain.replace(COPY_SUFFIX, "");
-      if (plainNoSuffix && plainNoSuffix !== plain) candidates.push(plainNoSuffix);
+      if (plainNoSuffix && plainNoSuffix !== plain) candidates.push([plainNoSuffix, true]);
     }
     for (var i = 0; i < candidates.length; i += 1) {
-      var hit = tm[keyOf(candidates[i])];
-      if (hit) return hit;
+      var hit = tm[keyOf(candidates[i][0])];
+      if (hit) return { text: hit, wasCopy: candidates[i][1] };
     }
     return null;
   }
@@ -143,11 +145,28 @@
   // ---------- DOM scan ----------
 
   var stats = { translated: 0, fallback: 0, scanned: 0 };
+  // Remember the last value we wrote per panel so the poll loop does not
+  // re-set an already-translated label every 150ms (and can notice when the
+  // engine resets the text, which re-arms the write).
+  var lastWritten = new WeakMap();
+
+  function writeText(panel, value) {
+    var prev = lastWritten.get(panel);
+    if (prev === value) return false;
+    try {
+      panel.text = value;
+      lastWritten.set(panel, value);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
   function isTextEntry(panel) {
     try {
       if (typeof panel.placeholder === "string") return true;
-      if (typeof panel.maxchars === "number") return true;
+      // maxchars may be exposed as a number or as the raw attribute string.
+      if (typeof panel.maxchars === "number" || typeof panel.maxchars === "string") return true;
     } catch (e) {}
     return false;
   }
@@ -171,15 +190,16 @@
     if (typeof raw !== "string" || raw.length < 2) return;
     if (raw.indexOf("#") === 0) return; // localization token, already localized by the game
 
-    // Look the text up first: duplicated builds carry a Chinese "(copy)" suffix,
-    // and lookup strips it before hashing.
+    // Look the text up first: duplicated builds carry a "(copy)" suffix,
+    // which lookup strips before hashing; the marker is re-appended below so
+    // the display still tells copies apart.
     var hit = lookup(raw);
     if (hit) {
-      try {
-        panel.text = hit;
+      var display = hit.wasCopy ? hit.text + " 的副本" : hit.text;
+      if (writeText(panel, display)) {
         stats.translated += 1;
         if (DEBUG) $.Msg("[BBT] TM " + raw.slice(0, 40));
-      } catch (e) {}
+      }
       return;
     }
 
@@ -188,11 +208,10 @@
     if (normalize(raw).length <= TERM_FALLBACK_MAX) {
       var mixed = substituteTerms(raw);
       if (mixed) {
-        try {
-          panel.text = mixed;
+        if (writeText(panel, mixed)) {
           stats.fallback += 1;
           if (DEBUG) $.Msg("[BBT] term " + raw.slice(0, 40));
-        } catch (e) {}
+        }
       }
     }
   }

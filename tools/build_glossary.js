@@ -99,6 +99,11 @@ const abilities = pairs(
 );
 // Drop noisy entries: templated text, overlong values, untranslated leftovers,
 // and values that are labels instead of names (trailing colon, lowercase starts).
+// Internal / test hero rows that ship in the localization files are dropped too.
+const INTERNAL_NAMES = /^(test hero|targetdummy|shield guy|generic person)$/i;
+for (const en of Object.keys(heroes)) {
+  if (INTERNAL_NAMES.test(en.replace(/\s+/g, " "))) delete heroes[en];
+}
 for (const en of Object.keys(abilities)) {
   const cn = abilities[en];
   if (!cn || cn.indexOf("<") >= 0 || cn.indexOf("{") >= 0 || cn.length > 40 || en.length > 40) {

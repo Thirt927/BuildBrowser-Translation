@@ -124,13 +124,15 @@ function decodeDetails(buf) {
   return details;
 }
 
-/** Decode a share code (base64 of a zstd-compressed CMsgHeroBuild) into JSON. */
+/** Decode a share code into JSON.
+ *  Accepts base64(zstd(CMsgHeroBuild)) or a bare (uncompressed) protobuf
+ *  payload: the zstd frame magic 0x28b52ffd decides, everything else is
+ *  parsed as protobuf directly. */
 function decode(code) {
   const raw = Buffer.from(String(code).trim(), "base64");
   // Detect zstd frame vs bare protobuf.
   const magic = raw.subarray(0, 4).toString("hex");
   const parsed = magic === "28b52ffd" ? zlib.zstdDecompressSync(raw) : raw;
-  if (magic !== "28b52ffd") throw new Error("not a zstd build code (magic " + magic + ")");
 
   const build = {
     hero_build_id: null,
@@ -225,13 +227,28 @@ function encodeCategory(cat) {
   ]);
 }
 
-function encodeDetails(details) {
+function encodeAbilityChange(change) {
   return Buffer.concat([
-    ...(details.mod_categories || []).map((c) => fieldMessage(1, encodeCategory(c))),
+    fieldVarint(1, change.ability_id),
+    fieldVarint(2, change.currency_type),
+    fieldVarint(3, change.delta),
+    fieldString(4, change.annotation),
   ]);
 }
 
-/** Encode a JSON build back into a share code. */
+function encodeDetails(details) {
+  const parts = (details.mod_categories || []).map((c) => fieldMessage(1, encodeCategory(c)));
+  const order = details.ability_order || [];
+  if (order.length) {
+    const body = Buffer.concat(order.map((ch) => fieldMessage(1, encodeAbilityChange(ch))));
+    parts.push(fieldMessage(2, body));
+  }
+  return Buffer.concat(parts);
+}
+
+/** Encode a JSON build back into a share code (lossless round-trip: all
+ *  decoded fields, including ability_order and development_build, are
+ *  preserved). */
 function encode(build) {
   const parts = [
     fieldVarint(1, build.hero_build_id),
@@ -245,6 +262,7 @@ function encode(build) {
     fieldVarint(9, build.origin_build_id),
     fieldMessage(10, encodeDetails(build.details || {})),
     ...(build.tags || []).map((t) => fieldVarint(11, t)),
+    ...(build.development_build ? [fieldVarint(12, 1)] : []),
     fieldVarint(13, build.publish_timestamp),
   ];
   const compressed = zlib.zstdCompressSync(Buffer.concat(parts));
@@ -280,7 +298,23 @@ if (require.main === module) {
     console.error("usage: node tools/build_code.js <file-with-code | -c CODE>");
     process.exit(2);
   }
-  const code = arg === "-c" ? process.argv[3] : fs.readFileSync(arg, "utf8");
-  const build = decode(code);
-  console.log(JSON.stringify(build, null, 2));
+  const input = arg === "-c" ? process.argv[3] : fs.readFileSync(arg, "utf8");
+  // A seed file may hold several codes, one per line; decode each separately
+  // (concatenated base64 streams would decode silently into garbage).
+  const lines = String(input)
+    .split(/[\r\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 20);
+  if (!lines.length) {
+    console.error("no share codes found");
+    process.exit(2);
+  }
+  const out = lines.map((code) => {
+    try {
+      return decode(code);
+    } catch (e) {
+      return { error: e.message, code: code.slice(0, 40) + "..." };
+    }
+  });
+  console.log(JSON.stringify(lines.length === 1 ? out[0] : out, null, 2));
 }

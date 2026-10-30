@@ -246,16 +246,12 @@
     "The Boss": "Boss",
     "Vindicta": "薇妲",
     "Skyrunner": "御空行者",
-    "Test Hero": "测试英雄",
     "Grey Talon": "灰爪",
     "Lady Geist": "盖斯特夫人",
     "Mo & Krill": "莫克双雄",
-    "Shield Guy": "盾男",
-    "TargetDummy": "假人靶子",
     "The Doorman": "门侍",
     "Nurse Harrow": "亥芮护士",
-    "Deadman Danny": "空骨丹尼",
-    "Generic Person": "无名氏"
+    "Deadman Danny": "空骨丹尼"
   },
   "ranks": {
     "Archon": "统御",

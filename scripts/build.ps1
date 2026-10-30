@@ -17,6 +17,7 @@
 param(
   [string]$Csdk12Root = "",
   [string]$AddonName = "bbt",
+  [string]$PakName = "pak13_dir.vpk",
   [switch]$SkipPack,
   [switch]$Deploy,
   [string]$GameCitadel = ""
@@ -27,7 +28,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ModDir = Join-Path $ProjectRoot "mod"
 $DistDir = Join-Path $ProjectRoot "dist"
 $ToolsDir = Join-Path $ProjectRoot "tools"
-$PakName = "pak13_dir.vpk"
+if (-not $PakName) { $PakName = "pak13_dir.vpk" }
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Fail($msg) { Write-Host "[build] ERROR: $msg" -ForegroundColor Red; exit 1 }
@@ -82,6 +83,10 @@ $contentAddon = Join-Path $Csdk12Root "content\citadel_addons\$AddonName"
 $gameAddon = Join-Path $Csdk12Root "game\citadel_addons\$AddonName"
 
 New-Item -ItemType Directory -Path $contentAddon -Force | Out-Null
+# Wipe the staging copy first so deleted/renamed mod files never survive
+# into the compiled game addon and the packed VPK.
+$contentPanoStaging = Join-Path $contentAddon "panorama"
+if (Test-Path $contentPanoStaging) { Remove-Item $contentPanoStaging -Recurse -Force }
 Copy-Item "$ModDir\*" $contentAddon -Recurse -Force
 Write-Step "sources synced to $contentAddon"
 

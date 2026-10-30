@@ -77,6 +77,9 @@ node tools/fetch_builds.js --ids-only --ids "674881,722319"
 node tools/build_tm.js
 ```
 
+- **译文库是累积的**:每次生成 `bba_tm.js` 都会先解析旧文件,把旧条目全部保留,
+  再并入本次翻译的新条目。热门榜上掉下去的老出装、`tools/cache` 被清掉的机器
+  都不会再丢失已有译文。
 - 翻译时会先把装备名 / 英雄名 / 段位名替换成占位符,译完再还原成官方中文名,避免机翻把 `Spirit Snatch`
   翻成奇怪的东西。
 - 结果按"规范化文本的双哈希"存储,同一段描述出现在不同副本/不同出装里都能命中。
@@ -90,8 +93,10 @@ node tools/build_code.js samples/sample-build-code.txt          # 输出完整 J
 node tools/build_code.js -c "<code>"    # 直接传码
 ```
 
-格式为 `base64(zstd(CMsgHeroBuild protobuf))`,字段定义见 `tools/build_code.js` 顶部注释,
-与 deadlock-api 的导出脚本一致。
+格式为 `base64(zstd(CMsgHeroBuild protobuf))`;也接受未压缩的裸 protobuf(按 zstd 魔数
+`0x28b52ffd` 自动判别)。文件里一行一条码时,会逐条解析并在单个 JSON 数组中输出;
+`encode()` 是无损往返(保留 `ability_order`、`development_build` 等全部已解码字段)。
+字段定义见 `tools/build_code.js` 顶部注释,与 deadlock-api 的导出脚本一致。
 
 ## 构建
 
@@ -111,14 +116,17 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<Reduced
 
 ```powershell
 node tests\translate_simtest.js
+node tests\tools_simtest.js
 node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ```
 
 - `translate_simtest.js`:离线模拟 Panorama 的 `$` API,验证 token 不被动、中文不被动、
-  文本输入框不被动、未知文本保持原样、译文库命中后能写回。
+  文本输入框不被动、未知文本保持原样、译文库命中后能写回、副本名的"的副本"标记保留。
+- `tools_simtest.js`:纯离线,验证出装码 解码/编码 无损往返、裸 protobuf 解码、
+  旧译文库可解析(累积合并)、术语保护与还原。
 - `layout_dom_simtest.js`:用游戏原版反编译布局搭出真实的嵌套面板树(列表 → 详情 →
   出装分类 → 装备注释 / 装备提示),灌入真实出装文本,验证各位置的文本都会被替换。
-  需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条)。
+  需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条),缺省时自动 SKIP。
 
 ## 已知限制
 
@@ -127,7 +135,13 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 - 译文质量来自机器翻译 + 官方术语保护,个别句子可能生硬。
 - 游戏大版本更新后,布局可能变化:需要重新用 Source 2 Viewer 反编译对应 `*.vxml_c`,
   更新 `mod/panorama/layout/` 里的覆盖文件(保持原有结构,只加 `<scripts>`)。
+- 构建链路目前只支持 Windows(resourcecompiler + vpkeditcli.exe);
+  Linux/macOS 需要自行提供等价工具(见 TODO.md)。
 - 修改的是纯 UI 显示,不读写游戏内存、不与服务器通信、不改动任何游戏数据。
+
+## 已知问题与待办
+
+完整的问题列表 / 待解决项 / 计划中的新功能见 [TODO.md](TODO.md)。
 
 ## 排查
 
@@ -147,15 +161,16 @@ mod/panorama/layout/          覆盖的原版布局(4 个)
 mod/panorama/scripts/
   bba_translate.js            游戏内扫描 + 查表 + 替换
   bba_glossary.js             官方术语表(生成)
-  bba_tm.js                   翻译记忆(生成)
+  bba_tm.js                   翻译记忆(生成,累积合并)
 tools/
-  build_code.js               出装码 解析/编码
+  build_code.js               出装码 解析/编码(无损往返,支持裸 protobuf)
   build_glossary.js           从游戏本地化文件生成术语表
   fetch_builds.js             抓取热门出装
-  build_tm.js                 生成翻译记忆
+  build_tm.js                 生成翻译记忆(合并旧条目)
   providers/bing.js           免 Key Bing 翻译
 scripts/build.ps1             编译 + 打包 + 部署
-tests/translate_simtest.js    离线模拟测试
+tests/translate_simtest.js    游戏内脚本离线模拟测试
+tests/tools_simtest.js        工具链离线测试(出装码/术语保护/旧库合并)
 ```
 
 ## 致谢
