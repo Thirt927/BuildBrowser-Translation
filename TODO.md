@@ -547,3 +547,21 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
 4.【已做】`tests/vpk_list_simtest.js`:内存构造 VPK 后回读,验证解析与 pak 编号优先级。
 5.【待办】拿到 `game/citadel/pak01_dir.vpk`(约 150MB,DepotDownloader `-filelist` 只取这一个文件,
    或找有游戏的人直接发这个文件)后,可以一次性枚举所有布局 + 真实本地化,把覆盖率补全。
+
+## 十二、【已修】概述/分类描述不翻译 —— 补上第 6 个布局(2026-10-31)
+
+用户提示"有些 mod 里带着 pak01"之后,我顺着 mod 的 VPK 内容找,确认了缺口并**当场补上**:
+
+- 缺失布局:`panorama/layout/citadel_shop_mods_build_category`(分类名 +
+  `#Citadel_HeroBuilds_CategoryDescription` 作者写的分类说明 = 概述区的文字);
+- 来源:我从 GameBanana 上一个公开 mod(*Shop Category Overflow Fix*)发布的 VPK 里解出该布局,
+  **删掉它自己的 `shop_overflow_fix.vcss_c` 引用**后剩下的就是 Valve 原生布局(它只是 Valve
+  文件的副本 + 一行自己的样式),然后注入 BBT 的 `<scripts>`;
+- 已有:加入 `mod/panorama/layout/`、`scripts/build.ps1` 必需清单、`bba_layout_tokens.js`
+  (新增 `CategoryName` / `CategoryDescription` → `#Citadel_HeroBuilds_Category*`)、
+  `tests/scene_verify.js` 新增场景 4(分类名 + 分类描述必须出中文)。
+- 局限:这份 XML 来自第三方 mod 的副本,可能落后于最新补丁;拿到游戏本体后应改用
+  `tools/get_layouts.ps1` 从原生 pak 重新生成一次(原件注释里也写明了)。
+
+另外:再往上爬 GameBanana 时被 403 限流,批量扫描不可行 —— 所以"靠 mod 找布局"只能逐个来,
+**最可靠的仍然是拿到 `game/citadel/pak01_dir.vpk` 一次枚举**。

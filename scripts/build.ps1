@@ -131,6 +131,7 @@ $required = @(
   "citadel_ui_build_selector.vxml_c",
   "citadel_ui_build_details.vxml_c",
   "citadel_shop_mods_build.vxml_c",
+  "citadel_shop_mods_build_category.vxml_c",
   "citadel_tooltip_build_details.vxml_c",
   "citadel_tooltip_mod_details.vxml_c",
   "bba_translate.vjs_c",

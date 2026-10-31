@@ -290,6 +290,29 @@ console.log("\n=== Scene 3: shop builds page author text ===");
   }
 }
 
+// =====================================================================
+// Scene 4: build category header (citadel_shop_mods_build_category)
+// This layout was missing entirely: it carries the category name and the
+// author's category description, i.e. the "overview" text that stayed English.
+// =====================================================================
+console.log("\n=== Scene 4: build category header (overview text) ===");
+{
+  const cat = loadLayout("citadel_shop_mods_build_category");
+  // use the sample build's own category text: it is part of the shipped memory
+  const sampleCat = build.details.mod_categories[0] || { name: "早期游戏", description: "" };
+  const nameHost = { tag: "Label", classes: ["CategoryName"], text: sampleCat.name, children: [], IsValid: () => true, BIsVisible: () => true, GetChildCount: () => 0, GetChild: () => null };
+  const descHost = { tag: "Label", classes: ["CategoryDescription"], text: sampleCat.description, children: [], IsValid: () => true, BIsVisible: () => true, GetChildCount: () => 0, GetChild: () => null };
+  let container = null;
+  walk(cat, (p) => { if (!container && p.attrs && p.attrs.id === "BuildCategoryHeader") container = p; });
+  report("category layout has BuildCategoryHeader", !!container);
+  if (container) {
+    container.children.push(nameHost, descHost);
+    runScript(cat);
+    report("category name translated", CJK.test(nameHost.text), nameHost.text.slice(0, 40));
+    report("category description translated", CJK.test(descHost.text), descHost.text.slice(0, 50));
+  }
+}
+
 console.log("");
 if (failures) {
   console.error(failures + " check(s) failed");

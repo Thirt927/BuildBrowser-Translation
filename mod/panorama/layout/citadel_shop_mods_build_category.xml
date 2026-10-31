@@ -1,0 +1,42 @@
+<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
+<!-- This is Valve's layout (citadel_shop_mods_build_category) with only the BBT
+     <scripts> include added. The decompiled text was obtained from a publicly
+     released mod that ships its copy of this file; that mod's own style include
+     was removed, so nothing of the mod remains. Replace it with a decompile of the
+     current game patch when convenient (tools/get_layouts.ps1 does that in one step). -->
+<root>
+	<styles>
+		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
+		<include src="s2r://panorama/styles/citadel_shop_mods_tier.vcss" />
+		<include src="s2r://panorama/styles/citadel_shop_mods_build_category.vcss" />
+		<include src="s2r://panorama/styles/bba.css" />
+	</styles>
+	<scripts>
+		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_tm.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_layout_tokens.vjs_c" />
+		<include src="s2r://panorama/scripts/bba_translate.vjs_c" />
+	</scripts>
+
+	<CitadelShopModsBuildCategory hittest="true">
+		<Panel id="BuildCategoryHeader" class="BuildCategory" hittest="true">
+			<Label id="BuildCategoryName" class="CategoryName" text="#Citadel_HeroBuilds_CategoryName" />
+			<Label class="OptionalLabel" text="#Citadel_HeroBuilds_OptionalParens" onmouseover="CitadelUIShowTextTooltip( #Citadel_HeroBuilds_Optional, &apos;&apos;, &apos;&apos; );" onmouseout="CitadelUIHideTextTooltip()" />
+			<Label class="CategoryDescription" text="#Citadel_HeroBuilds_CategoryDescription" />
+		</Panel>
+		<Panel id="BuildCategoryHeaderEdit" class="BuildCategory">
+			<Panel class="CategoryControls">
+				<Panel id="CategoryDragHandle" acceptsfocus="true" draggable="true" />
+				<Panel id="CompactCategory" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_CompactCategory )" onmouseout="UIHideTextTooltip()" />
+				<Panel id="DeleteCategoryButton">
+					<Panel class="TrashIcon" />
+				</Panel>
+			</Panel>
+		</Panel>
+		<Panel id="ModsContainer" />
+		<Panel id="Overlay" hittest="false">
+			<Panel id="CategoryResizeHandle" acceptsfocus="true" draggable="true" />
+			<Panel id="FocusBlocker" />
+		</Panel>
+	</CitadelShopModsBuildCategory>
+</root>
