@@ -84,7 +84,34 @@ node tools\bridge\bridge.js
 powershell -ExecutionPolicy Bypass -File scripts\install_bridge_autostart.bat
 ```
 
-探测顺序:先 **8792(BabelTower)**,再 **8793(本仓库 bridge)**,都不通就永久回到离线模式。
+探测顺序:先 **8792(DeadlockLingua 的桥)**,再 **8793(本仓库 bridge)**,都不通就永久回到离线模式。
+
+### 连到 DeadlockLingua 时,复用的是"它"的哪些东西
+
+我们的请求是 `/bridge?id=..&op=translate&d={"operation":"translate","text":..,"targetLanguage":"zh-Hans"}`
+—— **不带 `provider` 字段**,所以 lingua 的 `runTranslate` 会用它自己的配置
+(`payload.provider || cfg.provider`)。也就是说下面这些全部沿用它的设置:
+
+| 复用的东西 | 说明 |
+|---|---|
+| **翻译服务商**(provider) | 在 lingua 的 `config/config.json` 的 `provider` 里配(如 `bing`/`openai`/`deepl`/`google`/`microsoft`),我们不改 |
+| **API Key** | 用 lingua 配好的 key(如果它用的是付费 provider,消耗的是那份额度) |
+| **回退链**(fallbackProviders) | 主服务商失败时由 lingua 自己回退,我们只等结果 |
+| **词典**(dictionary) | 命中词典直接返回,术语更稳定;它还会把我们翻过的文本记入自适应词典 |
+| **缓存** | 同文本直接命中它的缓存,零延迟 |
+| **目标语言** | 我们显式发 `zh-Hans`(本 mod 只带中文译文库);其余场景 lingua 用它自己的 `defaults.targetLanguage` |
+
+连接成功后 console 会打印实际使用的服务商:
+
+```
+[BBT] live bridge: connected to DeadlockLingua Bridge (localhost:8792, provider=bing), offline memory + live fallback
+```
+
+想临时关掉实时通道(不改包、不重启游戏):控制台执行 `BBT_LIVE = "off"`;
+恢复自动探测:`BBT_LIVE = "auto"`。当前使用的服务商可从 `BBT_STATS.liveProvider` 读到。
+
+> 代价提醒:如果 lingua 里配的是**付费**服务商(OpenAI / DeepL),实时通道翻 UI 文本也会走它。
+> 不想花额度就把 `BBT_LIVE` 设为 `"off"`,或把 lingua 的 provider 设为 `bing`(免 Key)。
 
 **实时翻译会沉淀成离线数据**:bridge 把翻过的文本写进 `tools/cache/live_seen.json`(同时写入
 `tools/cache/translations.json` 缓存),下次跑 `build_tm.js` 时自动并入 `bba_tm.js` ——

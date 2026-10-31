@@ -365,3 +365,14 @@ tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬�
    两种响应形状、缓存、桥死不掉）,其余 5 个测试全绿。
 6.【已做】修一个连带 bug:离线"查不到"也会被 memo 记住,导致桥连上后那些面板永不重试;
    现在桥可用时会把 miss 记忆清掉重新扫。
+
+### 六-补二:与 DeadlockLingua 桥的关系(与"复用它的设置")
+
+- **是**它的桥、**是**它的设置。请求体不带 `provider`,lingua 侧 `runTranslate` 走
+  `payload.provider || cfg.provider`,于是服务商、API Key、回退链、词典、缓存、目标语言默认值
+  全部沿用它的配置;我们只显式指定 `targetLanguage=zh-Hans`(本 mod 只有中文库)。
+- 连接后 `[BBT] live bridge: connected to <name> (localhost:8792, provider=<id>)` 会打印实际服务商,
+  `BBT_STATS.liveProvider` 可读;`BBT_LIVE = "off"` 可运行时关闭(不改包)。
+- 【待观察】如果 lingua 配的是付费 provider(OpenAI/DeepL),实时通道会消耗那份额度;
+  文档已提示,后续可考虑"只在免 Key provider 下默认开启"(需要 lingua 在 health 里给出
+  是否付费的信息,已在 health 里返回 `provider`,可以据此判断)。

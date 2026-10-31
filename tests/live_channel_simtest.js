@@ -78,7 +78,12 @@ function makeHtmlPanel(opts) {
     if (opts.dead || (opts.port && port !== opts.port)) return; // nothing listening
     opts.timers.push(() => {
       if (op === "health") {
-        panel._title = tag + id + JSON.stringify({ ok: true, version: "1.0.0" });
+        panel._title = tag + id + JSON.stringify({
+          ok: true,
+          version: "1.0.0",
+          name: tag === "LCT" ? "DeadlockLingua Bridge" : "bbt-bridge",
+          provider: tag === "LCT" ? "openai" : "",
+        });
         return;
       }
       let text = u.searchParams.get("text") || "";
@@ -152,6 +157,11 @@ function check(name, cond, detail) {
     "live: request carries the text (JSON payload)",
     opts.urls.some((u) => u.indexOf("op=translate") > 0 && decodeURIComponent(u).indexOf("Key item for Drifter") > 0),
     JSON.stringify(opts.urls),
+  );
+  check(
+    "live: provider reported by the bridge is surfaced in stats",
+    ctx.sandbox.BBT_STATS.liveProvider === "openai",
+    JSON.stringify(ctx.sandbox.BBT_STATS.liveProvider),
   );
   check(
     "live: prefers an already running BabelTower bridge (8792) so no second cert is needed",

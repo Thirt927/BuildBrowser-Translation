@@ -50,7 +50,8 @@
   // ---- optional live bridge (see the header) ----
   // AUTO: probe once at boot; if nothing answers, this channel stays off for the
   // session and the mod behaves exactly like a pure offline build.
-  var LIVE_MODE = "auto"; // "auto" | "off" | "on"
+  // Runtime override: set `BBT_LIVE = "off"` (or "on") in the game console.
+  var LIVE_MODE_DEFAULT = "auto"; // "auto" | "off" | "on"
   var LIVE_PANEL_ID = "BBTBridgePanel";
   // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
   // it serves a page with the same technique and the same certificate, so people
@@ -228,6 +229,8 @@
 
   var live = {
     state: "unknown", // unknown | probing | on | off
+    provider: "",
+    targetName: "",
     panel: null,
     seq: 0,
     pending: null, // { id, text, target, done, startedAt, to }
@@ -373,9 +376,14 @@
     liveSend({ op: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
       if (ok && payload && (payload.ok || payload.translations)) {
         LIVE_TARGET = t;
+        live.provider = payload.provider ? String(payload.provider) : "";
+        live.targetName = payload.name ? String(payload.name) : t.name;
         live.state = "on";
-        $.Msg("[BBT] live bridge: connected to " + t.name + " (localhost:" + t.port +
-          "), offline memory + live fallback");
+        stats.liveProvider = live.provider;
+        $.Msg("[BBT] live bridge: connected to " + live.targetName + " (localhost:" + t.port +
+          (live.provider ? ", provider=" + live.provider : "") +
+          "), offline memory + live fallback" +
+          (live.provider && live.provider !== "bing" ? " [note: that provider is configured in the bridge's own settings]" : ""));
         try { liveUpgradeWeakWrites(); } catch (e) {}
         return;
       }
@@ -383,8 +391,13 @@
     }, t);
   }
 
+  function liveMode() {
+    var m = G.BBT_LIVE;
+    return m === "off" || m === "on" || m === "auto" ? m : LIVE_MODE_DEFAULT;
+  }
+
   function liveProbe() {
-    if (LIVE_MODE === "off" || live.state !== "unknown") return;
+    if (liveMode() === "off" || live.state !== "unknown") return;
     live.state = "probing";
     liveProbeTargets(0);
   }
@@ -620,6 +633,7 @@
   var stats = {
     translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0,
     writes: 0, rebinds: 0, skipped: 0, hidden: 0, fragments: 0, live: 0,
+    liveProvider: "",
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
@@ -1021,7 +1035,7 @@
     $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ") in layout: " + (layoutTag || "?") + "");
     $.Schedule(0.05, tick);
     // Probe the optional bridge a moment later so it never delays first paint.
-    if (LIVE_MODE !== "off") $.Schedule(1.2, liveProbe);
+    if (liveMode() !== "off") $.Schedule(1.2, liveProbe);
   }
 
   G.BBT_STATS = stats;
