@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.1";
+  var VERSION = "1.9.6";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -1021,11 +1021,21 @@
   // every second.
   var TICKING_TOKEN = /_Time|LastUpdated|Timer|Clock|Cooldown|Ammo|Health|Level/i;
 
+  // Log-only display name. In the real engine the classes live on
+  // panel.classList (Source 2 has no `.class` string), so when the string
+  // form is absent, probe the class names that matter for logging.
+  var CLASS_PROBES = [
+    "BuildName", "BuildDescription", "CategoryName", "CategoryDescription",
+    "BuildID", "LastUpdated", "CopiedToClipboard", "BBTSrc", "BBTDst",
+  ];
   function classOf(panel) {
     try {
       var c = panel.class;
       if (typeof c === "string") return c.split(/\s+/)[0] || "?";
     } catch (e) {}
+    for (var i = 0; i < CLASS_PROBES.length; i += 1) {
+      if (panelHasClass(panel, CLASS_PROBES[i])) return CLASS_PROBES[i];
+    }
     return "?";
   }
 
@@ -1039,26 +1049,26 @@
       var id = panel.id;
       if (typeof id === "string" && id && LAYOUT_TOKENS.byId[id]) return LAYOUT_TOKENS.byId[id];
     } catch (e) {}
-    try {
-      var c = panel.class;
-      if (typeof c === "string") {
-        // Our own source/mirror labels are never token-bound for our purposes.
-        if (c.indexOf("BBTSrc") >= 0 || c.indexOf("BBTDst") >= 0) return null;
-        var parts = c.split(/\s+/);
-        for (var i = 0; i < parts.length; i += 1) {
-          var cls = parts[i];
-          if (!cls) continue;
-          if (LAYOUT_TOKENS.byClass[cls]) return LAYOUT_TOKENS.byClass[cls];
-        }
-        // Ambiguous classes (two labels, two tokens) are not in byClass; byClassAll
-        // still tells us one plausible token, which is enough for logging and for
-        // the frozen-label sweep (the dialog-variable path keys off the class).
-        for (var j = 0; j < parts.length; j += 1) {
-          var all = LAYOUT_TOKENS.byClassAll && LAYOUT_TOKENS.byClassAll[parts[j]];
-          if (all && all.length) return all[0];
-        }
+    // The real engine exposes no `.class` string: CSS classes live on
+    // panel.classList (a token list with .contains()), so probe the known
+    // class names instead of splitting a string.
+    // Our own source/mirror labels are never token-bound for our purposes.
+    if (panelHasClass(panel, "BBTSrc") || panelHasClass(panel, "BBTDst")) return null;
+    var bc = LAYOUT_TOKENS.byClass;
+    for (var cn in bc) {
+      if (bc[cn] && panelHasClass(panel, cn)) return bc[cn];
+    }
+    // Ambiguous classes (two labels, two tokens) are not in byClass; byClassAll
+    // still tells us one plausible token, which is enough for logging and for
+    // the frozen-label sweep (the dialog-variable path keys off the class).
+    var ba = LAYOUT_TOKENS.byClassAll;
+    if (ba) {
+      for (var an in ba) {
+        if (!panelHasClass(panel, an)) continue;
+        var all = ba[an];
+        if (all && all.length) return all[0];
       }
-    } catch (e) {}
+    }
     return null;
   }
 
@@ -1070,17 +1080,41 @@
   // either: a collapsed or zero-sized label resolves nothing at all, so the text
   // simply disappears (both verified in game).
   //
-  // So the labels stay in place and are translated in place. When the shown
-  // build changes (or the user presses 刷新) we put the #token back, let the
-  // engine resolve it, and translate the fresh English again. If the token does
-  // not resolve (not token-bound / game changed the template) the previous text
-  // is restored, so the UI never sits on a raw "#Token".
+  // So the labels stay in place and are translated in place. To get the value
+  // for the build that is on screen *now* we first ask the engine through
+  // $.Localize(token, panel): the token is resolved with the dialog variables in
+  // scope for that label, which are exactly the ones for the selected build.
+  // That covers the description as well (the header name happened to survive a
+  // token re-render, the overview description did not).
+  // Only when that yields nothing we put the declared #token back into the label
+  // and let the engine render it; if that fails too the previous text is
+  // restored, so the UI never sits on a raw "#Token".
   function classListOf(panel) {
     try {
       var c = panel.class;
       if (typeof c === "string") return c;
     } catch (e) {}
     return "";
+  }
+
+  // The real engine exposes no `.class` string: CSS classes live on
+  // panel.classList (a token list with .contains()). The v1.9.5 resync code
+  // read `panel.class` only, so in game every class-keyed path (resync,
+  // token lookups) silently saw "" and the refresh re-resolved 0 labels.
+  // Read both: classList first (engine), `.class` string second (test shims).
+  function panelHasClass(panel, cls) {
+    try {
+      var cl = panel.classList;
+      if (cl && typeof cl.contains === "function") return cl.contains(cls) === true;
+    } catch (e) {}
+    try {
+      var c = panel.class;
+      if (typeof c === "string") {
+        var parts = c.split(/\s+/);
+        for (var i = 0; i < parts.length; i += 1) if (parts[i] === cls) return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   // Only classes whose declaration is unambiguous get re-resolved: ModifiesLabel,
@@ -1093,96 +1127,145 @@
   ];
 
   function roleTokenFor(panel) {
-    var cls = classListOf(panel);
-    if (!cls) return null;
     for (var i = 0; i < RESYNC_TOKENS.length; i += 1) {
-      if (cls.indexOf(RESYNC_TOKENS[i][0]) >= 0) return RESYNC_TOKENS[i][1];
+      if (panelHasClass(panel, RESYNC_TOKENS[i][0])) return RESYNC_TOKENS[i][1];
     }
     return null;
   }
 
-  var resyncBusy = 0;
-
-  function resyncLabel(p) {
-    var tok = roleTokenFor(p);
-    if (!tok) return;
-    var prev = null;
-    try { prev = p.text; } catch (e) { return; }
-    if (typeof prev !== "string" || prev.indexOf("#") === 0) return; // already a token
-    resyncBusy += 1;
-    try { p.text = tok; } catch (e) { resyncBusy -= 1; return; }
-    $.Schedule(0.2, function () {
-      resyncBusy = Math.max(0, resyncBusy - 1);
-      var now = null;
-      try { now = p.text; } catch (e) { now = null; }
-      if (typeof now !== "string" || !now || now.indexOf("#") === 0) {
-        try { p.text = prev; } catch (e) {}
-        stats.resyncFail = (stats.resyncFail || 0) + 1;
-        // Diagnostics: does $.Localize resolve the token (with and without a
-        // panel for the dialog variables)? If localize2 works we can read the
-        // current English without depending on the label at all.
-        var lz1 = null;
-        var lz2 = null;
-        try { lz1 = $.Localize(tok); } catch (e) { lz1 = null; }
-        try { lz2 = $.Localize(tok, p); } catch (e) { lz2 = null; }
-        $.Msg("[BBT] resync-fail " + tok + " raw=" + JSON.stringify(String(now).slice(0, 24)) +
-          " lz=" + JSON.stringify(String(lz1 == null ? "" : lz1).slice(0, 40)) +
-          " lz2=" + JSON.stringify(String(lz2 == null ? "" : lz2).slice(0, 40)));
-        return;
-      }
-      stats.resyncOk = (stats.resyncOk || 0) + 1;
-      $.Msg("[BBT] resync-ok " + tok + " -> " + JSON.stringify(now.slice(0, 40)));
-      memo.delete(p);
-      try { translatePanel(p, now); } catch (e) {}
-    });
+  // Reject anything that is not a usable English source: an unresolved token,
+  // an unresolved {s:var} template, or the token itself coming back verbatim.
+  function resolvedText(v, tok) {
+    if (typeof v !== "string" || !v) return null;
+    if (v.indexOf("#") === 0) return null;
+    if (v === tok) return null;
+    if (v.indexOf("{s:") >= 0) return null;
+    return v;
   }
 
-  // Re-resolve every engine label we can see (bounded: list rows add up).
+  // Show `raw` (the engine's current English) again and translate it. The old
+  // text is dropped first: when the translation memory has nothing for the new
+  // build the label must fall back to the new English instead of keeping the
+  // previous build's Chinese (that was the "overview never changes" report).
+  function applyResync(p, raw) {
+    var cur = null;
+    try { cur = p.text; } catch (e) { cur = null; }
+    memo.delete(p);
+    if (mode === "orig") {
+      try { p.text = raw; } catch (e) {}
+      return;
+    }
+    if (cur !== raw) {
+      try { p.text = raw; } catch (e) {}
+    }
+    try { translatePanel(p, raw); } catch (e) {}
+  }
+
+  var localizeProbed = false;
+  function resyncLabel(p) {
+    var tok = roleTokenFor(p);
+    if (!tok) return false;
+    var prev = null;
+    try { prev = p.text; } catch (e) { return false; }
+    // 1) Ask the engine for the current value with the label's dialog variables.
+    var fresh = null;
+    try { fresh = $.Localize(tok, p); } catch (e) { fresh = null; }
+    fresh = resolvedText(fresh, tok);
+    if (fresh) {
+      stats.resyncOk = (stats.resyncOk || 0) + 1;
+      applyResync(p, fresh);
+      return true;
+    }
+    // One probe per layout instance: the -condebug log then shows whether the
+    // engine's $.Localize really yields the current value (2-arg form), or
+    // only the raw token / template. The next fix step depends on this answer.
+    if (!localizeProbed) {
+      localizeProbed = true;
+      var two = null, one = null;
+      try { two = $.Localize(tok, p); } catch (e) { two = "err:" + e; }
+      try { one = $.Localize(tok); } catch (e) { one = "err:" + e; }
+      $.Msg(
+        "[BBT] localize-probe " + tok +
+          " 2arg=" + JSON.stringify(String(two).slice(0, 48)) +
+          " 1arg=" + JSON.stringify(String(one).slice(0, 48))
+      );
+    }
+    // 2) Not available: put the declared token back and let the engine render
+    // it (0.2s is enough for the label to be laid out again).
+    if (typeof prev !== "string" || prev.indexOf("#") === 0) prev = null;
+    try { p.text = tok; } catch (e) { return false; }
+    var tries = 0;
+    (function check() {
+      tries += 1;
+      var now = null;
+      try { now = p.text; } catch (e) { now = null; }
+      var val = resolvedText(now, tok);
+      if (val) {
+        stats.resyncOk = (stats.resyncOk || 0) + 1;
+        if (debugOn()) $.Msg("[BBT] resync-ok " + tok + " -> " + JSON.stringify(val.slice(0, 40)));
+        applyResync(p, val);
+        return;
+      }
+      if (tries < 3) { $.Schedule(0.2, check); return; }
+      stats.resyncFail = (stats.resyncFail || 0) + 1;
+      if (prev !== null) {
+        try { p.text = prev; } catch (e) {}
+      }
+      $.Msg("[BBT] resync-fail " + tok + " raw=" + JSON.stringify(String(now).slice(0, 24)));
+    })();
+    return true;
+  }
+
+  // Re-resolve every visible engine label under the page root. This is walked
+  // from the tree on purpose: the labels that matter (build name/description)
+  // may have been written by another layout instance, so relying on this
+  // instance's `written`/`memo` lists silently skipped them.
+  // The header/overview labels are handled first: the budget must never be spent
+  // on list rows and leave the overview on the previous build's translation.
+  function primaryRole(panel) {
+    return panelHasClass(panel, "BuildName") || panelHasClass(panel, "BuildDescription");
+  }
+
   function resyncAll(limit) {
     var max = limit || 40;
-    var seenCount = 0;
-    for (var i = 0; i < written.length && seenCount < max; i += 1) {
-      var p = written[i];
+    var root = null;
+    try { root = pageRoot(); } catch (e) { root = null; }
+    if (!root) {
+      try { root = $.GetContextPanel(); } catch (e) { root = null; }
+    }
+    if (!root) return 0;
+    var primary = [];
+    var secondary = [];
+    var stack = [root];
+    var budget = 3000;
+    while (stack.length && budget > 0) {
+      budget -= 1;
+      var p = stack.pop();
+      if (!p) continue;
       var ok = true;
       try { if (p.IsValid && !p.IsValid()) ok = false; } catch (e) { ok = false; }
       if (!ok) continue;
-      if (!roleTokenFor(p)) continue;
       if (!panelVisible(p)) continue;
-      seenCount += 1;
-      resyncLabel(p);
-    }
-    // Labels translated in place are in `written`; every engine label we have
-    // not written (an untouched build name, a category header) is not, so also
-    // walk the visible tree once and re-resolve those.
-    var root = null;
-    try { root = $.GetContextPanel(); } catch (e) { root = null; }
-    if (!root) return seenCount;
-    var stack = [root];
-    var budget = 3000;
-    while (stack.length && budget > 0 && seenCount < max) {
-      budget -= 1;
-      var c = stack.pop();
-      if (!c) continue;
-      var ok2 = true;
-      try { if (c.IsValid && !c.IsValid()) ok2 = false; } catch (e) { ok2 = false; }
-      if (!ok2) continue;
-      var tok = roleTokenFor(c);
-      if (tok && panelVisible(c)) {
-        var rec = memo.get(c);
-        // Only re-resolve labels that currently show something we wrote or that
-        // still hold our translation; untouched ones are already correct.
-        if (rec && rec.k === 1) { seenCount += 1; resyncLabel(c); }
+      if (roleTokenFor(p)) {
+        if (primaryRole(p)) primary.push(p);
+        else secondary.push(p);
       }
       var n = 0;
-      try { n = c.GetChildCount ? c.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
       for (var k = n - 1; k >= 0; k -= 1) {
         try {
-          var ch = c.GetChild(k);
-          if (ch && panelVisible(ch)) stack.push(ch);
+          var ch = p.GetChild(k);
+          if (ch) stack.push(ch);
         } catch (e) {}
       }
     }
-    return seenCount;
+    var count = 0;
+    var order = primary.concat(secondary);
+    for (var i = 0; i < order.length && count < max; i += 1) {
+      count += 1;
+      try { resyncLabel(order[i]); } catch (e) {}
+    }
+    return count;
   }
 
   // One line per write. `via` says which path produced it, and the trailing
@@ -1474,6 +1557,10 @@
   var idleTicks = 0;
   var burstTicks = 0;
   var ticksSinceRebind = 99;
+  // Toolbar placement state (see placeToolbar): retried from tick until the
+  // engine's header has a real size.
+  var toolbarPlaced = false;
+  var placeTries = 0;
 
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
@@ -1515,6 +1602,15 @@
       } catch (e) {}
     }
     ticksSinceRebind += 1;
+    // The toolbar position is measured from the engine's header. A layout that
+    // was not laid out yet reports zero sizes, so keep retrying (bounded) until
+    // it can be placed; afterwards it stays put.
+    if (!toolbarPlaced) {
+      placeTries += 1;
+      if (placeTries < 120) {
+        try { toolbarPlaced = placeToolbar(); } catch (e) {}
+      }
+    }
     try { liveDrainQueue(); } catch (e) {}
     try { liveDrainUpgrades(); } catch (e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
@@ -1577,30 +1673,92 @@
     return false;
   }
 
+  // Panorama only hit-tests inside the parent's bounds, so the dropdown (which
+  // drops over the header, well outside the toolbar's row) lives on the layout
+  // root. Its position is measured from the toolbar itself, not from a hardcoded
+  // offset: the header height depends on the game's locale and build.
+  function actualOffset(panel, ancestor) {
+    var x = 0;
+    var y = 0;
+    var p = panel;
+    var guard = 0;
+    while (p && p !== ancestor && guard < 40) {
+      try {
+        x += Number(p.actualx) || 0;
+        y += Number(p.actualy) || 0;
+      } catch (e) {}
+      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+      guard += 1;
+    }
+    if (p !== ancestor) return null;
+    return { x: x, y: y };
+  }
+
+  function placeToolbar() {
+    var ctl = uiPanel("BBTControls2");
+    var menu = uiPanel("BBTMenu2");
+    if (!ctl || !menu) return false;
+    var root = null;
+    try { root = menu.GetParent(); } catch (e) { root = null; }
+    if (!root) return false;
+    var off = actualOffset(ctl, root);
+    if (!off) return false;
+    var ch = 0;
+    var cw = 0;
+    var rw = 0;
+    try { ch = Number(ctl.actualheight) || 0; cw = Number(ctl.actualwidth) || 0; } catch (e) {}
+    try { rw = Number(root.actualwidth) || 0; } catch (e) {}
+    // Before the first layout pass every size is 0; the CSS fallback stays until
+    // the next attempt.
+    if (ch <= 0 || cw <= 0 || rw <= 0) return false;
+    var top = Math.round(off.y + ch + 4);
+    var right = Math.round(rw - (off.x + cw));
+    if (!(top > 0)) return false;
+    if (right < 4) right = 4;
+    try {
+      menu.style.marginTop = top + "px";
+      menu.style.marginRight = right + "px";
+    } catch (e) { return false; }
+    return true;
+  }
+
   function wireToolbar() {
+    try { placeToolbar(); } catch (e) {}
     if (uiWiredOnce) return;
     if (!uiPanel(["BBTTranslateButton", "BBTTranslateButton2", "BBTMenuButton", "BBTMenuButton2"])) return;
     uiWiredOnce = true;
     // Bind every toolbar present in this layout (the selector has one, the
     // standalone details view has another; a nested details panel hides its own
     // copy, but the binding is harmless and keeps the code simple).
-    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { G.BBTTranslatePage(); }, "translate");
-    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { G.BBTRefreshPage(); }, "refresh");
-    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { G.BBTToggleMenu(); }, "menu");
+    // The handlers use this instance's functions (not G.BBT*Page): the global is
+    // overwritten by whichever layout booted last, and that instance does not
+    // share our memo/written state.
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(); }, "translate");
+    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { refreshPage(); }, "refresh");
+    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { toggleMenu(); }, "menu");
     var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
-    wireMenuItems(modes, "BBTSetLanguageMode", "mode-");
+    wireMenuItems(modes, setLanguageMode, "mode-");
     var langs = [
       ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["ja", "日本語"],
       ["ko", "한국어"], ["en", "English"],
     ];
-    wireMenuItems(langs, "BBTSetTargetLang", "lang-");
-    wireMenuItems([["save", "把新译文存入本地库"], ["stats", "查看本地库统计"]], null, "misc-");
+    wireMenuItems(langs, setTargetLang, "lang-");
+    wireMenuItems(
+      [["save", "把新译文存入本地库"], ["stats", "查看本地库统计"]],
+      function (v) {
+        if (v === "save") savePageToTable();
+        else showTableStats();
+      },
+      "misc-",
+    );
     $.Msg("[BBT] toolbar wired: " + Object.keys(uiWired).length + " control(s)");
   }
 
   // Menu buttons have no ids (they are generated from the layout), so they are
   // located by their label text. That also covers the second toolbar.
-  function wireMenuItems(items, mode, prefix) {
+  // `action` is called with the item's value; it runs in this instance so the
+  // mode/language change lands in the layout that owns the toolbar.
+  function wireMenuItems(items, action, prefix) {
     var menuPanels = [uiPanel("BBTMenu"), uiPanel("BBTMenu2")];
     for (var m = 0; m < menuPanels.length; m += 1) {
       var menu = menuPanels[m];
@@ -1621,21 +1779,9 @@
         if (!text) continue;
         for (var k = 0; k < items.length; k += 1) {
           if (text.indexOf(items[k][1]) < 0) continue;
-          var key = prefix + items[k][0];
-          var value = items[k][0];
-          if (!mode) {
-            onActivateChild(child, function () {
-              if (value === "save") G.BBTSavePageToTable();
-              else G.BBTShowTableStats();
-            }, key + m);
-          } else {
-            onActivateChild(child, (function (v, setter) {
-              return function () {
-                if (setter === "BBTSetLanguageMode") G.BBTSetLanguageMode(v);
-                else G.BBTSetTargetLang(v);
-              };
-            })(value, mode), key + m);
-          }
+          onActivateChild(child, (function (value) {
+            return function () { action(value); };
+          })(items[k][0]), prefix + items[k][0] + m);
         }
       }
     }
@@ -1682,6 +1828,11 @@
   var menuOpen = false;
   function setMenuOpen(open) {
     menuOpen = !!open;
+    // The menu is placed relative to the toolbar, which the engine may have
+    // moved since the last measurement (window resize, header height change).
+    if (menuOpen) {
+      try { placeToolbar(); } catch (e) {}
+    }
     var m = uiMenuPanel();
     if (!m) return;
     try {
@@ -1694,11 +1845,12 @@
     } catch (e) {}
   }
 
-  G.BBTToggleMenu = function () {
+  function toggleMenu() {
     setMenuOpen(!menuOpen);
-  };
+  }
+  G.BBTToggleMenu = toggleMenu;
 
-  G.BBTSetLanguageMode = function (next) {
+  function setLanguageMode(next) {
     if (next !== "zh" && next !== "orig" && next !== "both") return;
     mode = next;
     settingsSet(MODE_KEY, mode);
@@ -1710,7 +1862,8 @@
     uiSetLabel(mode === "zh" ? "显示:中文" : mode === "orig" ? "显示:原文" : "显示:中英对照");
     setMenuOpen(false);
     $.Msg("[BBT] language mode -> " + mode);
-  };
+  }
+  G.BBTSetLanguageMode = setLanguageMode;
 
   function resetMemos(root) {
     var stack = [root];
@@ -1744,21 +1897,21 @@
   }
 
   // Manual refresh: re-resolve every engine label (build name/description,
-  // category headers) and re-translate the whole page. Use it when a panel was
-  // left showing an older translation; the log line below says whether the engine
-  // labels could be re-resolved.
-  G.BBTRefreshPage = function () {
-    var root = pageRoot();
+  // category headers) and translate the value for the build that is on screen.
+  // It deliberately does NOT reset the memos: that restored the old source text
+  // right after the #token had been re-applied, so the label was re-translated
+  // from the previous build's English and the overview never changed.
+  function refreshPage() {
     var n = 0;
-    try { n = resyncAll(60); } catch (e) { n = -1; }
-    $.Msg("[BBT] refresh: asked " + n + " engine label(s) to re-resolve (see resync-ok/resync-fail)");
-    try { if (root) resetMemos(root); } catch (e) {}
+    try { n = resyncAll(80); } catch (e) { n = -1; }
+    $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) (see resync-ok/resync-fail)");
     uiSetLabel("刷新中…");
     $.Schedule(1.0, function () { uiSetLabel("翻译本页"); });
-  };
+  }
+  G.BBTRefreshPage = refreshPage;
 
   // The main button: "translate everything on this page that we do not know yet".
-  G.BBTTranslatePage = function () {
+  function translatePage() {
     if (ui.busy) return;
     var root = pageRoot();
     var texts = collectMisses(24, root);
@@ -1794,9 +1947,10 @@
       }
       $.Schedule(4.0, function () { uiSetLabel("翻译本页"); });
     });
-  };
+  }
+  G.BBTTranslatePage = translatePage;
 
-  G.BBTSetTargetLang = function (lang) {
+  function setTargetLang(lang) {
     if (!lang || typeof lang !== "string") return;
     TARGET_LANG = lang;
     settingsSet(LANG_KEY, TARGET_LANG);
@@ -1809,12 +1963,13 @@
     uiSetLabel("语言:" + TARGET_LANG);
     setMenuOpen(false);
     $.Msg("[BBT] target language -> " + TARGET_LANG);
-  };
+  }
+  G.BBTSetTargetLang = setTargetLang;
 
   // Dropdown: push what is on screen into the local table (NO network call).
   // It sends the pairs it already has, so this works even when the bridge cannot
   // reach a provider.
-  G.BBTSavePageToTable = function () {
+  function savePageToTable() {
     if (live.state !== "on" || !LIVE_TARGET || LIVE_TARGET.tag !== "BBT") {
       uiSetLabel("本地库需要本仓库的 bridge");
       $.Schedule(2.5, function () { uiSetLabel("翻译本页"); });
@@ -1876,16 +2031,18 @@
       },
       LIVE_TARGET,
     );
-  };
+  }
+  G.BBTSavePageToTable = savePageToTable;
 
-  G.BBTShowTableStats = function () {
+  function showTableStats() {
     var provider = stats.liveProvider ? (" / provider=" + stats.liveProvider) : "";
     uiSetLabel(
       "条目 " + (stats.tableEntries || 0) + " · 别名 " + (stats.tableAliases || 0) +
         " · 本次实时 " + stats.live + provider,
     );
     $.Schedule(4.0, function () { uiSetLabel("翻译本页"); });
-  };
+  }
+  G.BBTShowTableStats = showTableStats;
 
   function boot() {
     buildTermRegex();
@@ -1912,7 +2069,11 @@
         var upt = "";
         try { upt = String(up.paneltype || ""); } catch (e) { upt = ""; }
         var upc = "";
-        try { upc = String(up.class || ""); } catch (e) { upc = ""; }
+        try {
+          if (up.classList && typeof up.classList.contains === "function" &&
+              up.classList.contains("BuildDetailsTooltip")) upc = "BuildDetailsTooltip";
+          if (!upc) upc = String(up.class || "");
+        } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
           var tc = uiPanel("BBTControls2");
           if (tc && tc.style) tc.style.visibility = "collapse";
@@ -1931,12 +2092,15 @@
     // Probe the optional bridge a moment later so it never delays first paint.
     if (liveMode() !== "off") $.Schedule(1.2, liveProbe);
     // The toolbar lives in the browser/details layouts; retry while the engine is
-    // still creating panels.
+    // still creating panels. Placement is measured from the 出装选项 button, so it
+    // needs a few attempts until the header has been laid out (sizes are 0 before
+    // the first layout pass).
     var wireTries = 0;
     (function wire() {
       try { wireToolbar(); } catch (e) {}
+      try { placeToolbar(); } catch (e) {}
       wireTries += 1;
-      if (!uiWiredOnce && wireTries < 12) $.Schedule(0.5, wire);
+      if (wireTries < 12 && (!uiWiredOnce || wireTries < 8)) $.Schedule(0.5, wire);
     })();
   }
 

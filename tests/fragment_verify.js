@@ -41,7 +41,10 @@ function panel(text) {
     GetChild: (i) => p.children[i] || null,
     _cls: "BuildDescription",
   };
-  Object.defineProperty(p, "class", { get: () => p._cls });
+  // Engine reality: no `.class` string, classes live on classList.
+  p.classList = {
+    contains: (n) => n === "BuildDescription",
+  };
   p._t = text;
   Object.defineProperty(p, "text", {
     get: () => p._t,

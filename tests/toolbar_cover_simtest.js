@@ -38,8 +38,55 @@ const selectorFile = "citadel_ui_build_selector.xml";
   check(detailsFile + ": dropdown panel", xml.indexOf('id="BBTMenu2"') >= 0);
   // native look: the game's own TextButton style, same as 出装选项 / 出装浏览器
   check(detailsFile + ": button uses the native TextButton style", /<TextButton id="BBTTranslateButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml));
-  // the toolbar belongs in the header row, next to the 出装选项 button
-  check(detailsFile + ": toolbar lives in #BuildControls", /<Panel id="BuildControls">[\s\S]*BBTTranslateButton2[\s\S]*<\/Panel>/.test(xml));
+  // The toolbar needs its own row inside #BuildInfo (flow-children: down, so the
+  // row is laid out and clickable). It must NOT go into #BuildControls: the game
+  // styles that box as 220px wide WITHOUT flow-children, so every child lands on
+  // the same spot (that is what produced the overlapped/dead buttons).
+  check(detailsFile + ": toolbar row", xml.indexOf('id="BBTBar2"') >= 0);
+  const toolbarInsideBuildControls = (function () {
+    let depth = 0;
+    let controlsDepth = -1;
+    for (const m of xml.matchAll(/<(\/?)(Panel|Button|Label|HTML|TextButton)([^>]*)>/g)) {
+      const closing = m[1] === "/";
+      const self = /\/\s*$/.test(m[3] || "");
+      const idMatch = /id="([^"]+)"/.exec(m[3] || "");
+      const id = idMatch ? idMatch[1] : "";
+      if (!closing && !self) {
+        depth += 1;
+        if (id === "BuildControls") controlsDepth = depth;
+        if (id === "BBTControls2" && controlsDepth > 0) return true;
+      } else if (closing) {
+        if (depth === controlsDepth && controlsDepth > 0) controlsDepth = -1;
+        depth -= 1;
+      }
+    }
+    return false;
+  })();
+  check(detailsFile + ": toolbar is not stacked inside #BuildControls", !toolbarInsideBuildControls);
+
+  // Panorama only hit-tests inside the parent's bounds, so the dropdown must hang
+  // off the layout root (which spans the whole details pane), not the header row.
+  const menuInsideHeader = (function () {
+    let depth = 0;
+    let headerDepth = -1;
+    for (const m of xml.matchAll(/<(\/?)(Panel|Button|Label|HTML|TextButton)([^>]*)>/g)) {
+      const closing = m[1] === "/";
+      const self = /\/\s*$/.test(m[3] || "");
+      const attrs = m[3] || "";
+      const idMatch = /id="([^"]+)"/.exec(attrs);
+      const id = idMatch ? idMatch[1] : "";
+      if (!closing && !self) {
+        depth += 1;
+        if (/class="[^"]*HeroBuildsExtraInfo/.test(attrs)) headerDepth = depth;
+        if (id === "BBTMenu2" && headerDepth > 0) return true;
+      } else if (closing) {
+        if (depth === headerDepth && headerDepth > 0) headerDepth = -1;
+        depth -= 1;
+      }
+    }
+    return false;
+  })();
+  check(detailsFile + ": dropdown hangs off the layout root", !menuInsideHeader);
 
   // the dropdown must sit outside the horizontal button row, otherwise it flows off
   // to the right instead of dropping below (this was the "cannot open" layout bug)
@@ -84,6 +131,8 @@ check("script wires the refresh button", js.indexOf('"BBTRefreshButton2"') >= 0 
 check("script can update the TextButton caption", js.indexOf('b.text = text') >= 0);
 check("script drives the dropdown", js.indexOf('"BBTMenu2"') >= 0);
 check("dropdown is toggled by inline style, not only by a CSS class", js.indexOf('style.visibility = menuOpen') >= 0);
+check("script measures the toolbar position from the header", js.indexOf("function placeToolbar") >= 0 && js.indexOf("actualx") >= 0);
+check("menu items act inside the toolbar's own layout", js.indexOf("wireMenuItems(modes, setLanguageMode") >= 0);
 
 console.log("");
 if (failures) {

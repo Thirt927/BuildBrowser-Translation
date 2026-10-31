@@ -25,6 +25,32 @@
 
 ## 一、已确认的问题
 
+### resync 游戏内失效 → 换出装后详情/概览冻结(v1.9.6 已修,2026-11-01)
+
+- **现象**:换出装后右侧详情/概览停在旧出装的译文;点「翻译本页」日志连续出现
+  `refresh: re-resolved 0 engine label(s)`(实机 console.log 2026-11-01 共 11 次),
+  全程无 `resync-ok` / `resync-fail` / `W TM` 行。
+- **根因**:v1.9.5 的 resync/token 查找按 `panel.class`(字符串)读 CSS 类,而 Source 2
+  面板**没有** `.class` 属性——类在 `panel.classList`(`.contains()` token 列表)上。
+  游戏内 `panel.class` 恒 undefined → `roleTokenFor`/`primaryRole`/`tokenFor`(byClass/
+  byClassAll)全部落空 → `resyncAll` 处理 0 个标签,identity 跟踪也死;
+  描述标签首译后引擎 `{s:var}` 模板即被销毁,永远停在第一条出装的译文。
+  离线测试全绿是因为 sim 把 `panel.class` 伪造成了字符串属性。
+- **修复**:
+  - 新增 `panelHasClass(panel, cls)`:先读 `panel.classList.contains(cls)`(游戏真实
+    API),`.class` 字符串只作测试 sim 的回退;`roleTokenFor` / `primaryRole` /
+    `tokenFor` / `classOf` / 启动时的 tooltip 判定全部改走它。
+  - `resyncLabel` 增加一次性 `localize-probe` 日志(每布局实例一行,不需要
+    `-condebug`):打印 `$.Localize(token, panel)` 双参/单参在游戏里真实返回什么,
+    下一轮修「引擎重渲染」路径时直接看这行日志定方案。
+  - 测试 sim(refresh_verify / fragment_verify / live_channel_simtest /
+    ui_button_simtest / scene_verify)改为引擎真形态:只给 `classList.contains`,
+    **不再提供 `.class` 字符串**;refresh_verify 增加 "sim parity" 断言,
+    谁再引入字符串伪造属性,测试当场变红。
+- **验证**:12 个测试全 PASS。需重打包部署 + 重启游戏;换出装后日志应出现
+  `resync-ok`(或 `localize-probe`),概览/描述跟随出装;若 `localize-probe`
+  两参返回 null/模板,再按日志证据做下一步。
+
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
 0a.【已修·高】**出装浏览器右侧详情"换出装不更新"**:根因是 `citadel_ui_build_details`

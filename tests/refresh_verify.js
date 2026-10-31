@@ -57,7 +57,11 @@ function makePanel(opts) {
     GetParent: () => p._parent,
     _cls: opts.cls || "",
   };
-  Object.defineProperty(p, "class", { get: () => p._cls });
+  // Engine reality: Source 2 panels expose a classList (contains), NOT a
+  // `.class` string. The v1.9.5 bug hid exactly behind a `.class`-only shim.
+  p.classList = {
+    contains: (name) => p._cls.split(/\s+/).indexOf(name) >= 0,
+  };
   p._text = opts.text || "";
   Object.defineProperty(p, "text", {
     get: () => p._text,
@@ -125,13 +129,24 @@ function makeVarPanel(token, value, cls) {
 function boot(root) {
   const queue = [];
   const log = [];
+  // $.Localize(token, panel) resolves {s:var} with the panel's dialog variables,
+  // which is how the mod reads the value for the build that is on screen.
+  const localize = (tok, panel) => {
+    const t = LOCALIZE[tok];
+    if (!t) return tok;
+    const m = /\{s:([A-Za-z0-9_]+)\}/.exec(t);
+    if (!m) return t;
+    const vars = panel && panel._vars;
+    if (!vars || vars[m[1]] === undefined) return t;
+    return t.replace(/\{s:[A-Za-z0-9_]+\}/, String(vars[m[1]]));
+  };
   const sandbox = {
     console: { log() {} },
     $: {
       GetContextPanel: () => root,
       Schedule: (d, fn) => queue.push(fn),
       Msg: (m) => log.push(String(m)),
-      Localize: (tok) => LOCALIZE[tok] || tok,
+      Localize: localize,
     },
   };
   vm.createContext(sandbox);
@@ -157,6 +172,14 @@ function check(name, cond, detail) {
   console.log((cond ? "PASS " : "FAIL ") + name + (detail && !cond ? " -- " + detail : ""));
   if (!cond) failures += 1;
 }
+
+// Engine-parity guard: the sim must not offer a `.class` string, otherwise a
+// reader that only understands `.class` would pass the tests and still be
+// dead in the game (the v1.9.5 "refresh: re-resolved 0" bug).
+check(
+  "sim parity: panels expose classList.contains, no `.class` string",
+  (() => { const p = makePanel({}); return !("class" in p) && typeof p.classList.contains === "function"; })(),
+);
 
 // =====================================================================
 // Case A: the game assigns .text itself (labels that are not token-bound)
@@ -279,6 +302,50 @@ function check(name, cond, detail) {
   check("[E] never shows a raw #token", stuck.text.indexOf("#") !== 0, JSON.stringify(stuck.text));
   check("[E] keeps its translation when the token does not resolve", stuck.text === "撕裂 > 治疗 > 重复。", JSON.stringify(stuck.text));
   check("[E] failure counted", (sandbox.BBT_STATS.resyncFail || 0) >= 1, String(sandbox.BBT_STATS.resyncFail));
+}
+
+// =====================================================================
+// Case F: the reported "refresh only fixes the header title, the overview keeps
+// the old translation". The description label is engine-bound, but assigning its
+// #token back does NOT make the engine re-render it (the header name does). The
+// current value is still available through $.Localize(token, panel), so a
+// refresh must translate that instead of re-translating the previous English.
+// =====================================================================
+{
+  const root = makePanel({});
+  const idP = makeVarPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID");
+  const nameP = makeVarPanel("#Citadel_HeroBuilds_BuildName", "Build One", "BuildName");
+  const descP = makePanel({ cls: "BuildDescription" });
+  descP._tok = "#Citadel_HeroBuilds_BuildDescription";
+  descP._vars = { selected_hero_build_description: "Rend > Heal > Repeat." };
+  // assigning the token destroys the template and the engine never repaints it
+  // (that is what the description label does in game)
+  Object.defineProperty(descP, "text", {
+    get: () => descP._text,
+    set: (v) => { descP._template = null; descP._text = String(v); },
+    configurable: true,
+  });
+  descP._text = "Rend > Heal > Repeat.";
+  attach(root, idP, nameP, descP);
+  const { sandbox, queue } = boot(root);
+  run(queue, 4);
+  check("[F] description translated", descP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descP.text));
+
+  // another build is selected: the engine refills the dialog variables, but this
+  // label cannot be re-rendered from its token
+  idP.engineSet("BUILD-222");
+  nameP.engineSet("Build Two");
+  descP._vars.selected_hero_build_description = "Key item for Drifter early game.";
+  run(queue, 6);
+  check("[F] header name refreshed", nameP.text === "构建二", JSON.stringify(nameP.text));
+  check("[F] overview refreshed", descP.text === "孤猎前期的重要装备。", JSON.stringify(descP.text));
+
+  // the refresh button path must do the same for a label left on an old value
+  descP._text = "撕裂 > 治疗 > 重复。"; // simulate a label stuck on the old translation
+  descP._vars.selected_hero_build_description = "Buy this before the team fight.";
+  sandbox.BBTRefreshPage();
+  run(queue, 6);
+  check("[F] refresh button updates the overview", descP.text === "团战前先买这个。", JSON.stringify(descP.text));
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

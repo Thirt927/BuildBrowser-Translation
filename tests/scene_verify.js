@@ -47,6 +47,10 @@ function toPanel(node, depth) {
     tag: node.tag,
     attrs: node.attrs,
     classes: classes,
+    // Engine reality: classes are read through classList.contains.
+    classList: {
+      contains: (n) => classes.indexOf(n) >= 0,
+    },
     text: isText ? (node.attrs.text || "") : undefined,
     children: [],
     IsValid: () => true,

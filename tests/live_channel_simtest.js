@@ -46,7 +46,10 @@ function makeLabel(text, cls) {
     GetChild: (i) => p.children[i] || null,
     _cls: cls || "",
   };
-  Object.defineProperty(p, "class", { get: () => p._cls });
+  // Engine reality: no `.class` string, classes live on classList.
+  p.classList = {
+    contains: (n) => p._cls.split(/\s+/).indexOf(n) >= 0,
+  };
   p._t = text;
   Object.defineProperty(p, "text", {
     get: () => p._t,

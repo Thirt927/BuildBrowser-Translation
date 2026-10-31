@@ -52,17 +52,23 @@ function makePanel(opts) {
     GetChild: (i) => p.children[i] || null,
     _id: opts.id || "",
     _cls: opts.cls || "",
-    classList: [],
   };
   Object.defineProperty(p, "id", { get: () => p._id });
-  Object.defineProperty(p, "class", { get: () => p._cls });
-  p.ToggleClass = (c) => {
-    const i = p.classList.indexOf(c);
-    if (i >= 0) p.classList.splice(i, 1);
-    else p.classList.push(c);
+  // Engine-style classList: a token list with contains/add/remove. No `.class`
+  // string (Source 2 panels don't expose one).
+  const names = p._cls ? p._cls.split(/\s+/) : [];
+  p.classList = {
+    contains: (n) => names.indexOf(n) >= 0,
+    add: (n) => { if (names.indexOf(n) < 0) names.push(n); },
+    remove: (n) => { const i = names.indexOf(n); if (i >= 0) names.splice(i, 1); },
   };
-  p.AddClass = (c) => { if (p.classList.indexOf(c) < 0) p.classList.push(c); };
-  p.RemoveClass = (c) => { const i = p.classList.indexOf(c); if (i >= 0) p.classList.splice(i, 1); };
+  p.ToggleClass = (c) => {
+    const i = names.indexOf(c);
+    if (i >= 0) names.splice(i, 1);
+    else names.push(c);
+  };
+  p.AddClass = (c) => { if (names.indexOf(c) < 0) names.push(c); };
+  p.RemoveClass = (c) => { const i = names.indexOf(c); if (i >= 0) names.splice(i, 1); };
   p._t = opts.text;
   Object.defineProperty(p, "text", {
     get: () => p._t,
@@ -239,9 +245,9 @@ function check(name, cond, detail) {
   const ctx = boot([], {});
   pump(ctx, 4);
   ctx.sandbox.BBTToggleMenu();
-  check("menu opens", ctx.menu.classList.indexOf("BBTMenuOpen") >= 0, JSON.stringify(ctx.menu.classList));
+  check("menu opens", ctx.menu.classList.contains("BBTMenuOpen"), String(ctx.menu.classList.contains("BBTMenuOpen")));
   ctx.sandbox.BBTToggleMenu();
-  check("menu closes", ctx.menu.classList.indexOf("BBTMenuOpen") < 0, JSON.stringify(ctx.menu.classList));
+  check("menu closes", !ctx.menu.classList.contains("BBTMenuOpen"), String(ctx.menu.classList.contains("BBTMenuOpen")));
 }
 
 // ---------------------------------------------------------------- overrides + language

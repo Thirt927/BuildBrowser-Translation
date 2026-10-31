@@ -9,8 +9,11 @@
      #token so the engine re-resolves the new English (see resyncLabel in
      bba_translate.js), then translates again.
 
-  2. A "翻译本页 / 刷新" toolbar next to 出装选项 (native TextButton styling), with
-     the language dropdown below it.
+  2. A "翻译本页 / 刷新" toolbar (native TextButton styling) on its own row under
+     the header controls, with the language dropdown dropping from that row.
+     It used to sit inside #BuildControls next to 出装选项, where the engine's
+     right-aligned flow clipped it to a sliver; the dropdown also opened on top
+     of the header and covered the buttons.
 -->
 <root>
 	<styles>
@@ -30,43 +33,6 @@
 		<!-- optional live-bridge panel: must be declared in the layout (a runtime CreatePanel is not a real HTML panel) -->
 		<HTML id="BBTBridgePanelDetails" class="BBTBridgePanel" />
 		<GlobalClassListener classes="gShopOpen" />
-		<!-- Dropdown: a sibling of the header, so it drops below the toolbar
-		     instead of flowing off the right edge (see .BBTMenu in bba.css). -->
-		<Panel id="BBTMenu2" class="BBTMenu" hittest="true">
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
-				<Label text="显示中文"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;orig&apos;)">
-				<Label text="显示原文"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;both&apos;)">
-				<Label text="中英对照"  hittest="false"/>
-			</Button>
-			<Panel class="BBTMenuSeparator" />
-			<Label class="BBTMenuGroup" text="目标语言" />
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hans&apos;)">
-				<Label text="简体中文"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hant&apos;)">
-				<Label text="繁體中文"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ja&apos;)">
-				<Label text="日本語"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ko&apos;)">
-				<Label text="한국어"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;en&apos;)">
-				<Label text="English"  hittest="false"/>
-			</Button>
-			<Panel class="BBTMenuSeparator" />
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSavePageToTable()">
-				<Label text="把新译文存入本地库"  hittest="false"/>
-			</Button>
-			<Button class="BBTMenuItem" hittest="true" onactivate="BBTShowTableStats()">
-				<Label text="查看本地库统计"  hittest="false"/>
-			</Button>
-		</Panel>
 		<Panel class="HeroBuildsExtraInfo">
 			<Panel id="Background" />
 			<Panel id="BuildInfo">
@@ -91,16 +57,21 @@
 						</Panel>
 					</Panel>
 					<Panel id="BuildControls">
-						<!-- BBT toolbar: same TextButton styling as 出装选项 next to it -->
-						<Panel id="BBTControls2" class="BBTControls" hittest="true">
-							<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTTranslatePage()" />
-							<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill" text="刷新" hittest="true" onactivate="BBTRefreshPage()" />
-							<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTToggleMenu()" />
-						</Panel>
 						<Button />
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">
 							<Panel class="DropdownArrow" />
 						</TextButton>
+					</Panel>
+				</Panel>
+				<!-- BBT toolbar: its own row under the header controls. #BuildControls
+				     has no flow-children (width: 220px, children stacked), so a toolbar
+				     added there overlapped 出装选项; #BuildInfo flows down, so this row
+				     is laid out properly and its buttons receive clicks. -->
+				<Panel id="BBTBar2" class="BBTBar" hittest="true">
+					<Panel id="BBTControls2" class="BBTControls" hittest="true">
+						<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTTranslatePage()" />
+						<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill" text="刷新" hittest="true" onactivate="BBTRefreshPage()" />
+						<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTToggleMenu()" />
 					</Panel>
 				</Panel>
 				<Panel id="BuildDetails">
@@ -140,6 +111,46 @@
 					<TextButton id="ValveBuildButton" class="Medium Fill" text="#Citadel_HeroBuilds_ValveBuildLabel" html="true" onmouseactivate="$.GetContextPanel().RemoveClass(&apos;ShowBuildControlsContainer&apos;); $.DispatchEvent(&apos;CitadelHudHeroBuildsAddToValveAuthoredBuilds&apos;)" />
 				</Panel>
 			</Panel>
+		</Panel>
+		<!-- BBT dropdown: a child of the layout root on purpose. Panorama only
+		     hit-tests inside the parent's bounds, and the root spans the whole
+		     details pane, so the menu's buttons stay clickable when it drops over
+		     the header. The script positions it right under the toolbar
+		     (placeToolbar in bba_translate.js). -->
+		<Panel id="BBTMenu2" class="BBTMenu" hittest="true">
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
+				<Label text="显示中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;orig&apos;)">
+				<Label text="显示原文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;both&apos;)">
+				<Label text="中英对照"  hittest="false"/>
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Label class="BBTMenuGroup" text="目标语言" />
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hans&apos;)">
+				<Label text="简体中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hant&apos;)">
+				<Label text="繁體中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ja&apos;)">
+				<Label text="日本語"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ko&apos;)">
+				<Label text="한국어"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;en&apos;)">
+				<Label text="English"  hittest="false"/>
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSavePageToTable()">
+				<Label text="把新译文存入本地库"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTShowTableStats()">
+				<Label text="查看本地库统计"  hittest="false"/>
+			</Button>
 		</Panel>
 	</CitadelBuildDetails>
 </root>
