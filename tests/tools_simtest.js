@@ -7,6 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 const zlib = require("zlib");
 
 const ROOT = path.join(__dirname, "..");
@@ -59,6 +60,30 @@ if (existing) {
     const hit = existing[bbtm.textKey(text.text)];
     check("known sample text is in the shipped TM", typeof hit === "string", text.text.slice(0, 40));
   }
+}
+
+// --- compact TM format: lossless round-trip + script wiring ---
+{
+  const tmFormat = require(path.join(ROOT, "tools", "tm_format.js"));
+  const sample = {
+    "a1-b2": "撕裂 > 治疗 > 重复。",
+    "z9-y8": "带\ttab 和\n换行与\\反斜杠的值",
+    "m3-n4": "最后一个",
+  };
+  const data = tmFormat.encode(sample);
+  const back = tmFormat.decode(data);
+  check("compact encode/decode round-trip", JSON.stringify(back) === JSON.stringify(Object.keys(sample).sort().reduce((o, k) => ((o[k] = sample[k]), o), {})), JSON.stringify(back));
+  check("compact escapes tabs/newlines/backslashes", back["z9-y8"] === sample["z9-y8"], JSON.stringify(back["z9-y8"]));
+
+  const script = tmFormat.emitScript(sample, { generated_at: "test" });
+  const sb = {};
+  vm.createContext(sb);
+  vm.runInContext(script, sb, { filename: "tm_emit.js" });
+  check("emitted script exposes BBA_TM_GET", typeof sb.BBA_TM_GET === "function");
+  check("emitted script lookup works", sb.BBA_TM_GET("a1-b2") === sample["a1-b2"]);
+  check("emitted script escapes survive", sb.BBA_TM_GET("z9-y8") === sample["z9-y8"]);
+  check("emitted script misses return null", sb.BBA_TM_GET("nope-nope") === null);
+  check("emitted count matches", sb.BBA_TM_COUNT === 3, String(sb.BBA_TM_COUNT));
 }
 
 // --- term protection ---

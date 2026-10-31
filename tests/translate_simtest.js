@@ -74,7 +74,18 @@ function flat(s) {
 }
 const FIXTURE_TEXT = "Fixture note that only exists in the translation memory.";
 const FIXTURE_CN = "只存在于译文库的测试注释。";
-sandbox.BBA_TM[hash32(flat(FIXTURE_TEXT), 5381).toString(36) + "-" + hash32(flat(FIXTURE_TEXT), 52711).toString(36)] = FIXTURE_CN;
+// The TM ships in the compact format (BBA_TM_GET). Layer a fixture on top so the
+// test does not have to rebuild the 58k-entry data file.
+const FIXTURES = Object.create(null);
+FIXTURES[hash32(flat(FIXTURE_TEXT), 5381).toString(36) + "-" + hash32(flat(FIXTURE_TEXT), 52711).toString(36)] = FIXTURE_CN;
+{
+  const baseGet = sandbox.BBA_TM_GET;
+  sandbox.BBA_TM_GET = function (k) {
+    const v = FIXTURES[k];
+    if (v) return v;
+    return typeof baseGet === "function" ? baseGet(k) : null;
+  };
+}
 
 vm.runInContext(fs.readFileSync(path.join(ROOT, "mod", "panorama", "scripts", "bba_translate.js"), "utf8"), sandbox);
 
@@ -106,10 +117,12 @@ check("fixture translation applied", panels[6].text === FIXTURE_CN);
 // copy stays distinguishable in the list.
 {
   const base = flat(build.name).replace(/\s*(的副本|\(Copy\)|\(copy\)|Copy)$/, "");
-  const hit = sandbox.BBA_TM[hash32(base, 5381).toString(36) + "-" + hash32(base, 52711).toString(36)];
+  const key = hash32(base, 5381).toString(36) + "-" + hash32(base, 52711).toString(36);
+  const hit = FIXTURES[key] || sandbox.BBA_TM_GET(key);
   check("copy name translated with marker", !!hit && panels[1].text === hit + " 的副本");
 }
 check("some texts translated", stats.translated > 0);
+check("compact TM published a count", typeof sandbox.BBA_TM_COUNT === "number" && sandbox.BBA_TM_COUNT > 1000);
 
 // Regression: the engine repaints labels with their original English (hover,
 // resize, re-selection). The scanner must re-apply the translation instead of
