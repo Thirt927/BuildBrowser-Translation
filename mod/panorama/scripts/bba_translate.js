@@ -1192,10 +1192,11 @@
       applyResync(p, fresh);
       return true;
     }
-    // One probe per layout instance: the -condebug log then shows whether the
-    // engine's $.Localize really yields the current value (2-arg form), or
-    // only the raw token / template. The next fix step depends on this answer.
-    if (!localizeProbed) {
+    // One probe per layout instance (BBT_DEBUG-gated): the -condebug log then
+    // shows whether the engine's $.Localize really yields the current value
+    // (2-arg form), or only the raw token / template. The next fix step
+    // depends on this answer.
+    if (!localizeProbed && debugOn()) {
       localizeProbed = true;
       for (var j = 0; j < cands.length; j += 1) {
         var two = null, one = null;
@@ -1237,7 +1238,7 @@
       if (prev !== null) {
         try { p.text = prev; } catch (e) {}
       }
-      $.Msg("[BBT] resync-fail " + cands[0] + " raw=" + JSON.stringify(String(now).slice(0, 24)));
+      if (debugOn()) $.Msg("[BBT] resync-fail " + cands[0] + " raw=" + JSON.stringify(String(now).slice(0, 24)));
     })();
     return true;
   }

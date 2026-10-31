@@ -67,8 +67,14 @@
     `#token` 字面量必须 ∈ 生成物 byClassAll)随 B4 一并落地——防未来任何 typo 的
     token 像「离线 sim 带正确 token 而真机解析不到」那样静默漏过。
 - **验证状态**:离线套件全绿(refresh_verify 含 sim parity + Case G)。
-- **早间 3 分钟步骤 ①**:以 `-condebug` 启动,进出装浏览器换一条出装,看日志出
-  `resync-ok` / `localize-probe`(每个候选一行),概览/描述跟随新出装。
+- **日志门控(重要)**:v1.9.7 全部新增诊断行(`resync-ok`/`resync-fail`/`localize-probe`/
+  `resync-localized`/`resync-defer`/`toolbar-geom`/`toolbar hidden in tooltip context`/
+  `click`/`toolbar-place css-fallback`)统一 BBT_DEBUG 门控,默认零输出、无临时日志残留;
+  早间要观察日志时,控制台先 `globalThis.BBT_DEBUG = true`(视觉信号——概览/描述跟随
+  新出装、工具条隐藏等——不依赖它)。
+- **早间 3 分钟步骤 ①**:以 `-condebug` 启动并开 BBT_DEBUG(见上),进出装浏览器换一条出装,
+  看日志出 `resync-ok`(成功);失败路径出 `localize-probe`(每个候选一行)/`resync-fail`,
+  概览/描述跟随新出装。
   若 `BHasClass` 假设也错,probe 行会直接指出,下一轮只改读类策略不动其他。
 - **B4 — 悬停物品注释参与 resync**:`ModifiesLabel` 一个类名声明了两个不同的
   `#token`(`#Citadel_Item_Build_Annotation` / `#Citadel_ItemModifies`,布局按位置二选一),
@@ -76,7 +82,7 @@
   都失败时**不猜**(错 token 会渲染成另一条注释),退回最近一次文本并记
   `resync-defer`(B4 落实缓存:候选一次性试完即停,复用 `localizeProbed` 门控,不新增
   周期轮询)。
-- **早间 3 分钟步骤 ②**:进出装选择器,悬停物品看「Modifies」描述是否随出装刷新,
+- **早间 3 分钟步骤 ②**(已开 BBT_DEBUG):进出装选择器,悬停物品看「Modifies」描述是否随出装刷新,
   日志出 `resync-localized`(哪个候选命中)或 `resync-defer`(候选清单)。
 - **B1 — 点击类打点(永久,`BBT_DEBUG` 门控)**:新增 `clickProbe()`——所有工具栏
   handler(翻译/刷新按钮及菜单项,`onActivate` / `onActivateChild` / `toggleMenu`)触发时
