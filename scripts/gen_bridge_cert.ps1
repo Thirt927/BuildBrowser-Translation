@@ -75,6 +75,29 @@ if ($Untrust) {
     exit 0
 }
 
+# ---------------------------------------------------------------- reuse
+# Babel Tower / DeadlockLingua ships a certificate with the same SAN set
+# (localhost / 127.0.0.1 / ::1), so an already trusted one can be reused and no
+# second certificate has to be installed. This is checked before generating.
+$reusable = @()
+foreach ($cn in @("BabelTower-localhost", "BBT-localhost")) {
+    $reusable += Get-ChildItem Cert:\CurrentUser\Root -ErrorAction SilentlyContinue |
+        Where-Object { $_.Subject -like ("*CN=" + $cn + "*") }
+}
+if ($reusable.Count -gt 0 -and -not $Force) {
+    Write-Step "a usable certificate is already trusted; nothing to generate"
+    foreach ($c in $reusable) {
+        Write-Host ("  trusted: " + $c.Subject + " (" + $c.Thumbprint + ")")
+    }
+    Write-Host ""
+    Write-Host "point the bridge at that certificate instead of generating a new one:" -ForegroundColor Yellow
+    Write-Host "  node tools\bridge\bridge.js            (auto-detects an installed Babel Tower cert)"
+    Write-Host "  node tools\bridge\bridge.js --pfx <path to its bridge.pfx> --pass-file <path to bridge.pass>"
+    Write-Host ""
+    Write-Host "pass -Force to generate a separate BBT-localhost certificate anyway."
+    exit 0
+}
+
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
 $needGenerate = $true

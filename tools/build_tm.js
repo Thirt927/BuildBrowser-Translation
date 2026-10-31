@@ -171,6 +171,18 @@ function restore(text, used) {
 
 // ---- translation driver ----
 
+const LIVE_SEEN = path.join(CACHE_DIR, "live_seen.json");
+
+/** Translations the optional live bridge produced while playing. */
+function loadLiveSeen() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(LIVE_SEEN, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    return [];
+  }
+}
+
 function loadCache() {
   try {
     return JSON.parse(fs.readFileSync(TRANS_CACHE, "utf8"));
@@ -406,6 +418,25 @@ async function main() {
 
   // Assemble the in-game map. Lookup is always done on the flattened text, so the
   // canonical key is the same as the flat one.
+  // Texts the live bridge translated while playing (tools/cache/live_seen.json).
+  // They were requested by the game itself, so they belong in the shipped memory
+  // even when no fetched build contained them.
+  const liveSeen = loadLiveSeen();
+  let liveAdded = 0;
+  for (const row of liveSeen) {
+    if (!row || !row.text || !row.translation) continue;
+    const key = textKey(row.text);
+    if (cache[key] && cache[key] === row.translation) {
+      // already in the pipeline cache; still make sure it lands in the memory
+      if (!texts.has(key)) texts.set(key, { text: row.text, kind: "live" });
+      continue;
+    }
+    if (!cache[key]) cache[key] = row.translation;
+    if (!texts.has(key)) texts.set(key, { text: row.text, kind: "live" });
+    liveAdded += 1;
+  }
+  if (liveSeen.length) console.log("live-seen texts merged:", liveAdded, "of", liveSeen.length);
+
   const entries = new Map();
   let missing = 0;
   for (const item of texts.values()) {
@@ -448,4 +479,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadExistingTm, textKey, normalizeText, flattenText, hash32, buildProtector, protect, restore };
+module.exports = { loadLiveSeen, loadExistingTm, textKey, normalizeText, flattenText, hash32, buildProtector, protect, restore };

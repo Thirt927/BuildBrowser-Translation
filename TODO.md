@@ -343,3 +343,25 @@ tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬�
   让"玩家实际看到的文本"逐步沉淀成离线数据。
 - 【新增·中】批量请求:当前一次一条(单 document.title 通道);可按"一屏内所有未知文本"
   打包成数组(接口已支持 `text: []`),把 N 个 RTT 压成 1 个。
+
+### 六-补:证书复用 + 静默自启 + 实时结果落盘(2026-10-31,已完成)
+
+1.【已做】**优先复用 BabelTower 的通道**:`bba_translate.js` 启动后先探
+   `https://localhost:8792`(DeadlockLingua 的桥),探通就直接用它翻译——**不需要第二张证书、
+   也不需要第二个进程**;不通再探自己的 8793,仍不通则永久离线。请求体用 BabelTower 的
+   `{operation,text,targetLanguage}` 形状(我们自己的 bridge 页也兼容这个形状),标题前缀
+   同时认 `LCT<id>` 与 `BBT<id>`,响应兼容 `{translation}` 与 `{translations:[..]}` 两种。
+2.【已做】**证书自动发现**:`tools/bridge/bridge.js` 依次尝试
+   `--pfx` → `config/certs/bbt.pfx` → `BBT_CERT_PFX` → 同级目录/`%LOCALAPPDATA%` 下的
+   `DeadlockLingua|BabelTower/config/certs/bridge.pfx`,找到哪个用哪个并打印路径。
+   `scripts/gen_bridge_cert.ps1` 在发现"已有受信任的 BabelTower-localhost 证书"时直接跳过生成。
+3.【已做】**静默自启**:`scripts/start_bridge_silent.vbs`(无窗口,日志写 `logs/bridge.log`)
+   + `scripts/install_bridge_autostart.bat` / `remove_bridge_autostart.bat`
+   (HKCU\...\Run,无需管理员)。
+4.【已做】**实时结果落盘**:bridge 把每条翻译写入 `tools/cache/live_seen.json`,并同步进
+   `tools/cache/translations.json` 缓存;`build_tm.js` 新增 `loadLiveSeen()`,把这些
+   "玩家实际看到过的文本"直接并入译文库(不重复机翻)。退出/Ctrl+C 时会 flush。
+5.【已做】测试:`tests/live_channel_simtest.js` 扩到 14 项(优先 8792、回落 8793、
+   两种响应形状、缓存、桥死不掉）,其余 5 个测试全绿。
+6.【已做】修一个连带 bug:离线"查不到"也会被 memo 记住,导致桥连上后那些面板永不重试;
+   现在桥可用时会把 miss 记忆清掉重新扫。

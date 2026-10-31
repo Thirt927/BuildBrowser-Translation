@@ -70,15 +70,25 @@ Panorama 隐藏 <HTML id="BBTBridgePanel">
    → 结果写进 document.title("BBT<id>{...}") → 游戏侧 0.1s 轮询读回 → 写入 Label
 ```
 
-一次性准备(只需做一次):
+**已经装了 Babel Tower / DeadlockLingua?那你什么都不用做。**
+mod 启动时会先探 8792(你的 BabelTower 桥),探通就直接用它翻译,证书也是它那份 ——
+不用再装第二张证书、也不用再起第二个进程。只有在你没有那个桥时,才需要下面这套一次性准备:
 
 ```powershell
-# 1) 生成本机自签证书并信任(装进 CurrentUser\Root,无需管理员)
+# 1) 生成并信任本机自签证书(装进 CurrentUser\Root,无需管理员)
 powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Trust
+#    (脚本会先检查是否已有可复用的 BabelTower 证书;有就跳过生成)
 # 2) 完全退出 Steam(含托盘图标)再启动 —— 引擎只在启动时读取信任库
-# 3) 启动 bridge(玩游戏时保持运行)
+# 3) 启动 bridge,并可选设为开机自启(无控制台窗口)
 node tools\bridge\bridge.js
+powershell -ExecutionPolicy Bypass -File scripts\install_bridge_autostart.bat
 ```
+
+探测顺序:先 **8792(BabelTower)**,再 **8793(本仓库 bridge)**,都不通就永久回到离线模式。
+
+**实时翻译会沉淀成离线数据**:bridge 把翻过的文本写进 `tools/cache/live_seen.json`(同时写入
+`tools/cache/translations.json` 缓存),下次跑 `build_tm.js` 时自动并入 `bba_tm.js` ——
+玩家实际看到的文本逐步变成"开箱即离线"。
 
 特性与边界:
 
@@ -90,7 +100,8 @@ node tools\bridge\bridge.js
 - **限流**:同一时刻只有一个请求在飞(`document.title` 是单通道),结果在会话内缓存;
   连续 3 次硬失败即放弃本会话。
 - **隐私**:只发送当前页面里"译文库中没有的英文文本",不发送账号/战绩;日志里不落原文。
-- 卸载实时通道:停掉 bridge 进程即可,mod 自动退回离线模式。
+- 卸载实时通道:停掉 bridge 进程即可,mod 自动退回离线模式;开机自启用
+  `scripts\remove_bridge_autostart.bat` 移除。
 
 ## 译文库是怎么来的
 

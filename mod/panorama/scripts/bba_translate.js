@@ -52,8 +52,15 @@
   // session and the mod behaves exactly like a pure offline build.
   var LIVE_MODE = "auto"; // "auto" | "off" | "on"
   var LIVE_PANEL_ID = "BBTBridgePanel";
-  var LIVE_PORT = 8793; // tools/bridge/bridge.js --port
-  var LIVE_HOST = "https://localhost:" + LIVE_PORT;
+  // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
+  // it serves a page with the same technique and the same certificate, so people
+  // who already use that mod need neither a second certificate nor a second
+  // process. Our own bridge listens on 8793.
+  var LIVE_TARGETS = [
+    { port: 8792, tag: "LCT", name: "BabelTower" },
+    { port: 8793, tag: "BBT", name: "bbt-bridge" },
+  ];
+  var LIVE_TARGET = null; // { port, tag, name } once the probe succeeded
   var LIVE_PROBE_TIMEOUT = 2.0; // seconds to wait for the health answer
   var LIVE_REQUEST_TIMEOUT = 6.0; // seconds per translation request
   var LIVE_POLL = 0.1; // title poll interval
@@ -262,24 +269,40 @@
     return live.panel;
   }
 
-  function liveUrl(id, text, target) {
-    var q = "?id=" + id + "&op=translate&text=" + encodeURIComponent(text);
-    if (target) q += "&target=" + encodeURIComponent(target);
-    return "https://localhost:" + LIVE_PORT + "/bridge" + q;
+  function liveHealthUrl(t, id) {
+    return "https://localhost:" + t.port + "/bridge?id=" + id + "&op=health";
   }
 
-  function liveSend(obj, timeoutSec, cb) {
+  // BabelTower's page reads a JSON payload from ?d= and posts it to its own API;
+  // our bridge accepts the same shape, so one client works with both.
+  function liveTranslateUrl(t, id, text, target) {
+    var payload = {
+      operation: "translate",
+      text: text,
+      targetLanguage: target || "zh-Hans",
+    };
+    return "https://localhost:" + t.port + "/bridge?id=" + id +
+      "&op=translate&d=" + encodeURIComponent(JSON.stringify(payload));
+  }
+
+  function liveSend(obj, timeoutSec, cb, target) {
     var panel = livePanel();
     if (!panel || typeof panel.SetURL !== "function") {
       cb(false, "panel_unavailable", null);
       return null;
     }
+    var t = target || LIVE_TARGET;
+    if (!t) {
+      cb(false, "no_target", null);
+      return null;
+    }
     var id = "r" + (++live.seq).toString(36);
     var job = {
       id: id,
+      tag: t.tag,
       url: obj.op === "health"
-        ? "https://localhost:" + LIVE_PORT + "/bridge?id=" + id + "&op=health"
-        : liveUrl(id, obj.text, obj.target),
+        ? liveHealthUrl(t, id)
+        : liveTranslateUrl(t, id, obj.text, obj.target),
       cb: cb,
       startedAt: 0,
       polls: 0,
@@ -304,10 +327,14 @@
     var panel = livePanel();
     var title = "";
     try { title = panel && panel.title ? String(panel.title) : ""; } catch (e) { title = ""; }
-    var prefix = "BBT" + job.id;
+    var prefix = (job.tag || "BBT") + job.id;
     if (title && title.indexOf(prefix) === 0) {
       var payload = null;
       try { payload = JSON.parse(title.slice(prefix.length)); } catch (e) { payload = null; }
+      if (payload && payload.translation && !payload.translations) {
+        // BabelTower answers with a single {translation}; normalise it.
+        payload = { ok: payload.ok !== false, translations: [String(payload.translation)] };
+      }
       if (payload) {
         job.done = true;
         live.pending = null;
@@ -333,25 +360,46 @@
     }
   }
 
+  function liveProbeTargets(index) {
+    index = index || 0;
+    if (index >= LIVE_TARGETS.length) {
+      live.state = "off";
+      $.Msg("[BBT] live bridge: not available on " +
+        LIVE_TARGETS.map(function (t) { return t.port; }).join("/") +
+        "; offline memory only");
+      return;
+    }
+    var t = LIVE_TARGETS[index];
+    liveSend({ op: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
+      if (ok && payload && (payload.ok || payload.translations)) {
+        LIVE_TARGET = t;
+        live.state = "on";
+        $.Msg("[BBT] live bridge: connected to " + t.name + " (localhost:" + t.port +
+          "), offline memory + live fallback");
+        try { liveUpgradeWeakWrites(); } catch (e) {}
+        return;
+      }
+      liveProbeTargets(index + 1);
+    }, t);
+  }
+
   function liveProbe() {
     if (LIVE_MODE === "off" || live.state !== "unknown") return;
     live.state = "probing";
-    liveSend({ op: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
-      if (ok && payload && payload.ok) {
-        live.state = "on";
-        $.Msg("[BBT] live bridge: connected (" + LIVE_HOST + "), offline memory + live fallback");
-        try { liveUpgradeWeakWrites(); } catch (e) {}
-      } else {
-        live.state = "off";
-        $.Msg("[BBT] live bridge: not available (" + (err || (payload && payload.error) || "no_answer") + "); offline memory only");
-      }
-    });
+    liveProbeTargets(0);
   }
 
   // Panels that only got glossary term substitution get a second chance now that
   // a real translator is available. The source text is taken from the memo (the
   // label currently shows the mixed string, not the original English).
   function liveUpgradeWeakWrites() {
+    // Re-arm every "nothing found" panel: the bridge may know it.
+    for (var m = 0; m < missedList.length; m += 1) {
+      var mp = missedList[m];
+      var mrec = memo.get(mp);
+      if (mrec && mrec.k === 0) memo.delete(mp);
+    }
+    missedList.length = 0;
     if (!weakWrites || !weakWrites.has) return;
     for (var i = 0; i < written.length; i += 1) {
       var p = written[i];
@@ -581,6 +629,10 @@
   // live bridge comes up these are worth redoing: the offline pass produced a
   // mixed string, the bridge can produce a real translation of the original.
   var weakWrites = new WeakSet ? new WeakSet() : null;
+  // Panels we looked at and found nothing for. They are re-armed when the live
+  // bridge becomes available (otherwise the "nothing to do" memo would keep them
+  // English forever).
+  var missedList = [];
   if (!WeakSet) {
     var weakList = [];
   }
@@ -796,6 +848,7 @@
       if (weakWrites && weakWrites.add) weakWrites.add(panel);
     } else {
       remember(panel, 0, raw, null);
+      if (missedList.length < 800 && missedList.indexOf(panel) < 0) missedList.push(panel);
     }
   }
 

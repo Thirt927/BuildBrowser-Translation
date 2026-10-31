@@ -44,7 +44,52 @@ const DEFAULTS = {
   passFile: path.join(ROOT, "config", "certs", "bbt.pass"),
   target: "zh-Hans",
   titleLimit: 6000,
+  seen: path.join(ROOT, "tools", "cache", "live_seen.json"),
+  transCache: path.join(ROOT, "tools", "cache", "translations.json"),
 };
+
+// Certificates that may already be installed and trusted. Reusing one avoids
+// asking the user to trust a second certificate: BabelTower (DeadlockLingua)
+// ships CN=BabelTower-localhost with the same SAN set (localhost / 127.0.0.1 /
+// ::1), so it works for this bridge too (certificates are port independent).
+function knownCerts() {
+  const out = [];
+  const env = process.env.BBT_CERT_PFX;
+  if (env) out.push({ pfx: env, pass: process.env.BBT_CERT_PASS_FILE || "" });
+  out.push({ pfx: DEFAULTS.pfx, pass: path.join(ROOT, "config", "certs", "bbt.pass") });
+
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const localAppData = process.env.LOCALAPPDATA || "";
+  const candidates = [];
+  // sibling checkouts of BabelTower / DeadlockLingua
+  candidates.push(path.join(path.dirname(ROOT), "DeadlockLingua"));
+  candidates.push(path.join(path.dirname(ROOT), "BabelTower"));
+  if (localAppData) candidates.push(path.join(localAppData, "BabelTower"));
+  if (home) {
+    candidates.push(path.join(home, "DeadlockLingua"));
+    candidates.push(path.join(home, "BabelTower"));
+    candidates.push(path.join(home, "Documents", "BabelTower"));
+  }
+  for (const base of candidates) {
+    out.push({
+      pfx: path.join(base, "config", "certs", "bridge.pfx"),
+      pass: path.join(base, "config", "certs", "bridge.pass"),
+    });
+  }
+  return out;
+}
+
+function resolveCert(explicit) {
+  const list = explicit ? [{ pfx: explicit, pass: String(arg("pass-file", "")) || "" }] : knownCerts();
+  for (const cand of list) {
+    try {
+      if (cand.pfx && fs.existsSync(cand.pfx)) return cand;
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  return null;
+}
 
 function arg(name, fallback) {
   const i = process.argv.indexOf("--" + name);
@@ -74,6 +119,91 @@ function cachePut(key, value) {
   cache.set(key, value);
 }
 
+// ---------- persist what we translated ----------
+// Two files, both consumed by the offline pipeline:
+//   tools/cache/live_seen.json      [{ text, translation, target, at }] what the
+//                                   game actually asked for (build_tm.js merges
+//                                   these into the shipped memory)
+//   tools/cache/translations.json   { <textKey>: translation } the pipeline's own
+//                                   cache, so build_tm.js does not re-translate
+const { textKey } = require("../build_tm.js");
+
+const seenFile = process.env.BBT_SEEN_FILE || path.join(ROOT, "tools", "cache", "live_seen.json");
+const transCacheFile = process.env.BBT_TRANS_CACHE_FILE || path.join(ROOT, "tools", "cache", "translations.json");
+let seen = null;
+let seenDirty = false;
+
+function loadSeen() {
+  if (seen) return seen;
+  try {
+    const raw = JSON.parse(fs.readFileSync(seenFile, "utf8"));
+    seen = Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    seen = [];
+  }
+  return seen;
+}
+
+let saveTimer = null;
+
+// Debounced, and flushed on exit: the bridge is a long-lived process, but a
+// Ctrl+C must not lose the last few translations.
+function flushSeen() {
+  if (!seenDirty) return;
+  seenDirty = false;
+  try {
+      fs.mkdirSync(path.dirname(seenFile), { recursive: true });
+      fs.writeFileSync(seenFile, JSON.stringify(loadSeen(), null, 0));
+      // keep the pipeline's translation cache in step so build_tm.js skips these
+      let cache = {};
+      try { cache = JSON.parse(fs.readFileSync(transCacheFile, "utf8")); } catch (e) { cache = {}; }
+      for (const row of loadSeen()) {
+        if (row && row.text && row.translation) cache[textKey(row.text)] = row.translation;
+      }
+    fs.mkdirSync(path.dirname(transCacheFile), { recursive: true });
+    fs.writeFileSync(transCacheFile, JSON.stringify(cache));
+  } catch (e) {
+    console.error("bridge: cannot persist live translations:", e.message);
+  }
+}
+
+function scheduleSave() {
+  seenDirty = true;
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    flushSeen();
+  }, 5000);
+  if (saveTimer.unref) saveTimer.unref();
+}
+
+process.on("exit", flushSeen);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  try {
+    process.on(sig, () => {
+      flushSeen();
+      process.exit(0);
+    });
+  } catch (e) {}
+}
+
+function recordSeen(text, translation, target) {
+  if (!text || !translation) return;
+  const list = loadSeen();
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i] && list[i].text === text) {
+      if (list[i].translation !== translation) {
+        list[i].translation = translation;
+        list[i].at = new Date().toISOString();
+        scheduleSave();
+      }
+      return;
+    }
+  }
+  list.push({ text, translation, target, at: new Date().toISOString() });
+  scheduleSave();
+}
+
 async function translateOne(text, target) {
   const src = String(text == null ? "" : text);
   if (!src.trim()) return src;
@@ -82,7 +212,10 @@ async function translateOne(text, target) {
   if (hit != null) return hit;
   const out = await bing.translate(src, { from: "auto", to: target });
   const value = out && out.translation ? String(out.translation) : "";
-  if (value) cachePut(key, value);
+  if (value) {
+    cachePut(key, value);
+    recordSeen(src, value, target); // grows the offline memory next time
+  }
   return value;
 }
 
@@ -109,7 +242,20 @@ function bridgePage(query) {
   if (rawD) {
     try { d = JSON.parse(rawD); } catch (e) { d = null; }
   }
-  const reqBody = d || { text: [text], target };
+  // Accept both shapes: { text: [..], target } (ours) and BabelTower's
+  // { operation, text, sourceLanguage, targetLanguage } so the same in-game
+  // client can talk to either bridge.
+  let reqBody;
+  if (d && (d.operation || d.targetLanguage)) {
+    reqBody = {
+      text: Array.isArray(d.text) ? d.text : [String(d.text || text)],
+      target: String(d.targetLanguage || d.target || target),
+    };
+  } else if (d) {
+    reqBody = { text: Array.isArray(d.text) ? d.text : [String(d.text || text)], target: String(d.target || target) };
+  } else {
+    reqBody = { text: [text], target };
+  }
   const op = String(query.get("op") || "translate").replace(/[^a-z]/g, "");
   // The page writes one string into document.title; Panorama matches on the
   // "BBT<id>" prefix. Keep the payload small enough for the title limit.
@@ -155,24 +301,29 @@ function readJson(req) {
 }
 
 function start() {
-  let pfx;
-  try {
-    pfx = fs.readFileSync(PFX);
-  } catch (e) {
+  const explicit = process.argv.indexOf("--pfx") >= 0 ? PFX : "";
+  const chosen = resolveCert(explicit);
+  if (!chosen) {
     console.error(
-      "bridge: cannot read certificate " + PFX + "\n" +
+      "bridge: no usable certificate found (looked for config/certs/bbt.pfx and an\n" +
+        "existing BabelTower/DeadlockLingua config/certs/bridge.pfx)\n" +
         "generate + trust one first:\n" +
         "  powershell -ExecutionPolicy Bypass -File scripts\\gen_bridge_cert.ps1 -Trust\n" +
-        "then FULLY restart Steam (the tray icon too).",
+        "then FULLY restart Steam (the tray icon too).\n" +
+        "If Babel Tower / DeadlockLingua is already installed and trusted, point at its\n" +
+        "certificate instead:  node tools/bridge/bridge.js --pfx <...>\\config\\certs\\bridge.pfx --pass-file <...>\\bridge.pass\n" +
+        "or set BBT_CERT_PFX / BBT_CERT_PASS_FILE.",
     );
     process.exit(3);
   }
   let passphrase = "";
   try {
-    passphrase = fs.readFileSync(PASS_FILE, "utf8").trim();
+    passphrase = fs.readFileSync(chosen.pass || PASS_FILE, "utf8").trim();
   } catch (e) {
     /* empty passphrase is allowed */
   }
+  const pfx = fs.readFileSync(chosen.pfx);
+  console.log("bridge: certificate " + chosen.pfx);
 
   const server = https.createServer({ pfx, passphrase }, async (req, res) => {
     const url = new URL(req.url || "/", "https://127.0.0.1");
@@ -215,4 +366,6 @@ function start() {
 
 if (require.main === module) start();
 
-module.exports = { bridgePage, translateMany, translateOne };
+module.exports = {
+  bridgePage, translateMany, translateOne, resolveCert, knownCerts, recordSeen, flushSeen, seenFile,
+};

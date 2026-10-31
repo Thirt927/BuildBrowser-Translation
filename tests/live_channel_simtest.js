@@ -70,19 +70,29 @@ function makeHtmlPanel(opts) {
   Object.defineProperty(panel, "title", { get: () => panel._title, configurable: true });
   panel.SetURL = (url) => {
     opts.urls.push(url);
-    if (opts.dead) return; // no certificate / no bridge: page never answers
-    // Parse the request the same way the bridge page does.
     const u = new URL(url);
+    const port = Number(u.port);
     const id = u.searchParams.get("id") || "x";
     const op = u.searchParams.get("op") || "translate";
+    const tag = port === 8792 ? "LCT" : "BBT";
+    if (opts.dead || (opts.port && port !== opts.port)) return; // nothing listening
     opts.timers.push(() => {
       if (op === "health") {
-        panel._title = "BBT" + id + JSON.stringify({ ok: true, version: "1.0.0" });
+        panel._title = tag + id + JSON.stringify({ ok: true, version: "1.0.0" });
         return;
       }
-      const text = u.searchParams.get("text") || "";
+      let text = u.searchParams.get("text") || "";
+      const d = u.searchParams.get("d");
+      if (d) {
+        try { text = JSON.parse(d).text || text; } catch (e) {}
+      }
       const out = FAKE_TRANSLATIONS[text];
-      panel._title = "BBT" + id + JSON.stringify(out ? { ok: true, translations: [out] } : { ok: false, translations: [null] });
+      // BabelTower answers with a bare {translation}; our bridge with an array.
+      panel._title = tag + id + JSON.stringify(
+        out
+          ? (tag === "LCT" ? { ok: true, translation: out } : { ok: true, translations: [out] })
+          : { ok: false, translations: [null] },
+      );
     });
   };
   return panel;
@@ -133,12 +143,21 @@ function check(name, cond, detail) {
 // ------------------------------------------------------------------
 {
   const label = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
-  const opts = { urls: [], timers: [], dead: false, broken: false };
+  const opts = { urls: [], timers: [], dead: false };
   const ctx = boot([label], opts);
   pump(ctx, 30);
   check("live: health probe issued", opts.urls.some((u) => u.indexOf("op=health") > 0), JSON.stringify(opts.urls.slice(0, 2)));
   check("live: unknown text translated through the bridge", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
-  check("live: request went to /bridge with the text", opts.urls.some((u) => u.indexOf("/bridge") > 0 && u.indexOf("text=") > 0), JSON.stringify(opts.urls));
+  check(
+    "live: request carries the text (JSON payload)",
+    opts.urls.some((u) => u.indexOf("op=translate") > 0 && decodeURIComponent(u).indexOf("Key item for Drifter") > 0),
+    JSON.stringify(opts.urls),
+  );
+  check(
+    "live: prefers an already running BabelTower bridge (8792) so no second cert is needed",
+    opts.urls[0].indexOf(":8792/") > 0,
+    opts.urls[0],
+  );
   check("live: stat counted", ctx.sandbox.BBT_STATS.live >= 1, String(ctx.sandbox.BBT_STATS.live));
   check("live: log announces the channel", ctx.log.some((l) => l.indexOf("live bridge: connected") >= 0), JSON.stringify(ctx.log.slice(0, 3)));
 
@@ -165,6 +184,18 @@ function check(name, cond, detail) {
   const urlsAfterGiveUp = opts.urls.length;
   pump(ctx, 40);
   check("offline: no request storm after giving up", opts.urls.length <= urlsAfterGiveUp + 1, String(opts.urls.length - urlsAfterGiveUp));
+}
+
+// ------------------------------------------------------------------
+// 2b. own bridge only (BabelTower absent): falls through to 8793
+// ------------------------------------------------------------------
+{
+  const label = makeLabel("Buy this before the team fight.", "ModifiesLabel");
+  const opts = { urls: [], timers: [], dead: false, port: 8793 };
+  const ctx = boot([label], opts);
+  pump(ctx, 40);
+  check("fallback: probed 8792 then 8793", opts.urls[0].indexOf(":8792/") > 0 && opts.urls.some((u) => u.indexOf(":8793/") > 0), JSON.stringify(opts.urls.slice(0, 3)));
+  check("fallback: own bridge translates", label.text === "团战前先买这个。", JSON.stringify(label.text));
 }
 
 // ------------------------------------------------------------------

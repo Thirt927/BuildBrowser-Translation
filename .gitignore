@@ -13,3 +13,6 @@ tools/cache/
 
 # live bridge certificate (never commit private keys)
 config/certs/
+
+# live bridge log
+logs/
