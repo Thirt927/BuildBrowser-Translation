@@ -4,9 +4,7 @@
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
 		<include src="s2r://panorama/styles/citadel_ui_build_details.vcss" />
 		<include src="s2r://panorama/styles/avatar_image.vcss" />
-		<style>
-			.BBTBridgePanel { width: 1px; height: 1px; opacity: 0.01; margin: 0px; padding: 0px; hittest: false; }
-		</style>
+		<include src="s2r://panorama/styles/bba.css" />
 	</styles>
 	<scripts>
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
@@ -18,6 +16,52 @@
 	<CitadelBuildDetails>
 		<!-- optional live-bridge panel: must be declared in the layout (a runtime CreatePanel is not a real HTML panel) -->
 		<HTML id="BBTBridgePanelDetails" class="BBTBridgePanel" />
+		<!-- BBT toolbar for the standalone build-details view (hidden by the
+		     script when this panel is rendered inside the build browser, which
+		     already has the selector toolbar) -->
+		<Panel id="BBTControls2" class="BBTControls">
+			<Button id="BBTTranslateButton2" class="BBTButton" onactivate="BBTTranslatePage()">
+				<Label id="BBTTranslateLabel2" text="翻译本页" />
+			</Button>
+			<Button id="BBTMenuButton2" class="BBTButton BBTMenuButton" onactivate="BBTToggleMenu()">
+				<Label text="&#9662;" />
+			</Button>
+		</Panel>
+		<Panel id="BBTMenu2" class="BBTMenu">
+			<Button class="BBTMenuItem" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
+				<Label text="显示中文" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetLanguageMode(&apos;orig&apos;)">
+				<Label text="显示原文" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetLanguageMode(&apos;both&apos;)">
+				<Label text="中英对照" />
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Label class="BBTMenuGroup" text="目标语言" />
+			<Button class="BBTMenuItem" onactivate="BBTSetTargetLang(&apos;zh-Hans&apos;)">
+				<Label text="简体中文" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetTargetLang(&apos;zh-Hant&apos;)">
+				<Label text="繁體中文" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetTargetLang(&apos;ja&apos;)">
+				<Label text="日本語" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetTargetLang(&apos;ko&apos;)">
+				<Label text="한국어" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTSetTargetLang(&apos;en&apos;)">
+				<Label text="English" />
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Button class="BBTMenuItem" onactivate="BBTSavePageToTable()">
+				<Label text="把新译文存入本地库" />
+			</Button>
+			<Button class="BBTMenuItem" onactivate="BBTShowTableStats()">
+				<Label text="查看本地库统计" />
+			</Button>
+		</Panel>
 		<GlobalClassListener classes="gShopOpen" />
 		<Panel class="HeroBuildsExtraInfo">
 			<Panel id="Background" />

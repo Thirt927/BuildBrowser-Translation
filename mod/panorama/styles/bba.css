@@ -1,0 +1,23 @@
+/* BuildBrowser Translation - layout styles promoted from inline <style> blocks.
+   Panorama's <styles> section only accepts <include /> elements, so the rules
+   live here and are referenced with s2r://panorama/styles/bba.css. */
+
+/* Toolbar: pinned to the top-right of its parent (selector header / details
+   root). The details toolbar is hidden by the script when rendered inside the
+   build browser, which already has the selector toolbar. */
+.BBTControls { flow-children: right; position: 4px 8px 0% 0%; z-index: 900; }
+.BBTButton { margin-left: 4px; padding: 4px 8px; min-width: 54px; background-color: rgba(70,90,120,0.85); border: 1px solid rgba(150,180,220,0.5); }
+.BBTButton:hover { background-color: rgba(95,125,165,0.95); }
+.BBTButton Label { font-size: 14px; color: #dbe7f7; horizontal-align: center; }
+.BBTMenuButton { min-width: 22px; }
+/* Dropdown: a direct child of the layout root (not of the horizontal button
+   row), so it drops below the toolbar instead of flowing off the right edge
+   behind the content area. */
+.BBTMenu { flow-children: down; visibility: collapse; width: 190px; background-color: #10161eE8; border: 1px solid rgba(150,180,220,0.5); position: 46px 10px 0% 0%; z-index: 1000; }
+.BBTMenu.BBTMenuOpen { visibility: visible; }
+.BBTMenuItem { width: 100%; padding: 5px 8px; }
+.BBTMenuItem:hover { background-color: rgba(95,125,165,0.75); }
+.BBTMenuItem Label { font-size: 13px; color: #cfdcee; }
+.BBTMenuSeparator { width: 100%; height: 1px; background-color: rgba(150,180,220,0.35); margin: 3px 0px; }
+.BBTMenuGroup { font-size: 12px; color: #8fa6c4; margin: 3px 8px 1px 8px; }
+.BBTBridgePanel { width: 1px; height: 1px; opacity: 0.01; margin: 0px; padding: 0px; hittest: false; }
