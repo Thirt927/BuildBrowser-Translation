@@ -42,6 +42,7 @@ xml = xml.replace(/\s*<scripts>[\s\S]*?<\/scripts>/g, "");
 const includes = [
   '<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />',
   ...(withTm ? ['<include src="s2r://panorama/scripts/bba_tm.vjs_c" />'] : []),
+  '<include src="s2r://panorama/scripts/bba_layout_tokens.vjs_c" />',
   '<include src="s2r://panorama/scripts/bba_translate.vjs_c" />',
 ];
 const SCRIPTS_BLOCK =

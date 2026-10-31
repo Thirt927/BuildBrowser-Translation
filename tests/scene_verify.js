@@ -91,7 +91,7 @@ function runScript(root) {
     Msg: () => {},
   };
   vm.createContext(sandbox);
-  for (const f of ["bba_glossary.js", "bba_tm.js", "bba_translate.js"]) {
+  for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
     vm.runInContext(
       fs.readFileSync(path.join(ROOT, "mod", "panorama", "scripts", f), "utf8"),
       sandbox,

@@ -58,7 +58,7 @@ const sandbox = {
 sandbox.__queue = [];
 sandbox.__log = [];
 vm.createContext(sandbox);
-for (const file of ["bba_glossary.js", "bba_tm.js"]) {
+for (const file of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js"]) {
   const p = path.join(ROOT, "mod", "panorama", "scripts", file);
   vm.runInContext(fs.readFileSync(p, "utf8"), sandbox);
 }

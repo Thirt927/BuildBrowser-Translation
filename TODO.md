@@ -188,3 +188,36 @@
   【新增·中】**热/冷译文库拆分**。
 - 游戏内实测数据仍缺:启动项加 `-condebug` 后 `console.log` 里 `[BBT] v1.2.0 loaded (...)`、
   以及 `BBT_STATS`(含 `ms` 单 tick 耗时、`interval` 当前轮询间隔)可用控制台读取。
+
+## 五、"翻译不刷新 / 一直是同一个翻译" —— 2026-10-31 定位与修复
+
+**症状**:换一条出装后,右侧详情(或悬停装备提示)仍显示上一条出装的译文,永远不更新。
+
+**两种更新机制**(Panorama 里 Label 的文本可以来自两个地方):
+- A. 游戏 JS 直接赋值 `label.text = 英文`。这种情况旧版就是对的:文本变了就会重查重写。
+- B. 布局里写 `text="#Token"`,而该 token 的本地化值是 `{s:var}` 模板,游戏用
+  `SetDialogVariable` 灌值。**我们的 `panel.text = 译文` 会把模板整个冲掉**,此后
+  `SetDialogVariable` 仍有值但无处渲染 → 标签永远停在第一次写入的译文上。
+  本仓库的覆盖布局里正是这种写法:
+  `.BuildName` → `#Citadel_HeroBuilds_BuildName`、
+  `.BuildDescription` → `#Citadel_HeroBuilds_BuildDescription`、
+  `.ModifiesLabel` → `#Citadel_Item_Build_Annotation`(悬停里的作者注释)。
+
+**修复**:
+1.【已修】`tools/build_layout_tokens.js` 从覆盖布局生成 `bba_layout_tokens.js`
+   (class/id → 声明的 `text`),5 个布局都 include 它。`--check` 模式供 CI/测试校验同步。
+2.【已修】`bba_translate.js` 新增"回绑"逻辑:监控**不翻译**的身份标签
+   (`.BuildID` / `.Version` / `.LastUpdated` / `.ModName`);一旦发现它们变化(说明换了出装/装备),
+   把所有"仍显示我们上次译文"的标签恢复成它的 `#Token` → 引擎存的变量值立刻重新解析出
+   新英文 → 下一 tick 正常翻译。只对"确实是引擎驱动"的标签动手,不会影响 A 类标签。
+3.【已修】新增 `tests/refresh_verify.js`:7 个 A 类场景 + 6 个 B 类场景(含"引擎更新被吞掉"
+   的建模),旧逻辑在 B 类全挂,新逻辑全过。
+4.【已修】调试开关:`BBT_DEBUG` 不再是编译期常量,控制台 `BBT_DEBUG = true` 即可看到每次写入
+   (`[BBT] W TM .BuildDescription "英文" => "中文" tok=#Token`)与 `[BBT] rebind N label(s)`;
+   `BBT_STATS` 里新增 `writes` / `rebinds` 计数。
+
+**若游戏内仍不刷新**,用 `-condebug` 后看三条信号即可定位:
+- 切换出装时**完全没有** `[BBT] W ...` → 引擎没往我们能读的地方写(布局结构变了);
+- 有 `[BBT] W ...` 但 `rebinds` 不涨 → 身份标签没被识别(把该布局里 build id/版本标签的
+  class 加进 `IDENTITY_TOKEN` 或补进 layout tokens 表);
+- 有 `rebind` 但文本仍是旧译文 → 该布局的 token 与变量名不匹配(`build_layout_tokens.js` 重新生成)。

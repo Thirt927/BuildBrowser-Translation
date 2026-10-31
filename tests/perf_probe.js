@@ -105,7 +105,7 @@ function boot(tree) {
     Msg: () => {},
   };
   vm.createContext(sandbox);
-  for (const f of ["bba_glossary.js", "bba_tm.js", "bba_translate.js"]) {
+  for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
     vm.runInContext(fs.readFileSync(path.join(SCRIPTS, f), "utf8"), sandbox, { filename: f });
   }
   return { sandbox, queue, readsOf };
