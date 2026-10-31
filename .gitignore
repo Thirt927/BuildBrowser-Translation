@@ -10,3 +10,6 @@ tools/cache/
 # scratch
 *.tmp
 *.log
+
+# live bridge certificate (never commit private keys)
+config/certs/

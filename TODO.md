@@ -261,8 +261,8 @@ tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬�
    - 检测到换出装/换物品时立即把轮询从退避状态拉回快档。
    即:悬停后最多 ~80–150ms 出中文,无英文闪烁、无二次刷新。
 4. 若将来真要"预翻译",前提是能拿到出装数据(每件装备的 annotation 文本)。当前纯 UI 方案读不到
-   数据层,只能读到已渲染的 DOM;`/v1/builds` 里虽然有数据,但游戏内不能联网(Panorama 已移除
-   `AsyncWebRequest`)。可选的离线近似做法:把"出装 ID → 每件装备 annotation"写进译文库附带的
+   数据层,只能读到已渲染的 DOM;`/v1/builds` 里虽然有数据,但游戏内不能直接发 HTTP 请 求
+   (见下方"实时通道"一节的 HTML 面板方案)。可选的离线近似做法:把"出装 ID → 每件装备 annotation"写进译文库附带的
    索引,打开页面时按当前出装 ID 预热——需要额外解析 build id 标签,收益有限(查表本来就只有 0.1ms),
    列入"可选"。
 
@@ -304,9 +304,42 @@ tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬�
    = 抓数据 + 翻新文本 + 重打 VPK;译文库累积合并,重跑不丢历史。
 
 仍存在、需要接受的限制:
-- 游戏内不能联网(Panorama 已移除 `AsyncWebRequest`),所以**不可能做到"实时翻译"**;
-  最坏情况是新出装显示英文(或部分中文),等下一次刷新。
+- 【已修正】"游戏内不能联网"是错的:`.AsyncWebRequest` 没了,但 `<HTML>` 面板的浏览器仍可访问
+  网络(需要 HTTPS + 被信任的本机证书)。已实现**可选实时通道**(`tools/bridge/bridge.js` +
+  `scripts/gen_bridge_cert.ps1` + 隐藏 `<HTML id="BBTBridgePanel">`),覆盖译文库之外的新文本;
+  未安装时自动退回纯离线。
 - 覆盖范围取决于抓取配额与榜单:deadlock-api 限流 IP 200 req/min;按每英雄 4 个任务算,
   全英雄一轮约 100~130 个请求,属于安全范围。
 - 中文出装(`build_language=ChineseSimplified`)本身不需要翻译,默认不抓;若想覆盖
   中→中(仅为了排版)无意义,故不处理。
+
+### 六、实时通道(2026-10-31,推翻"游戏内不能联网"的旧结论)
+
+先前文档里写的"Panorama 删了 `AsyncWebRequest` 所以不可能实时翻译"是**错的**。
+参考用户自己的 BabelTower(DeadlockLingua)实现:`<HTML>` 面板里的 WebKit 仍能联网,
+只要页面是 HTTPS 且证书链通过校验(自签 + 装进 `CurrentUser\Root`)。
+
+已实现(全部离线可测):
+1.【已加】`scripts/gen_bridge_cert.ps1`:CN=BBT-localhost,SAN 含 `DNS:localhost` +
+   `IP:127.0.0.1` + `IP:::1`,EKU=serverAuth;`-Trust` 用 certutil 装入 CurrentUser\Root,
+   `-Untrust` 移除;改完必须**完全重启 Steam**。
+2.【已加】`tools/bridge/bridge.js`:127.0.0.1:8793 上做 TLS 终结,只暴露
+   `/bridge`(返回页面)、`/api/v1/health`、`/api/v1/translate`;翻译复用现有免 Key Bing
+   provider;带 LRU 缓存;其他路径一律 404(不是通用代理);证书缺失时以退出码 3 提示怎么办。
+3.【已加】`mod/panorama/layout/*.xml`:两个长生命周期布局里声明隐藏
+   `<HTML id="BBTBridgePanel">`(必须在 XML 里声明,运行时 CreatePanel 拿不到真 HTML 面板),
+   样式 1px + opacity 0.01(不能 display:none,否则页面不加载)。
+4.【已加】`bba_translate.js`:启动 1.2s 后探活;`live` 通道单请求串行,结果回写
+   `document.title`;会话内缓存;连续 3 次硬失败关闭本会话;优先级
+   **离线库 → 整句兜底 → 实时 → 术语替换**;离线阶段只做了术语替换的文本会在连上后自动重翻
+   (`liveUpgradeWeakWrites`,用 memo 里的原文,不用被术语替换过的混合串)。
+5.【已加】`tests/live_channel_simtest.js`:11 项断言,覆盖"桥可用时翻译新文本""桥死了不刷屏"
+   "离线命中不发请求""同文本走会话缓存"。
+
+待办:
+- 【新增·低】bridge 做成托盘/静默启动(现在需要手动 `node tools\bridge\bridge.js`);
+  可参考 BabelTower 的 `StartBridgeSilent.vbs` + `install-autostart.bat`。
+- 【新增·低】实时结果落盘(`tools/cache/live_seen.json`)→ 下次 `build_tm.js` 直接并入译文库,
+  让"玩家实际看到的文本"逐步沉淀成离线数据。
+- 【新增·中】批量请求:当前一次一条(单 document.title 通道);可按"一屏内所有未知文本"
+  打包成数组(接口已支持 `text: []`),把 N 个 RTT 压成 1 个。

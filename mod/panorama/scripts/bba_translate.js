@@ -12,8 +12,17 @@
 // the memory falls back to a glossary pass that only swaps hero/item/rank names.
 //
 // Mechanics: poll the layout subtree, hash every label's text, look the hash up
-// and write the Chinese string back. No network access is used or needed
-// (Panorama removed AsyncWebRequest); everything ships inside the VPK.
+// and write the Chinese string back. Everything needed ships inside the VPK, so
+// the mod works with no extra software.
+//
+// Optional live channel (off unless a local bridge is running):
+//   $.AsyncWebRequest is gone, but an <HTML> panel still has a real browser and
+//   can reach the network. If a bridge process serves the page over HTTPS with a
+//   certificate the engine trusts (scripts/gen_bridge_cert.ps1 -Trust +
+//   tools/bridge/bridge.js), text that the offline memory does not know can be
+//   translated on the spot: the page fetches the translation and hands it back
+//   through document.title, which we poll. Same technique as BabelTower's
+//   btipc-https channel.
 // ------------------------------------------------------------------
 (function () {
   "use strict";
@@ -37,6 +46,20 @@
   // tools/collect_new_texts.js can harvest it and grow the translation memory.
   var COLLECT_MISSES = true;
   var MISS_CAP = 300; // per layout instance and session
+
+  // ---- optional live bridge (see the header) ----
+  // AUTO: probe once at boot; if nothing answers, this channel stays off for the
+  // session and the mod behaves exactly like a pure offline build.
+  var LIVE_MODE = "auto"; // "auto" | "off" | "on"
+  var LIVE_PANEL_ID = "BBTBridgePanel";
+  var LIVE_PORT = 8793; // tools/bridge/bridge.js --port
+  var LIVE_HOST = "https://localhost:" + LIVE_PORT;
+  var LIVE_PROBE_TIMEOUT = 2.0; // seconds to wait for the health answer
+  var LIVE_REQUEST_TIMEOUT = 6.0; // seconds per translation request
+  var LIVE_POLL = 0.1; // title poll interval
+  var LIVE_HARD_FAILS_MAX = 3; // give up after this many dead round trips
+  var LIVE_TEXT_MAX = 400; // skip absurdly long labels (title length limit)
+  var LIVE_CACHE_MAX = 600; // session-only memory of live translations
 
   var G = globalThis || this || {};
   var GLOSS = G.BBA_GLOSSARY || null;
@@ -189,6 +212,266 @@
     return joined === raw ? null : joined;
   }
 
+
+  // ---------- optional live bridge ----------
+  // Everything here is guarded: if no bridge answers, these functions do nothing
+  // and the offline memory is the only source. Requests are serialised (one in
+  // flight) because the transport is a single HTML panel whose document.title is
+  // the return channel.
+
+  var live = {
+    state: "unknown", // unknown | probing | on | off
+    panel: null,
+    seq: 0,
+    pending: null, // { id, text, target, done, startedAt, to }
+    queue: [],
+    cache: Object.create(null),
+    cacheKeys: [],
+    hardFails: 0,
+    translated: 0,
+  };
+
+  function liveRoot() {
+    var ctx = null;
+    try { ctx = $.GetContextPanel(); } catch (e) { return null; }
+    // The <HTML> panel is declared in the layout; find it by id once.
+    var stack = [ctx];
+    var budget = 4000;
+    while (stack.length && budget > 0) {
+      budget -= 1;
+      var p = stack.pop();
+      if (!p) continue;
+      try {
+        if (p.id === LIVE_PANEL_ID) return p;
+      } catch (e) {}
+      var n = 0;
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      for (var i = 0; i < n; i += 1) {
+        try {
+          var c = p.GetChild(i);
+          if (c) stack.push(c);
+        } catch (e) {}
+      }
+    }
+    return null;
+  }
+
+  function livePanel() {
+    if (live.panel && live.panel.IsValid && live.panel.IsValid()) return live.panel;
+    live.panel = liveRoot();
+    return live.panel;
+  }
+
+  function liveUrl(id, text, target) {
+    var q = "?id=" + id + "&op=translate&text=" + encodeURIComponent(text);
+    if (target) q += "&target=" + encodeURIComponent(target);
+    return "https://localhost:" + LIVE_PORT + "/bridge" + q;
+  }
+
+  function liveSend(obj, timeoutSec, cb) {
+    var panel = livePanel();
+    if (!panel || typeof panel.SetURL !== "function") {
+      cb(false, "panel_unavailable", null);
+      return null;
+    }
+    var id = "r" + (++live.seq).toString(36);
+    var job = {
+      id: id,
+      url: obj.op === "health"
+        ? "https://localhost:" + LIVE_PORT + "/bridge?id=" + id + "&op=health"
+        : liveUrl(id, obj.text, obj.target),
+      cb: cb,
+      startedAt: 0,
+      polls: 0,
+      maxPolls: Math.ceil((timeoutSec || LIVE_REQUEST_TIMEOUT) / LIVE_POLL),
+      done: false,
+    };
+    live.pending = job;
+    try {
+      panel.SetURL(job.url);
+    } catch (e) {
+      live.pending = null;
+      cb(false, "seturl_failed", null);
+      return null;
+    }
+    $.Schedule(LIVE_POLL, function () { livePoll(job); });
+    return job;
+  }
+
+  // document.title carries "BBT<id>{json}" once the page has the answer.
+  function livePoll(job) {
+    if (!live.pending || live.pending !== job || job.done) return;
+    var panel = livePanel();
+    var title = "";
+    try { title = panel && panel.title ? String(panel.title) : ""; } catch (e) { title = ""; }
+    var prefix = "BBT" + job.id;
+    if (title && title.indexOf(prefix) === 0) {
+      var payload = null;
+      try { payload = JSON.parse(title.slice(prefix.length)); } catch (e) { payload = null; }
+      if (payload) {
+        job.done = true;
+        live.pending = null;
+        job.cb(true, null, payload);
+        return;
+      }
+    }
+    job.polls += 1;
+    if (job.polls > job.maxPolls) {
+      job.done = true;
+      live.pending = null;
+      job.cb(false, "timeout", null);
+      return;
+    }
+    $.Schedule(LIVE_POLL, function () { livePoll(job); });
+  }
+
+  function liveMarkFailure(reason) {
+    live.hardFails += 1;
+    if (live.hardFails >= LIVE_HARD_FAILS_MAX) {
+      live.state = "off";
+      $.Msg("[BBT] live bridge disabled after " + live.hardFails + " failures (" + reason + "); offline memory only");
+    }
+  }
+
+  function liveProbe() {
+    if (LIVE_MODE === "off" || live.state !== "unknown") return;
+    live.state = "probing";
+    liveSend({ op: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
+      if (ok && payload && payload.ok) {
+        live.state = "on";
+        $.Msg("[BBT] live bridge: connected (" + LIVE_HOST + "), offline memory + live fallback");
+        try { liveUpgradeWeakWrites(); } catch (e) {}
+      } else {
+        live.state = "off";
+        $.Msg("[BBT] live bridge: not available (" + (err || (payload && payload.error) || "no_answer") + "); offline memory only");
+      }
+    });
+  }
+
+  // Panels that only got glossary term substitution get a second chance now that
+  // a real translator is available. The source text is taken from the memo (the
+  // label currently shows the mixed string, not the original English).
+  function liveUpgradeWeakWrites() {
+    if (!weakWrites || !weakWrites.has) return;
+    for (var i = 0; i < written.length; i += 1) {
+      var p = written[i];
+      if (!weakWrites.has(p)) continue;
+      weakWrites.delete(p);
+      var rec = memo.get(p);
+      if (!rec || rec.k !== 1 || !rec.in) continue;
+      var cur;
+      try { cur = p.text; } catch (e) { continue; }
+      if (cur !== rec.out) continue; // repainted meanwhile: the scan will redo it
+      queueLiveUpgrade(p, rec.in, rec.out);
+    }
+  }
+
+  var liveUpgrades = [];
+
+  function queueLiveUpgrade(panel, srcText, shownText) {
+    liveUpgrades.push({ panel: panel, text: srcText, shown: shownText });
+  }
+
+  function liveDrainUpgrades() {
+    if (live.state !== "on" || live.pending || !liveUpgrades.length) return;
+    var job = liveUpgrades.shift();
+    var cached = liveCacheGet(job.text);
+    if (cached) {
+      applyLiveUpgrade(job, cached);
+      return;
+    }
+    liveSend({ op: "translate", text: job.text, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+      if (!ok) { liveMarkFailure(err || "no_answer"); return; }
+      var out = payload && payload.translations ? payload.translations[0] : null;
+      if (payload && payload.ok && out) {
+        live.hardFails = 0;
+        liveCachePut(job.text, String(out));
+        applyLiveUpgrade(job, String(out));
+      }
+    });
+  }
+
+  function applyLiveUpgrade(job, value) {
+    var p = job.panel;
+    var cur;
+    try { cur = p.text; } catch (e) { return; }
+    if (cur !== job.shown) return; // user already moved on
+    if (writeText(p, value)) {
+      stats.live += 1;
+      if (debugOn()) logWrite(p, job.text, value, "live-upgrade");
+    }
+    remember(p, 1, job.text, value);
+  }
+
+  function liveCacheGet(text) {
+    return live.cache[text] || null;
+  }
+
+  function liveCachePut(text, value) {
+    if (live.cache[text] !== undefined) return;
+    if (live.cacheKeys.length >= LIVE_CACHE_MAX) delete live.cache[live.cacheKeys.shift()];
+    live.cache[text] = value;
+    live.cacheKeys.push(text);
+  }
+
+  // Ask the bridge for one text. Returns the cached value immediately when known.
+  function liveTranslate(panel, raw) {
+    if (live.state !== "on") return false;
+    if (typeof raw !== "string" || raw.length < 3 || raw.length > LIVE_TEXT_MAX) return false;
+    var cached = liveCacheGet(raw);
+    if (cached) {
+      if (writeText(panel, cached)) {
+        stats.live += 1;
+        if (debugOn()) logWrite(panel, raw, cached, "live-cache");
+      }
+      remember(panel, 1, raw, cached);
+      return true;
+    }
+    if (live.pending) {
+      // One request at a time; retry this text shortly.
+      if (live.queue.indexOf(raw) < 0) live.queue.push(raw);
+      return false;
+    }
+    liveSend({ op: "translate", text: raw, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+      if (!ok) {
+        liveMarkFailure(err || "no_answer");
+        return;
+      }
+      var out = payload && payload.translations ? payload.translations[0] : null;
+      if (payload && payload.ok && out) {
+        live.hardFails = 0;
+        liveCachePut(raw, String(out));
+        stats.live += 1;
+        // Re-read the label: it may have been repainted meanwhile.
+        var cur;
+        try { cur = panel.text; } catch (e) { cur = null; }
+        if (cur === raw) {
+          writeText(panel, String(out));
+          remember(panel, 1, raw, String(out));
+        } else {
+          memo.delete(panel); // let the next scan decide with the current text
+        }
+      }
+    });
+    return false;
+  }
+
+  function liveDrainQueue() {
+    if (live.state !== "on" || live.pending || !live.queue.length) return;
+    var next = live.queue.shift();
+    if (liveCacheGet(next)) return;
+    // No panel reference any more: the label is re-scanned anyway, so just ask
+    // for the text and let the cache serve it next tick.
+    liveSend({ op: "translate", text: next, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+      if (!ok) { liveMarkFailure(err || "no_answer"); return; }
+      var out = payload && payload.translations ? payload.translations[0] : null;
+      if (payload && payload.ok && out) {
+        live.hardFails = 0;
+        liveCachePut(next, String(out));
+      }
+    });
+  }
+
   // ---------- glossary term fallback ----------
 
   var TERM_RE = null;
@@ -288,12 +571,19 @@
 
   var stats = {
     translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0,
-    writes: 0, rebinds: 0, skipped: 0, hidden: 0, fragments: 0,
+    writes: 0, rebinds: 0, skipped: 0, hidden: 0, fragments: 0, live: 0,
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
   // Panels we have written a translation into (bounded, for the rebind sweep).
   var written = [];
+  // Panels whose text we only changed by substituting glossary terms. When the
+  // live bridge comes up these are worth redoing: the offline pass produced a
+  // mixed string, the bridge can produce a real translation of the original.
+  var weakWrites = new WeakSet ? new WeakSet() : null;
+  if (!WeakSet) {
+    var weakList = [];
+  }
   // Identity labels (build name, build id, mod name): their text changes when
   // the shown build/item changes.
   var identity = new WeakMap();
@@ -487,6 +777,9 @@
       return;
     }
 
+    // Unknown text: ask the optional bridge (no-op when it is not running).
+    if (liveTranslate(panel, raw)) return;
+
     noteMiss(raw, panel);
 
     var mixed = null;
@@ -498,8 +791,12 @@
         if (debugOn()) logWrite(panel, raw, mixed, "term");
       }
     }
-    if (mixed) remember(panel, 1, raw, mixed);
-    else remember(panel, 0, raw, null);
+    if (mixed) {
+      remember(panel, 1, raw, mixed);
+      if (weakWrites && weakWrites.add) weakWrites.add(panel);
+    } else {
+      remember(panel, 0, raw, null);
+    }
   }
 
   var lastVisited = 0;
@@ -630,6 +927,8 @@
       } catch (e) {}
     }
     ticksSinceRebind += 1;
+    try { liveDrainQueue(); } catch (e) {}
+    try { liveDrainUpgrades(); } catch (e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
     if (worked) {
       idleTicks = 0;
@@ -668,6 +967,8 @@
     // really covered (e.g. a game update may spawn a new out-of-tree layout).
     $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ") in layout: " + (layoutTag || "?") + "");
     $.Schedule(0.05, tick);
+    // Probe the optional bridge a moment later so it never delays first paint.
+    if (LIVE_MODE !== "off") $.Schedule(1.2, liveProbe);
   }
 
   G.BBT_STATS = stats;

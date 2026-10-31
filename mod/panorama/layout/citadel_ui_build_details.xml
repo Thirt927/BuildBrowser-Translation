@@ -4,6 +4,9 @@
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
 		<include src="s2r://panorama/styles/citadel_ui_build_details.vcss" />
 		<include src="s2r://panorama/styles/avatar_image.vcss" />
+		<style>
+			.BBTBridgePanel { width: 1px; height: 1px; opacity: 0.01; margin: 0px; padding: 0px; hittest: false; }
+		</style>
 	</styles>
 	<scripts>
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
@@ -13,6 +16,8 @@
 	</scripts>
 
 	<CitadelBuildDetails>
+		<!-- optional live-bridge panel: declared here because CreatePanel at runtime does not produce a real <HTML> panel -->
+		<HTML id="BBTBridgePanel" class="BBTBridgePanel" />
 		<GlobalClassListener classes="gShopOpen" />
 		<Panel class="HeroBuildsExtraInfo">
 			<Panel id="Background" />

@@ -53,8 +53,44 @@ Deadlock 出装浏览器(Build Browser)汉化 mod。把出装列表、出装详�
 4. **兜底**:查不到时,长度 ≤160 的短句会用 `bba_glossary.js`(游戏官方中英对照的英雄 / 装备 / 段位名)
    做一次术语替换,例如 `For bullet heavy opponents like Haze, Venator` → `... like 岚梦, 诛邪者`。
 
-> Panorama 在 2026-10 的更新里移除了 `$.AsyncWebRequest`,游戏内 UI 无法发起 HTTP;
-> 所以本 mod 采用"离线译文库"而不是实时机翻。这是能做到"零配置、秒出结果"的关键。
+> **关于"游戏内不能联网"**:`$.AsyncWebRequest` 确实被移除了,但 `<HTML>` 面板里的浏览器
+> 仍然能联网——前提是页面走 **HTTPS 且证书被引擎信任**(参考 Deadlock Modding 的 BabelTower
+> 桥,本仓库独立实现)。利用这点,本 mod 支持一条**可选的实时通道**:详情见下节。
+> 默认仍是离线译文库:不装任何额外程序也能用。
+
+## 可选:实时翻译通道(bridge)
+
+离线译文库只能覆盖抓取过的出装。想连新出装也立刻出中文,可以让一个**本机 bridge 进程**接住
+译文库里没有的文本。原理与 BabelTower 的 `btipc-https` 一致:
+
+```
+Panorama 隐藏 <HTML id="BBTBridgePanel">
+   → 导航 https://localhost:8793/bridge?id=..&text=..
+   → 页面内同源 fetch /api/v1/translate → bridge 用 Bing(免 Key)翻译
+   → 结果写进 document.title("BBT<id>{...}") → 游戏侧 0.1s 轮询读回 → 写入 Label
+```
+
+一次性准备(只需做一次):
+
+```powershell
+# 1) 生成本机自签证书并信任(装进 CurrentUser\Root,无需管理员)
+powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Trust
+# 2) 完全退出 Steam(含托盘图标)再启动 —— 引擎只在启动时读取信任库
+# 3) 启动 bridge(玩游戏时保持运行)
+node tools\bridge\bridge.js
+```
+
+特性与边界:
+
+- **完全可选**:bridge 不在时,启动探针失败一次就永久关闭本会话的实时通道,行为与纯离线版一致
+  (`tests/live_channel_simtest.js` 覆盖"桥死了不乱发请求")。
+- **优先级**:离线译文库 → 整句兜底 → **实时通道** → 术语替换。也就是已收录的文本永远不会
+  触发网络请求。
+- **升级**:离线阶段只做了术语替换的文本,在 bridge 连上后会自动用原文重新翻一遍。
+- **限流**:同一时刻只有一个请求在飞(`document.title` 是单通道),结果在会话内缓存;
+  连续 3 次硬失败即放弃本会话。
+- **隐私**:只发送当前页面里"译文库中没有的英文文本",不发送账号/战绩;日志里不落原文。
+- 卸载实时通道:停掉 bridge 进程即可,mod 自动退回离线模式。
 
 ## 译文库是怎么来的
 
