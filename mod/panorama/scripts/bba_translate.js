@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.7.2";
+  var VERSION = "1.7.3";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -1621,6 +1621,9 @@
     if (uiWiredOnce) return;
     if (!uiPanel(["BBTTranslateButton", "BBTTranslateButton2", "BBTMenuButton", "BBTMenuButton2"])) return;
     uiWiredOnce = true;
+    // Bind every toolbar present in this layout (the selector has one, the
+    // standalone details view has another; a nested details panel hides its own
+    // copy, but the binding is harmless and keeps the code simple).
     onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { G.BBTTranslatePage(); }, "translate");
     onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { G.BBTToggleMenu(); }, "menu");
     var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
@@ -1675,6 +1678,19 @@
         }
       }
     }
+  }
+
+  // Hide/show a panel without relying on `.style` (not available on every panel
+  // type). SetHasClass toggles the CSS class defined in bba.css.
+  function setHidden(panel, hidden) {
+    if (!panel) return;
+    try {
+      if (typeof panel.SetHasClass === "function") {
+        panel.SetHasClass("BBTHidden", !!hidden);
+        return;
+      }
+      if (panel.style) panel.style.visibility = hidden ? "collapse" : "visible";
+    } catch (e) {}
   }
 
   function onActivateChild(panel, fn, name) {
@@ -1929,10 +1945,10 @@
         var pt = null;
         try { pt = up.paneltype; } catch (e) { pt = null; }
         if (pt === "CitadelHeroBuildsSelector") {
-          var c2 = uiPanel("BBTControls2");
-          if (c2) { try { c2.style.visibility = "collapse"; } catch (e) {} }
-          var m2 = uiPanel("BBTMenu2");
-          if (m2) { try { m2.style.visibility = "collapse"; } catch (e) {} }
+          // The selector already shows the toolbar: hide the details view's copy so
+          // there are never two "翻译本页" buttons on screen.
+          setHidden(uiPanel("BBTControls2"), true);
+          setHidden(uiPanel("BBTMenu2"), true);
           break;
         }
         try { up = up.GetParent ? up.GetParent() : null; } catch (e) { break; }
