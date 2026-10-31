@@ -2129,8 +2129,7 @@
         try { upt = String(up.paneltype || ""); } catch (e) { upt = ""; }
         var upc = "";
         try {
-          if (up.classList && typeof up.classList.contains === "function" &&
-              up.classList.contains("BuildDetailsTooltip")) upc = "BuildDetailsTooltip";
+          if (panelHasClass(up, "BuildDetailsTooltip")) upc = "BuildDetailsTooltip";
           if (!upc) upc = String(up.class || "");
         } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
@@ -2138,11 +2137,33 @@
           if (tc && tc.style) tc.style.visibility = "collapse";
           var tm = uiPanel("BBTMenu2");
           if (tm && tm.style) tm.style.visibility = "collapse";
+          // Permanent B1/B5 instrumentation: proves in the morning log that the
+          // hover-tooltip surface really gets its toolbar hidden (v1.9.6 never
+          // hid it - the class check failed on the wrong API).
+          if (debugOn()) $.Msg("[BBT] toolbar hidden in tooltip context (" + (upt || upc) + ")");
           break;
         }
         try { up = up.GetParent ? up.GetParent() : null; } catch (e) { up = null; }
       }
     } catch (e) {}
+    // B5 instrumentation (permanent, BBT_DEBUG-gated): dump the toolbar's own
+    // visibility and first layout sizes so the morning log shows whether the
+    // toolbar exists but is clipped/hidden on a given surface.
+    if (debugOn()) {
+      var tc2 = uiPanel("BBTControls2");
+      if (tc2) {
+        var gv = "?";
+        try { gv = tc2.style ? String(tc2.style.visibility) : "?"; } catch (e) { gv = "?"; }
+        $.Msg(
+          "[BBT] toolbar-geom " +
+            "vis=" + gv +
+            " actual=" + (function () { try { return tc2.actualwidth + "x" + tc2.actualheight; } catch (e) { return "?"; } })() +
+            " tag=" + (function () { try { return tc2.tag; } catch (e) { return "?"; } })()
+        );
+      } else {
+        $.Msg("[BBT] toolbar-geom none in this layout");
+      }
+    }
     // The tag tells you WHICH layout actually carries the scanner; use it with
     // -condebug to check that every layout surface that shows player text is
     // really covered (e.g. a game update may spawn a new out-of-tree layout).

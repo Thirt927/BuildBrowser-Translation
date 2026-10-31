@@ -91,6 +91,14 @@
   同走 `clickProbe`(打 `menu->open/close`)。
 - **早间 3 分钟步骤 ④**:点语言下拉,应出现 `[BBT] click menu->open on BBTMenu2`;
   若位置异常,看 `toolbar-place css-fallback` 行的 actualx/actualy 是否全 0。
+- **B5 — 详情页/hover 页工具条打点(永久,`BBT_DEBUG` 门控)**:
+  - 启动时每个布局一次性打 `[BBT] toolbar-geom vis=? actual=WxH tag=?`(该布局无工具条时
+    `toolbar-geom none in this layout`)——回答 B5a(详情页按钮缺失:是根本没有,还是有但被裁/藏)。
+  - tooltip 上下文隐藏工具条时打 `[BBT] toolbar hidden in tooltip context (...)`——验证 B5b
+    修复生效;隐藏判定改走 `panelHasClass`(B3 的三层读类,旧 `classList`/`.class` 检查
+    在游戏内永远落空,工具条会盖在 hover 提示上)。
+- **早间 3 分钟步骤 ⑤**:看右侧详情页的 `toolbar-geom` 行与「翻译本页」可点性
+  (`click translate`);右键感叹号 hover 页应出 `toolbar hidden in tooltip context` 且无工具条遮挡。
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
