@@ -26,6 +26,8 @@
     return DEBUG || !!G.BBT_DEBUG;
   }
   var POLL_INTERVAL = 0.15; // seconds between scans while something changes
+  var FAST_INTERVAL = 0.08; // burst poll right after new content appears
+  var BURST_TICKS = 4; // how many fast polls after a change
   var IDLE_MAX_INTERVAL = 1.0; // back off to this when the tree is quiet
   var IDLE_TICKS_BEFORE_BACKOFF = 6;
   var SCAN_BUDGET = 6000; // panels visited per tick
@@ -191,12 +193,21 @@
       // Still showing what we wrote -> the engine could not update it.
       if (rec && rec.k === 1 && cur === rec.out) {
         try {
+          // Restore the template: the value the engine already stored in the
+          // dialog variable resolves immediately, so we can read the new English
+          // and translate it in this same tick (no extra frame, no flash of
+          // English, no waiting for the next poll).
           p.text = tok;
         } catch (e) {
           continue;
         }
         memo.delete(p);
         n += 1;
+        var fresh;
+        try { fresh = p.text; } catch (e) { fresh = null; }
+        if (typeof fresh === "string" && fresh.length >= 2 && fresh !== tok) {
+          try { translatePanel(p, fresh); } catch (e) {}
+        }
       }
     }
     if (n) {
@@ -483,6 +494,7 @@
   // second forever while the player is just looking at a screen.
   var interval = POLL_INTERVAL;
   var idleTicks = 0;
+  var burstTicks = 0;
   var ticksSinceRebind = 99;
 
   function tick() {
@@ -500,6 +512,11 @@
     if (identityChanged || (contentChanged && ticksSinceRebind > 3)) {
       identityChanged = false;
       contentChanged = false;
+      // A new build/item is showing: stay responsive for a moment instead of
+      // sitting at the backed-off interval, so a hovered tooltip is translated
+      // on the next poll (~150ms) rather than up to a second later.
+      idleTicks = 0;
+      interval = POLL_INTERVAL;
       try {
         if (rebindStale()) ticksSinceRebind = 0;
       } catch (e) {}
@@ -508,7 +525,15 @@
     var worked = stats.translated + stats.fallback > before || fresh > 0;
     if (worked) {
       idleTicks = 0;
-      interval = POLL_INTERVAL;
+      // New panels (opened tooltip, freshly rendered build page) deserve a
+      // short burst of fast polls so the text is translated as soon as it
+      // exists, instead of waiting for the 150ms cadence.
+      if (fresh > 0) burstTicks = BURST_TICKS;
+      interval = burstTicks > 0 ? FAST_INTERVAL : POLL_INTERVAL;
+    } else if (burstTicks > 0) {
+      burstTicks -= 1;
+      idleTicks = 0;
+      interval = burstTicks > 0 ? FAST_INTERVAL : POLL_INTERVAL;
     } else {
       idleTicks += 1;
       if (idleTicks > IDLE_TICKS_BEFORE_BACKOFF && interval < IDLE_MAX_INTERVAL) {

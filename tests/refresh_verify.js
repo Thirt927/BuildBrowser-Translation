@@ -235,14 +235,14 @@ function check(name, cond, detail) {
   const annOk = annP.engineSet("Key item for Drifter early game.");
   check("[C] annotation update is lost while we hold the label", annOk === false);
 
-  tick(20);
-  check("[C] annotation follows the hovered item", annP.text === "孤猎前期的重要装备。", JSON.stringify(annP.text));
+  tick(1);
+  check("[C] annotation follows the hovered item in the same tick", annP.text === "孤猎前期的重要装备。", JSON.stringify(annP.text));
 
   // and again, back to the first item
   modNameP.engineSet("元灵收割");
   compP.engineSet("元灵收割");
   annP.engineSet("Rend > Heal > Repeat.");
-  tick(20);
+  tick(2);
   check("[C] annotation follows back", annP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annP.text));
 }
 
