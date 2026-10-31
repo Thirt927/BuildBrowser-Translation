@@ -1,6 +1,19 @@
-// BuildBrowser Translation - fetch popular public builds from deadlock-api.
-// Usage: node tools/fetch_builds.js [--weekly 50] [--alltime 30] [--concurrency 3]
+// BuildBrowser Translation - fetch public builds from deadlock-api.
+//
+// Usage:
+//   node tools/fetch_builds.js [--weekly 50] [--alltime 30] [--recent 40]
+//                              [--author <SteamID64>] [--lang English]
+//                              [--ids 123,456] [--ids-only] [--concurrency 3]
 // Output: tools/cache/builds.json
+//
+// The three sources answer three different questions:
+//   --weekly / --alltime  what the in-game browser currently ranks highest
+//                         (same Valve build data the game shows)
+//   --recent              what changed lately: sorted by updated_at, so brand
+//                         new builds that have no favorites yet are included
+//   --author              your own published builds, which never rank
+// --lang keeps only builds written in that language (default English, because
+// the pipeline translates English -> Chinese; Chinese builds need nothing).
 "use strict";
 
 const fs = require("fs");
@@ -32,6 +45,10 @@ const IDS_ONLY = !!arg("ids-only", false);
 // so the in-game TM always knows your texts (they rarely hit popularity
 // rankings and would otherwise fall out of coverage).
 const AUTHOR = String(arg("author", "")).trim();
+// Builds updated within this many days are pulled in as well (0 disables).
+const RECENT = Number(arg("recent", 40));
+const RECENT_DAYS = Number(arg("recent-days", 45));
+const LANG = String(arg("lang", "English")).trim();
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -86,6 +103,15 @@ function keyOf(build) {
   return hb.hero_build_id != null ? String(hb.hero_build_id) : JSON.stringify(hb).slice(0, 80);
 }
 
+/** Query string for /v1/builds. Exported so tests can assert its shape. */
+function buildQuery(opts) {
+  let q = "/v1/builds?hero_id=" + opts.heroId + "&sort_by=" + opts.sort +
+    "&sort_direction=desc&limit=" + opts.limit + "&only_latest=true";
+  if (opts.since) q += "&min_unix_timestamp=" + opts.since;
+  if (opts.lang) q += "&build_language=" + encodeURIComponent(opts.lang);
+  return q;
+}
+
 async function main() {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -109,22 +135,29 @@ async function main() {
   const byId = new Map();
   if (existing) for (const row of existing.builds) byId.set(keyOf(row), row);
 
+  const langFilter = LANG ? "&build_language=" + encodeURIComponent(LANG) : "";
+
   if (!IDS_ONLY) {
     const jobs = [];
     for (const hero of active) {
       jobs.push({ hero, sort: "weekly_favorites", limit: WEEKLY });
       if (ALLTIME > 0) jobs.push({ hero, sort: "favorites", limit: ALLTIME });
+      if (RECENT > 0) {
+        // Only look at builds someone touched recently: this is what keeps the
+        // memory in step with the live browser without re-walking old data.
+        const since = Math.floor(Date.now() / 1000) - RECENT_DAYS * 86400;
+        jobs.push({ hero, sort: "updated_at", limit: RECENT, since });
+      }
     }
 
     const fetched = await pool(jobs, CONCURRENCY, async (job) => {
-      const q =
-        "/v1/builds?hero_id=" +
-        job.hero.id +
-        "&sort_by=" +
-        job.sort +
-        "&sort_direction=desc&limit=" +
-        job.limit +
-        "&only_latest=true";
+      const q = buildQuery({
+        heroId: job.hero.id,
+        sort: job.sort,
+        limit: job.limit,
+        since: job.since,
+        lang: LANG,
+      });
       let rows = [];
       try {
         rows = await getJson(q);
@@ -164,7 +197,7 @@ async function main() {
     } else {
       console.log("fetching public builds by author:", AUTHOR);
       try {
-        const rows = await getJson("/v1/builds/by-author/" + AUTHOR + "?limit=200");
+        const rows = await getJson("/v1/builds/by-author/" + AUTHOR + "?limit=200" + langFilter);
         for (const r of rows || []) {
           byId.set(keyOf(r), { ...r, _sort: "author" });
         }
@@ -180,14 +213,25 @@ async function main() {
     fetched_at: new Date().toISOString(),
     source: API + "/v1/builds",
     heroes: active,
-    requested: { weekly: WEEKLY, alltime: ALLTIME, ids: IDS ? IDS.split(",").length : 0, author: AUTHOR },
+    requested: {
+    weekly: WEEKLY,
+    alltime: ALLTIME,
+    recent: RECENT,
+    language: LANG || "any",
+    ids: IDS ? IDS.split(",").length : 0,
+    author: AUTHOR,
+  },
     builds,
   };
   fs.writeFileSync(OUT, JSON.stringify(out));
   console.log("unique builds:", builds.length, "->", OUT, (fs.statSync(OUT).size / 1024).toFixed(0) + " KB");
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { buildQuery };

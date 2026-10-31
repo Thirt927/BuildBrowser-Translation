@@ -121,6 +121,74 @@
     return null;
   }
 
+  // ---------- fragment fallback ----------
+  // New builds reuse plenty of sentences from older ones ("Key item early game.",
+  // "Lane phase matters."). When the whole description is not in the memory we
+  // translate the parts that ARE, and keep the rest in English -- a mixed result
+  // that is far more useful than "all English". Applied only when most of the
+  // text is covered, so we never produce a mostly-English soup.
+  var FRAG_MIN_LEN = 10; // ignore very short fragments (risky, low information)
+  var FRAG_MIN_COVERAGE = 0.55;
+
+  // Split on sentence enders, line breaks and the ">" / "|" separators common in
+  // build notes. No lookbehind (Panorama's engine does not support it).
+  function splitFragments(text) {
+    var out = [];
+    var buf = "";
+    for (var i = 0; i < text.length; i += 1) {
+      var c = text.charAt(i);
+      if (c === "\n" || c === "|") {
+        out.push(buf);
+        buf = "";
+        continue;
+      }
+      if (c === ">") {
+        out.push(buf);
+        buf = "";
+        continue;
+      }
+      buf += c;
+      if ((c === "." || c === "!" || c === "?" || c === ";") && i + 1 < text.length) {
+        var nx = text.charAt(i + 1);
+        if (nx === " " || nx === "\n" || nx === "\t") {
+          out.push(buf);
+          buf = "";
+          i += 1;
+        }
+      }
+    }
+    out.push(buf);
+    return out;
+  }
+
+  function fragmentTranslate(raw) {
+    var parts = splitFragments(raw);
+    if (parts.length < 2) return null;
+    var total = 0;
+    var covered = 0;
+    var hits = 0;
+    var out = [];
+    for (var i = 0; i < parts.length; i += 1) {
+      var piece = parts[i];
+      var trimmed = piece.replace(/^\s+/, "").replace(/\s+$/, "");
+      total += trimmed.length;
+      var hit = null;
+      if (trimmed.length >= FRAG_MIN_LEN) hit = lookup(trimmed);
+      if (hit && hit.text) {
+        covered += trimmed.length;
+        hits += 1;
+        // keep the original leading whitespace for readable spacing
+        out.push(piece.slice(0, piece.length - piece.replace(/^\s+/, "").length) + hit.text);
+      } else {
+        out.push(piece);
+      }
+    }
+    if (!hits || !total) return null;
+    if (covered / total < FRAG_MIN_COVERAGE) return null;
+    var joined = out.join("");
+    return joined === raw ? null : joined;
+  }
+
   // ---------- glossary term fallback ----------
 
   var TERM_RE = null;
@@ -220,7 +288,7 @@
 
   var stats = {
     translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0,
-    writes: 0, rebinds: 0, skipped: 0, hidden: 0,
+    writes: 0, rebinds: 0, skipped: 0, hidden: 0, fragments: 0,
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
@@ -405,6 +473,17 @@
         if (debugOn()) logWrite(panel, raw, display, "TM");
       }
       remember(panel, 1, raw, display);
+      return;
+    }
+
+    // Sentence-level: new builds mostly reuse sentences from older ones.
+    var frag = fragmentTranslate(raw);
+    if (frag) {
+      if (writeText(panel, frag)) {
+        stats.fragments += 1;
+        if (debugOn()) logWrite(panel, raw, frag, "frag");
+      }
+      remember(panel, 1, raw, frag);
       return;
     }
 

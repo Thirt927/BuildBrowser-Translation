@@ -72,9 +72,12 @@ powershell -ExecutionPolicy Bypass -File scripts\refresh_tm.ps1 -GameCitadel "<D
 # 1) 从本机游戏文件生成官方中英术语表(英雄/装备/段位/技能)
 node tools/build_glossary.js --game-root "<Deadlock>/game/citadel"
 
-# 2) 抓取 deadlock-api 上各英雄的热门公开出装(默认每英雄 50 条周热门 + 30 条历史热门;
-#    scripts/refresh_tm.ps1 默认用 100 + 60,覆盖更全)
-node tools/fetch_builds.js --weekly 50 --alltime 30
+# 2) 抓取 deadlock-api 上的公开出装,三个来源合起来才是"尽量全":
+#    --weekly/--alltime  游戏内浏览器同样按"周/历史收藏"排名的那些
+#    --recent            最近 45 天被更新过的(新出装没有收藏数,靠这个抓)
+#    --author            你自己的出装(永远不上榜,靠这个抓)
+#    --lang English      机翻方向是 英->中,只抓英文出装(中文出装本来不用翻)
+node tools/fetch_builds.js --weekly 50 --alltime 30 --recent 40 --lang English
 
 # 3) 提取所有玩家文本 -> 免费 Bing 翻译 -> 写入 mod/panorama/scripts/bba_tm.js
 node tools/build_tm.js --seed samples/sample-build-code.txt
@@ -186,14 +189,41 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 
 ## 已知限制
 
-- **只翻译译文库收录过的文本**。新发布的出装、冷门出装可能仍是英文(会有术语替换兜底)。
-  跑一遍上面的流水线即可把最新热门出装补进译文库。
+- **只翻译译文库收录过的文本**。新发布的出装、冷门出装可能仍是英文(有术语/整句兜底)。
+  想让新出装也变中文,需要重新生成译文库并重打 VPK(见下节"出装更新了怎么办")。
 - 译文质量来自机器翻译 + 官方术语保护,个别句子可能生硬。
 - 游戏大版本更新后,布局可能变化:需要重新用 Source 2 Viewer 反编译对应 `*.vxml_c`,
   更新 `mod/panorama/layout/` 里的覆盖文件(保持原有结构,只加 `<scripts>`)。
 - 构建链路目前只支持 Windows(resourcecompiler + vpkeditcli.exe);
   Linux/macOS 需要自行提供等价工具(见 TODO.md)。
 - 修改的是纯 UI 显示,不读写游戏内存、不与服务器通信、不改动任何游戏数据。
+
+## 出装更新了怎么办
+
+译文库是**打包时的快照**,游戏内不联网。所以数据侧一定会随时间落后,当前的处理方式是三层:
+
+| 手段 | 效果 | 代价 |
+|---|---|---|
+| **整句兜底**(已内置) | 新出装里凡是"以前出现过"的句子,直接命中译文,其余保持英文;整段覆盖率 ≥55% 才采用,避免中英混杂 | 游戏内零成本(查表) |
+| **术语兜底**(已内置) | ≤160 字符的短句仍做英雄/装备/段位名替换 | 零成本 |
+| **重新生成译文库 + 重打 VPK** | 新文本进库,100% 变中文 | 一条命令,几分钟(见下) |
+
+```powershell
+# 1) 抓最新数据(含最近 45 天更新的、以及你自己的出装)
+node tools\fetch_builds.js --weekly 100 --alltime 60 --recent 40 --lang English --author "<你的SteamID64>"
+# 2) 重新翻译并生成 bba_tm.js(断点续翻,只翻新增文本)
+node tools\build_tm.js
+# 3) 重打 VPK(约十几秒,不需要重启电脑)
+powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<CSDK>"
+# 或一步到位:
+powershell -ExecutionPolicy Bypass -File scripts\refresh_tm.ps1 -Author "<你的SteamID64>" -Build -Csdk12Root "<CSDK>"
+```
+
+打完后把新的 `dist/pak13_dir.vpk` 覆盖到 `game\citadel\addons\`,**重启游戏**即可。
+因为译文库是累积的(`build_tm.js` 会合并旧的 `bba_tm.js`),重跑不会丢已翻译的内容。
+
+> 想更省事:把 `dist/pak13_dir.vpk` 作为 Release 附件发布,自己更新时别人只需下载覆盖;
+> 仓库里的 CI(见 `.github/workflows/tests.yml`)会在流水线变更时校验生成物一致性。
 
 ## 已知问题与待办
 

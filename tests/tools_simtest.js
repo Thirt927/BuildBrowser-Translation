@@ -86,6 +86,17 @@ if (existing) {
   check("emitted count matches", sb.BBA_TM_COUNT === 3, String(sb.BBA_TM_COUNT));
 }
 
+// --- fetch_builds query shape ---
+{
+  const { buildQuery } = require(path.join(ROOT, "tools", "fetch_builds.js"));
+  const q = buildQuery({ heroId: 64, sort: "updated_at", limit: 40, since: 1700000000, lang: "English" });
+  check("fetch query asks for the newest version only", q.indexOf("only_latest=true") > 0, q);
+  check("fetch query filters language", q.indexOf("build_language=English") > 0, q);
+  check("fetch query filters by update time", q.indexOf("min_unix_timestamp=1700000000") > 0, q);
+  const plain = buildQuery({ heroId: 1, sort: "weekly_favorites", limit: 5 });
+  check("fetch query omits filters when unset", plain.indexOf("build_language") < 0 && plain.indexOf("min_unix") < 0, plain);
+}
+
 // --- term protection ---
 const protector = bbtm.buildProtector(glossary);
 check("protector has terms", protector.terms.length > 100, "terms=" + protector.terms.length);
