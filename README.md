@@ -375,6 +375,25 @@ powershell -ExecutionPolicy Bypass -File scripts\refresh_tm.ps1 -Author "<你的
 > 想更省事:把 `dist/pak13_dir.vpk` 作为 Release 附件发布,自己更新时别人只需下载覆盖;
 > 仓库里的 CI(见 `.github/workflows/tests.yml`)会在流水线变更时校验生成物一致性。
 
+## 某个位置没被翻译时怎么定位
+
+布局覆盖是"一个文件一个文件"的,游戏更新或某个面板来自**独立布局文件**时,那个位置就扫不到。
+两步定位:
+
+```powershell
+# 1) 在反编译目录里找:某个面板到底属于哪个布局文件(按本地化 token 或界面文字搜)
+node tools\find_layouts.js "<S2V导出目录>" --token Citadel_HeroBuilds_BuildDescription
+node tools\find_layouts.js "<S2V导出目录>" --text "Overview"
+
+# 2) 一条命令给这些布局注入扫描脚本(支持逗号分隔多个;支持通配符 *build**)
+powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导出目录>" -Names "citadel_ui_build_details_overview" -NoTm
+```
+
+然后重打 VPK。游戏内用 `-condebug` 看 `console.log`:
+- 启动时每个生效的布局都会打印 `[BBT] vX loaded (...) in layout: <面板名>`;
+- 工具条绑定成功会打印 `[BBT] toolbar wired: N control(s)`(没有这行 = 该布局里没有工具条,或绑定失败);
+- `BBT_STATS` 可看 `translated / dialogVar / rebinds / live` 等计数,`BBT_DEBUG = true` 看每次写入。
+
 ## 已知问题与待办
 
 完整的问题列表 / 待解决项 / 计划中的新功能见 [TODO.md](TODO.md)。
