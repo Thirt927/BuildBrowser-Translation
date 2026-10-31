@@ -526,3 +526,24 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
 - `refresh_verify` 新增 Case F(真实 `SetDialogVariable` 行为):译文写入后**模板仍绑定**、
   连换两次出装都能跟着变、`rebinds === 0`;Case C 改为真实绑定,验证悬停复用面板。
 - `scene_verify` 新增布局配平 + id 唯一性检查。
+
+## 十一、通过 mod 逆向发现(2026-10-31,无游戏本体也能推进的部分)
+
+在 GameBanana 上扫描 Deadlock 的 UI/翻译类 mod(Game ID 20948),用自研的 VPK 解析器
+(`tools/vpk_list.js`) + Source2Viewer-CLI 20.1(Linux 版,`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`
+即可在 WSL 运行)得出结论:
+
+1.【已确认】**还有一个布局没被覆盖**:`panorama/layout/citadel_shop_mods_build_category.vxml_c`。
+   它的结构里明确有 `CategoryName` / `CategoryDescription` 两个标签(本地化 token
+   `#Citadel_HeroBuilds_CategoryName` / `#Citadel_HeroBuilds_CategoryDescription`),
+   正是"概述/分类说明"区域。结论:**这是"概述里的描述没翻译"的直接原因之一**。
+   需要反编译这一份布局后注入脚本(与我们已有 5 个一样处理)。
+2.【已确认】翻译类 mod(如 *Traditional Chinese Full Translation*)只发
+   `resource/localization/citadel_*/citadel_*_english.txt`(键 + 译文),**不含布局**;
+   Babel Tower 只发 `panorama/layout/chat.vxml_c`、`hudchat.vxml_c`。
+   所以"不装游戏、靠 mod 拿布局"只能拿到**被某个 mod 改过的**那一份,拿不到原生布局。
+3.【已做】新增 `tools/vpk_list.js`:列 VPK 内容 + **扫描 addons 冲突**(同文件多 pak 时谁赢),
+   这是"某处永远英文"的第一排查手段(其它 mod 用更小编号压住我们)。
+4.【已做】`tests/vpk_list_simtest.js`:内存构造 VPK 后回读,验证解析与 pak 编号优先级。
+5.【待办】拿到 `game/citadel/pak01_dir.vpk`(约 150MB,DepotDownloader `-filelist` 只取这一个文件,
+   或找有游戏的人直接发这个文件)后,可以一次性枚举所有布局 + 真实本地化,把覆盖率补全。

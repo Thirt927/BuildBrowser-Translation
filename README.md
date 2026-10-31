@@ -375,6 +375,19 @@ powershell -ExecutionPolicy Bypass -File scripts\refresh_tm.ps1 -Author "<你的
 > 想更省事:把 `dist/pak13_dir.vpk` 作为 Release 附件发布,自己更新时别人只需下载覆盖;
 > 仓库里的 CI(见 `.github/workflows/tests.yml`)会在流水线变更时校验生成物一致性。
 
+## 查"到底哪个 pak 提供了某个布局"
+
+```powershell
+# 单个 VPK 里有什么
+node tools\vpk_list.js "<某个 mod 或游戏>.vpk" --filter panorama/layout
+
+# 扫描整个 addons 目录:谁提供了哪些 panorama 文件、谁被谁压住(编号小的赢)
+node tools\vpk_list.js --addons "<Deadlock>\game\citadel\addons"
+```
+
+第二条是排查"翻译没生效"的第一现场:如果别的 mod 也提供了同名布局且编号更小,
+它就会**整份覆盖**我们的版本,表现就是"某些位置永远是英文"。
+
 ## 某个位置没被翻译时怎么定位
 
 布局覆盖是"一个文件一个文件"的,游戏更新或某个面板来自**独立布局文件**时,那个位置就扫不到。

@@ -29,6 +29,8 @@ jobs:
         run: node tests/tm_table_simtest.js
       - name: Toolbar button and language modes
         run: node tests/ui_button_simtest.js
+      - name: VPK inspector
+        run: node tests/vpk_list_simtest.js
       - name: Toolbar exists in both layouts
         run: node tests/toolbar_cover_simtest.js
       - name: Layout token table is in sync
