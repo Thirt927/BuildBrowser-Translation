@@ -224,6 +224,13 @@ async function translateOne(text, target) {
   if (value) {
     cachePut(key, value);
     recordSeen(src, value, target); // grows the offline memory next time
+    // Auto-save: everything the game asked for lands in the local table, so the
+    // next time it is an instant lookup instead of a network round trip.
+    try {
+      table.add(src, value, { source: "auto", explicit: true, lg: target });
+    } catch (e) {
+      /* a broken table must never break translation */
+    }
   }
   return value;
 }
@@ -270,6 +277,21 @@ function bridgePage(query) {
   const op = String(query.get("op") || "translate").replace(/[^a-z]/g, "");
   // ?p= lets the caller pick the API endpoint (e.g. /api/v1/tm/translate); it is
   // whitelisted so the page can never be pointed at arbitrary URLs.
+  // ?api= is a raw GET passthrough for whitelisted endpoints (used by the
+  // overrides fetch, which needs a query string of its own).
+  const rawApi = String(query.get("api") || "");
+  if (/^\/api\/v1\/(tm\/(lookup|overrides|stats|translate)|translate)(\?[^\s]*)?$/.test(rawApi)) {
+    return [
+      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>bbt-bridge</title></head><body>",
+      "<script>(function(){",
+      "var id=" + JSON.stringify(id) + ";",
+      "function out(o){try{document.title='BBT'+id+JSON.stringify(o);}catch(e){}}",
+      "try{document.title='bbt-alive';}catch(e){}",
+      "fetch(" + JSON.stringify(rawApi) + ").then(function(r){return r.json();})",
+      ".then(function(j){out(j);}).catch(function(e){out({ok:false,error:String(e)});});",
+      "})();</script></body></html>",
+    ].join("");
+  }
   const wantedPath = String(query.get("p") || "");
   const apiPath = /^\/api\/v1\/(translate|tm\/translate|health)$/.test(wantedPath)
     ? wantedPath
@@ -315,6 +337,40 @@ function readJson(req) {
     });
     req.on("error", () => resolve({}));
   });
+}
+
+// ---- overrides against the shipped memory ----
+let offlineCache = null; // { "zh-Hans": { key: translation } }
+function offlineMemory(lg) {
+  if (offlineCache && offlineCache[lg]) return offlineCache[lg];
+  offlineCache = offlineCache || {};
+  const file = path.join(ROOT, "mod", "panorama", "scripts", "bba_tm.js");
+  let map = {};
+  try {
+    const { readFromScript } = require("../tm_format.js");
+    map = readFromScript(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    map = {};
+  }
+  // The shipped memory is Chinese only.
+  offlineCache[lg] = lg === "zh-Hans" || !lg ? map : {};
+  offlineCache["zh-Hans"] = offlineCache[lg];
+  return offlineCache[lg];
+}
+
+/** Local rows whose translation differs from what the VPK ships. */
+function overridesFor(lg) {
+  const offline = offlineMemory(lg);
+  const out = [];
+  for (const row of table.records.values()) {
+    if ((row.lg || "zh-Hans") !== lg) continue;
+    const base = String(row.k).slice(String(row.k).indexOf("|") + 1);
+    const shipped = offline[base];
+    if (shipped && shipped === row.tr) continue; // same as the pak: no override
+    out.push({ k: base, text: row.src, tr: row.tr });
+    if (out.length >= 500) break; // bounded payload
+  }
+  return out;
 }
 
 function start() {
@@ -366,11 +422,21 @@ function start() {
     if (req.method === "POST") body = await readJson(req);
     else body = Object.fromEntries(url.searchParams.entries());
     const texts = Array.isArray(body.texts) ? body.texts : body.texts ? [body.texts] : [];
+    const lg = String(body.target || body.lg || TARGET);
     const results = texts.map((t) => {
-      const hit = table.lookup(String(t || ""));
+      const hit = table.lookup(String(t || ""), lg);
       return hit ? hit.translation : null;
     });
     return send(200, "application/json", JSON.stringify({ ok: true, results }));
+  }
+
+  // Entries that override the shipped memory (the user asked for local wins).
+  // Loaded once from bba_tm.js so we only send real conflicts, not the whole
+  // table: a local translation for a text the VPK also has, but different.
+  if (p === "/api/v1/tm/overrides") {
+    const lg = String(url.searchParams.get("target") || url.searchParams.get("lg") || TARGET);
+    const list = overridesFor(lg);
+    return send(200, "application/json", JSON.stringify({ ok: true, overrides: list }));
   }
 
   // Lookup + translate the misses + grow the table. This is the button's request.
@@ -388,7 +454,7 @@ function start() {
       let added = 0;
       for (const raw of texts) {
         const text = String(raw);
-        const hit = table.lookup(text);
+        const hit = table.lookup(text, target);
         if (hit) {
           hits += 1;
           out.push(hit.translation);
@@ -399,7 +465,7 @@ function start() {
           out.push(null);
           continue;
         }
-        const r = table.add(text, value, { source, explicit: true });
+        const r = table.add(text, value, { source, explicit: true, lg: target });
         added += r.added;
         out.push(value);
       }
@@ -440,5 +506,6 @@ function start() {
 if (require.main === module) start();
 
 module.exports = {
-  bridgePage, translateMany, translateOne, resolveCert, knownCerts, recordSeen, flushSeen, seenFile, table,
+  bridgePage, translateMany, translateOne, resolveCert, knownCerts, recordSeen, flushSeen, seenFile,
+  table, overridesFor, offlineMemory,
 };

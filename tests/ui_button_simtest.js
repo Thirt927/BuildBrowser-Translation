@@ -26,6 +26,18 @@ for (const [k, v] of Object.entries(KNOWN)) {
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "bbt-ui-"));
 fs.writeFileSync(path.join(TMP, "tm.js"), tmFormat.emitScript(map, { generated_at: "test" }));
 
+// same key derivation as the game: double hash of the flattened text
+function hashKey(text) {
+  const flat = String(text).replace(/\s+/g, " ").trim();
+  let h1 = 5381;
+  let h2 = 52711;
+  for (let i = 0; i < flat.length; i += 1) {
+    h1 = (h1 * 33 + flat.charCodeAt(i)) >>> 0;
+    h2 = (h2 * 33 + flat.charCodeAt(i)) >>> 0;
+  }
+  return h1.toString(36) + "-" + h2.toString(36);
+}
+
 const NEW_TEXTS = {
   "Key item for Drifter early game.": "孤猎前期的重要装备。",
   "Buy two more copies later.": "之后再买两份。",
@@ -76,6 +88,15 @@ function boot(texts, opts) {
     const op = u.searchParams.get("op");
     const tag = Number(u.port) === 8792 ? "LCT" : "BBT";
     timers.push(() => {
+      if (decodeURIComponent(url).indexOf("tm/overrides") > 0) {
+        const list = Object.keys(opts.overrides || {}).map((text) => ({
+          k: hashKey(text),
+          text,
+          tr: opts.overrides[text],
+        }));
+        bridge._title = tag + id + JSON.stringify({ ok: true, overrides: list });
+        return;
+      }
       if (op === "health") {
         bridge._title = tag + id + JSON.stringify({ ok: true, name: "bbt-bridge", provider: "bing" });
         return;
@@ -216,6 +237,23 @@ function check(name, cond, detail) {
   check("menu opens", ctx.menu.classList.indexOf("BBTMenuOpen") >= 0, JSON.stringify(ctx.menu.classList));
   ctx.sandbox.BBTToggleMenu();
   check("menu closes", ctx.menu.classList.indexOf("BBTMenuOpen") < 0, JSON.stringify(ctx.menu.classList));
+}
+
+// ---------------------------------------------------------------- overrides + language
+{
+  const ctx = boot(["Rend > Heal > Repeat.", "Key item for Drifter early game."], { port: 8793, overrides: { "Rend > Heal > Repeat.": "覆盖后的译文。" } });
+  pump(ctx, 200);
+  const offlineLabel = ctx.root.children[3]; // first injected text label
+  const liveLabel = ctx.root.children[4];
+  check("override replaces the shipped translation", offlineLabel.text === "覆盖后的译文。", JSON.stringify(offlineLabel.text));
+  check("non-overridden text still uses the bridge", liveLabel.text === "孤猎前期的重要装备。", JSON.stringify(liveLabel.text));
+  check("override count surfaced", ctx.sandbox.BBT_STATS.overrides >= 1, String(ctx.sandbox.BBT_STATS.overrides));
+
+  // switch target language: zh-Hans lookups stop applying, the local table serves
+  ctx.sandbox.BBTSetTargetLang("ja");
+  pump(ctx, 10);
+  check("language choice is persisted", ctx.stored.bbt_target_lang === "ja", JSON.stringify(ctx.stored));
+  check("stats report the target language", ctx.sandbox.BBT_LIVE_STATE().targetLang === "ja", JSON.stringify(ctx.sandbox.BBT_LIVE_STATE().targetLang));
 }
 
 // ---------------------------------------------------------------- no bridge: button says so

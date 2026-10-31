@@ -126,14 +126,14 @@ function boot(labels, htmlOpts) {
 }
 
 // Advance the fake clock: run every scheduled callback (and callbacks they book).
+// One scheduled callback per step: the poll loop reschedules itself, so draining
+// the whole queue at once would burn the poll budget before the fake page answers.
 function pump(ctx, steps) {
   for (let i = 0; i < steps; i += 1) {
-    const batch = ctx.queue.splice(0, ctx.queue.length);
-    for (const item of batch) {
-      item.fn();
-      // The fake network answered: let the page "load" its result.
-      while (ctx.htmlOpts.timers.length) ctx.htmlOpts.timers.shift()();
-    }
+    const next = ctx.queue.shift();
+    if (!next) break;
+    next.fn();
+    while (ctx.htmlOpts.timers.length) ctx.htmlOpts.timers.shift()();
   }
 }
 
@@ -150,7 +150,7 @@ function check(name, cond, detail) {
   const label = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
   const opts = { urls: [], timers: [], dead: false };
   const ctx = boot([label], opts);
-  pump(ctx, 30);
+  pump(ctx, 200);
   check("live: health probe issued", opts.urls.some((u) => u.indexOf("op=health") > 0), JSON.stringify(opts.urls.slice(0, 2)));
   check("live: unknown text translated through the bridge", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
   check(
@@ -174,10 +174,10 @@ function check(name, cond, detail) {
   // second label with the same text must be served from the session cache
   const l2 = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
   const ctx2 = boot([l2], { urls: [], timers: [], dead: false });
-  pump(ctx2, 30);
+  pump(ctx2, 200);
   const urlsBefore = ctx2.htmlOpts.urls.length;
   l2.text = "Key item for Drifter early game."; // engine repaint of the same text
-  pump(ctx2, 30);
+  pump(ctx2, 200);
   check("live: repeat text uses the cache", ctx2.htmlOpts.urls.length === urlsBefore || l2.text === "孤猎前期的重要装备。", String(ctx2.htmlOpts.urls.length - urlsBefore));
 }
 
@@ -188,11 +188,11 @@ function check(name, cond, detail) {
   const label = makeLabel("Buy this before the team fight.", "ModifiesLabel");
   const opts = { urls: [], timers: [], dead: true };
   const ctx = boot([label], opts);
-  pump(ctx, 60);
+  pump(ctx, 300);
   check("offline: text untouched when the bridge is dead", label.text === "Buy this before the team fight.", JSON.stringify(label.text));
   check("offline: channel marked off", ctx.log.some((l) => l.indexOf("live bridge: not available") >= 0), JSON.stringify(ctx.log.slice(0, 3)));
   const urlsAfterGiveUp = opts.urls.length;
-  pump(ctx, 40);
+  pump(ctx, 200);
   check("offline: no request storm after giving up", opts.urls.length <= urlsAfterGiveUp + 1, String(opts.urls.length - urlsAfterGiveUp));
 }
 
@@ -203,8 +203,15 @@ function check(name, cond, detail) {
   const label = makeLabel("Buy this before the team fight.", "ModifiesLabel");
   const opts = { urls: [], timers: [], dead: false, port: 8793 };
   const ctx = boot([label], opts);
-  pump(ctx, 40);
+  pump(ctx, 200);
   check("fallback: probed 8792 then 8793", opts.urls[0].indexOf(":8792/") > 0 && opts.urls.some((u) => u.indexOf(":8793/") > 0), JSON.stringify(opts.urls.slice(0, 3)));
+  if (label.text !== "团战前先买这个。") {
+    console.log("   urls:", JSON.stringify(opts.urls, null, 1));
+    console.log("   stats:", JSON.stringify(ctx.sandbox.BBT_STATS));
+    console.log("   log:", JSON.stringify(ctx.log.slice(0, 4)));
+    console.log("   state:", JSON.stringify(ctx.sandbox.BBT_LIVE_STATE()));
+    console.log("   lastError:", ctx.sandbox.BBT_STATS.liveLastError);
+  }
   check("fallback: own bridge translates", label.text === "团战前先买这个。", JSON.stringify(label.text));
 }
 
@@ -215,7 +222,7 @@ function check(name, cond, detail) {
   const label = makeLabel("Rend > Heal > Repeat.", "BuildDescription");
   const opts = { urls: [], timers: [], dead: false };
   const ctx = boot([label], opts);
-  pump(ctx, 30);
+  pump(ctx, 200);
   check("memory: offline hit still translated", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
   check("memory: no translate request for known text", !opts.urls.some((u) => u.indexOf("op=translate") > 0), JSON.stringify(opts.urls));
 }

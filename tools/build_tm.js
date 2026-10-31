@@ -172,6 +172,35 @@ function restore(text, used) {
 // ---- translation driver ----
 
 const LIVE_SEEN = path.join(CACHE_DIR, "live_seen.json");
+const PACK_DIR = path.join(__dirname, "packs");
+
+/**
+ * Translations contributed as packs (tools/packs/*.json). They carry public build
+ * text that somebody already translated locally; merging them here means a
+ * maintainer can ship them without re-running the whole pipeline.
+ */
+function loadPacks() {
+  const rows = [];
+  try {
+    for (const name of fs.readdirSync(PACK_DIR)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const pack = JSON.parse(fs.readFileSync(path.join(PACK_DIR, name), "utf8"));
+        for (const row of (pack && pack.rows) || []) {
+          if (!row || !row.text || !row.translation) continue;
+          // The shipped memory is Chinese only; other languages need their own pak.
+          if (row.lg && row.lg !== "zh-Hans") continue;
+          rows.push({ text: row.text, translation: row.translation, pack: name });
+        }
+      } catch (e) {
+        console.warn("skipping unreadable pack " + name + ": " + e.message);
+      }
+    }
+  } catch (e) {
+    /* no packs directory */
+  }
+  return rows;
+}
 
 /** Translations the optional live bridge produced while playing. */
 function loadLiveSeen() {
@@ -437,6 +466,17 @@ async function main() {
   }
   if (liveSeen.length) console.log("live-seen texts merged:", liveAdded, "of", liveSeen.length);
 
+  // Community packs (tools/packs/*.json) are folded in the same way.
+  const packRows = loadPacks();
+  let packAdded = 0;
+  for (const row of packRows) {
+    const key = textKey(row.text);
+    if (!cache[key]) cache[key] = row.translation;
+    if (!texts.has(key)) texts.set(key, { text: row.text, kind: "pack" });
+    packAdded += 1;
+  }
+  if (packRows.length) console.log("pack rows merged:", packAdded);
+
   const entries = new Map();
   let missing = 0;
   for (const item of texts.values()) {
@@ -479,4 +519,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadLiveSeen, loadExistingTm, textKey, normalizeText, flattenText, hash32, buildProtector, protect, restore };
+module.exports = { loadPacks, loadLiveSeen, loadExistingTm, textKey, normalizeText, flattenText, hash32, buildProtector, protect, restore };

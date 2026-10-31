@@ -27,6 +27,15 @@
 // aliases, capped), value dedup (same translation + similar text = alias),
 // usage-weighted eviction in batches when over budget, and a hard entry/byte cap.
 //
+// Languages: every record belongs to a target language ("lg"). Keys are namespaced
+// per language, so the same English sentence can hold a zh-Hans and a ja record
+// without overwriting each other.
+//
+// Adaptive thresholds:
+//   * the SimHash distance grows with the sentence length (short strings are
+//     merged strictly, long ones loosely) -- see `distanceFor`
+//   * the alias cap grows with how often the template is used -- see `aliasCapFor`
+//
 // Storage: table.jsonl is append-only (one record per line), compacted into
 // table.json when it grows past a ratio. Writes are atomic (temp + rename) and
 // guarded by a lock file, so two game instances do not corrupt it.
@@ -38,16 +47,20 @@ const crypto = require("crypto");
 
 const SCHEMA = 1;
 
+const DEFAULT_LANG = "zh-Hans";
+
 const POLICY = {
   maxEntries: 150000,
   maxBytes: 32 * 1024 * 1024,
-  maxAliases: 8,
+  maxAliases: 8, // floor; see aliasCapFor() for the adaptive value
+  aliasCapMax: 16,
   // Admission: a text is persisted when it was requested at least twice, or it is
   // short (short strings recur), or the user explicitly asked for it (button).
   admitMinUses: 2,
   admitShortLen: 120,
   // Near-duplicate similarity threshold (Hamming distance over the SimHash).
-  simHashDistance: 3,
+  simHashDistance: 3, // used for short texts; see distanceFor()
+  simHashDistanceMax: 5,
   // Eviction: evict the lowest `score` in batches of this fraction, amortised.
   evictBatchRatio: 0.05,
   compactRatio: 4, // jsonl bytes / json bytes before compaction
@@ -171,6 +184,35 @@ function shingleBucket(hash) {
   return hash.slice(0, 4); // 16 bits
 }
 
+/** Token count of a text (drives the adaptive thresholds). */
+function tokenCount(text) {
+  return tokenize(maskNumbers(flattenText(text)).text).length;
+}
+
+/**
+ * Adaptive SimHash threshold: 2 for very short strings, up to 5 for long ones.
+ * Short strings ("gg", "push mid") have few shingles, so a loose threshold would
+ * merge unrelated phrases; long strings differ by a word or two and still mean
+ * the same thing.
+ */
+function distanceFor(text, policy) {
+  const p = policy || POLICY;
+  const n = tokenCount(text);
+  const base = n <= 6 ? 2 : n <= 14 ? 3 : n <= 30 ? 4 : 5;
+  return Math.min(base, p.simHashDistanceMax || 5);
+}
+
+/**
+ * Adaptive alias cap: popular templates collect more variants. Small tables stay
+ * tight (memory), heavily reused sentences get room.
+ */
+function aliasCapFor(row, policy) {
+  const p = policy || POLICY;
+  const uses = (row && row.n) || 1;
+  const cap = 4 + Math.floor(uses / 10);
+  return Math.min(Math.max(cap, 4), p.aliasCapMax || 16);
+}
+
 // ---------------------------------------------------------------- the table
 
 function nowMs() {
@@ -194,6 +236,17 @@ class TranslationTable {
   }
 
   // ---- persistence ----
+
+  // ---- language helpers ----
+  /** Internal key: language + exact hash. */
+  _k(lg, base) {
+    return (lg || DEFAULT_LANG) + "|" + base;
+  }
+
+  _split(k) {
+    const i = String(k).indexOf("|");
+    return i < 0 ? { lg: DEFAULT_LANG, base: String(k) } : { lg: k.slice(0, i), base: k.slice(i + 1) };
+  }
 
   load() {
     fs.mkdirSync(this.dir, { recursive: true });
@@ -289,7 +342,7 @@ class TranslationTable {
     this.records.set(row.k, row);
     if (row.t) this.byTemplate.set(row.t, row.k);
     if (row.sh) {
-      const b = shingleBucket(row.sh);
+      const b = (row.lg || DEFAULT_LANG) + "|" + shingleBucket(row.sh);
       let set = this.byShingle.get(b);
       if (!set) this.byShingle.set(b, (set = new Set()));
       set.add(row.k);
@@ -303,7 +356,7 @@ class TranslationTable {
     this.records.delete(k);
     if (row.t && this.byTemplate.get(row.t) === k) this.byTemplate.delete(row.t);
     if (row.sh) {
-      const set = this.byShingle.get(shingleBucket(row.sh));
+      const set = this.byShingle.get((row.lg || DEFAULT_LANG) + "|" + shingleBucket(row.sh));
       if (set) set.delete(k);
     }
     for (const a of row.v || []) if (this.aliasIndex.get(a) === k) this.aliasIndex.delete(a);
@@ -311,11 +364,12 @@ class TranslationTable {
 
   // ---- lookup ----
 
-  /** Returns { translation, via } or null. */
-  lookup(text) {
+  /** Returns { translation, via } or null. `lg` selects the target language. */
+  lookup(text, lg) {
     const flat = flattenText(text);
     if (!flat) return null;
-    const k = textKey(flat);
+    const L = lg || DEFAULT_LANG;
+    const k = this._k(L, textKey(flat));
     const direct = this.records.get(k);
     if (direct) {
       direct.n = (direct.n || 0) + 1;
@@ -332,7 +386,7 @@ class TranslationTable {
       return { translation: row.tr, via: "alias" };
     }
 
-    const tk = templateKey(flat);
+    const tk = this._k(L, templateKey(flat));
     const tplKey = this.byTemplate.get(tk);
     if (tplKey) {
       const row = this.records.get(tplKey);
@@ -345,7 +399,8 @@ class TranslationTable {
     }
 
     const sh = simhash(flat);
-    const set = this.byShingle.get(shingleBucket(sh));
+    const maxDist = distanceFor(flat, this.policy);
+    const set = this.byShingle.get(L + "|" + shingleBucket(sh));
     if (set) {
       let best = null;
       let bestD = 99;
@@ -360,7 +415,7 @@ class TranslationTable {
           best = row;
         }
       }
-      if (best && bestD <= this.policy.simHashDistance) {
+      if (best && bestD <= maxDist) {
         best.n = (best.n || 0) + 1;
         best.at = nowMs();
         this.stats.hitsShingle += 1;
@@ -383,7 +438,8 @@ class TranslationTable {
     const flat = flattenText(text);
     const tr = normalizeText(translation);
     if (!flat || !tr) return { added: 0, folded: 0, updated: 0, evicted: 0 };
-    const k = textKey(flat);
+    const L = opts.lg || DEFAULT_LANG;
+    const k = this._k(L, textKey(flat));
 
     // 1. same text already known
     const existing = this.records.get(k);
@@ -405,7 +461,7 @@ class TranslationTable {
     }
 
     // 2. same template (numbers differ only): fold as an alias
-    const tk = templateKey(flat);
+    const tk = this._k(L, templateKey(flat));
     const tplOwner = this.byTemplate.get(tk);
     if (tplOwner && tplOwner !== k) {
       const row = this.records.get(tplOwner);
@@ -413,7 +469,7 @@ class TranslationTable {
         const sameMeaning = this._translationFromTemplate(row.trm || row.tr, flat) === tr;
         row.n = (row.n || 0) + 1;
         row.at = nowMs();
-        if (sameMeaning && (row.v || []).length < this.policy.maxAliases && !(row.v || []).includes(k)) {
+        if (sameMeaning && (row.v || []).length < aliasCapFor(row, this.policy) && !(row.v || []).includes(k)) {
           row.v = row.v || [];
           row.v.push(k);
           this.aliasIndex.set(k, tplOwner);
@@ -425,14 +481,15 @@ class TranslationTable {
 
     // 3. near-duplicate phrasing: same translation, close SimHash -> alias
     const sh = simhash(flat);
-    const bucket = this.byShingle.get(shingleBucket(sh));
+    const maxDist = distanceFor(flat, this.policy);
+    const bucket = this.byShingle.get(L + "|" + shingleBucket(sh));
     if (bucket) {
       for (const cand of bucket) {
         const row = this.records.get(cand);
         if (!row || !row.sh) continue;
         if (row.tr !== tr) continue;
-        if (hammingHex(sh, row.sh) > this.policy.simHashDistance) continue;
-        if ((row.v || []).length >= this.policy.maxAliases) continue;
+        if (hammingHex(sh, row.sh) > maxDist) continue;
+        if ((row.v || []).length >= aliasCapFor(row, this.policy)) continue;
         row.v = row.v || [];
         if (!row.v.includes(k)) {
           row.v.push(k);
@@ -456,6 +513,7 @@ class TranslationTable {
     const maskedTr = maskNumbers(tr);
     const row = {
       k: k,
+      lg: L,
       t: tk,
       tr: tr, // translation as produced (exact hits return this)
       trm: maskedTr.text, // masked translation, used to fill numbers on loose hits
@@ -518,6 +576,32 @@ class TranslationTable {
 
   // ---- housekeeping ----
 
+  /**
+   * Rows worth exporting: everything the game itself asked for (src live/button/
+   * auto), i.e. public build text translated on demand. `since` filters by
+   * timestamp; `lg` filters by language.
+   */
+  exportRows(opts) {
+    opts = opts || {};
+    const out = [];
+    for (const row of this.records.values()) {
+      if (opts.since && (row.at || 0) < opts.since) continue;
+      if (opts.lg && (row.lg || DEFAULT_LANG) !== opts.lg) continue;
+      const src = row.s || "live";
+      if (opts.includePipeline !== true && src === "pipeline") continue;
+      out.push({
+        lg: row.lg || DEFAULT_LANG,
+        text: row.src,
+        translation: row.tr,
+        source: src,
+        at: row.at,
+        uses: row.n || 1,
+        aliases: (row.v || []).map((a) => ({ key: a })),
+      });
+    }
+    return out;
+  }
+
   /** Persist usage counters (called on shutdown). */
   flush() {
     if (this.jsonlBytes > 0) this.compact();
@@ -525,9 +609,15 @@ class TranslationTable {
 
   summary() {
     let aliases = 0;
-    for (const row of this.records.values()) aliases += (row.v || []).length;
+    const perLang = Object.create(null);
+    for (const row of this.records.values()) {
+      aliases += (row.v || []).length;
+      const lg = row.lg || DEFAULT_LANG;
+      perLang[lg] = (perLang[lg] || 0) + 1;
+    }
     return {
       entries: this.records.size,
+      languages: perLang,
       aliases,
       bytes: this.byteSize(),
       templates: this.byTemplate.size,
@@ -541,6 +631,10 @@ module.exports = {
   TranslationTable,
   POLICY,
   SCHEMA,
+  DEFAULT_LANG,
+  distanceFor,
+  aliasCapFor,
+  tokenCount,
   normalizeText,
   flattenText,
   maskNumbers,

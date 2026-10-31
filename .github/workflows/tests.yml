@@ -31,3 +31,5 @@ jobs:
         run: node tests/ui_button_simtest.js
       - name: Layout token table is in sync
         run: node tools/build_layout_tokens.js --check
+      - name: Translation pack export
+        run: node tools/tm_export.js --out /tmp/pack.json

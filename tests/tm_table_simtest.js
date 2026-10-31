@@ -147,6 +147,50 @@ function tmpDir() {
   check("exact lookup still works", t.lookup("Deal 3 hits.").translation === "造成三下。");
 }
 
+// ---------------------------------------------------------------- languages
+{
+  const dir = tmpDir();
+  const t = new T.TranslationTable({ dir });
+  t.load();
+  const src = "Key item for Drifter early game.";
+  t.add(src, "孤猎前期的重要装备。", { explicit: true, lg: "zh-Hans" });
+  t.add(src, "ドリフター序盤の重要アイテム。", { explicit: true, lg: "ja" });
+  check("two languages coexist", t.summary().entries === 2, String(t.summary().entries));
+  check("zh lookup", t.lookup(src, "zh-Hans").translation === "孤猎前期的重要装备。");
+  check("ja lookup", t.lookup(src, "ja").translation === "ドリフター序盤の重要アイテム。");
+  check("unknown language misses", t.lookup(src, "ko") === null, JSON.stringify(t.lookup(src, "ko")));
+  check("per-language counts", t.summary().languages.ja === 1 && t.summary().languages["zh-Hans"] === 1, JSON.stringify(t.summary().languages));
+  // template folding must not cross languages
+  t.add("Deal +20% damage.", "造成 20% 伤害。", { explicit: true, lg: "zh-Hans" });
+  const r = t.add("Deal +30% damage.", "30% のダメージを与える。", { explicit: true, lg: "ja" });
+  check("templates do not fold across languages", r.added === 1, JSON.stringify(r));
+}
+
+// ---------------------------------------------------------------- adaptive thresholds
+{
+  check("short text has a strict threshold", T.distanceFor("gg") === 2, String(T.distanceFor("gg")));
+  const long = "advice about lane rune gank push ward tower jungle tempo burst peel rotate farm fight " +
+    "objective deny stack pull smoke counter defend split roam scout vision timing position economy " +
+    "matchup powerspike itemization sustain harass trade";
+  check("long text has a loose threshold", T.distanceFor(long) >= 4, String(T.distanceFor(long)));
+  check("alias cap grows with usage", T.aliasCapFor({ n: 1 }) < T.aliasCapFor({ n: 120 }), T.aliasCapFor({ n: 1 }) + " vs " + T.aliasCapFor({ n: 120 }));
+  check("alias cap is bounded", T.aliasCapFor({ n: 100000 }) <= T.POLICY.aliasCapMax, String(T.aliasCapFor({ n: 100000 })));
+}
+
+// ---------------------------------------------------------------- export
+{
+  const dir = tmpDir();
+  const t = new T.TranslationTable({ dir });
+  t.load();
+  t.add("Exported live text.", "导出的实时文本。", { explicit: true, source: "live" });
+  t.add("Pipeline text.", "流水线文本。", { explicit: true, source: "pipeline" });
+  const rows = t.exportRows({});
+  check("export skips pipeline rows by default", rows.length === 1 && rows[0].source === "live", JSON.stringify(rows.map((r) => r.source)));
+  const all = t.exportRows({ includePipeline: true });
+  check("export can include everything", all.length === 2, String(all.length));
+  check("export rows carry text + translation", rows[0].text === "Exported live text." && rows[0].translation === "导出的实时文本。");
+}
+
 console.log("");
 if (failures) {
   console.error(failures + " check(s) failed");

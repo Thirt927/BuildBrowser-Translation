@@ -76,6 +76,13 @@
   // so the tests (and engines without it) still work.
   var MODE_KEY = "bbt_language_mode";
   var mode = "zh";
+  // Target language for translations. The shipped memory is zh-Hans only; any
+  // other target is served by the local table / live bridge.
+  var LANG_KEY = "bbt_target_lang";
+  var TARGET_LANG = "zh-Hans";
+  // Local translations that override the shipped memory (fetched from the bridge
+  // when it connects). key(base hash) -> translation
+  var overrides = null;
 
   function settingsGet(key, fallback) {
     try {
@@ -153,10 +160,22 @@
     return tm ? tm[key] || null : null;
   }
 
+  function overrideFor(flat) {
+    if (!overrides || !flat) return null;
+    return overrides[keyOf(flat)] || overrides[keyOf(flat.replace(COPY_SUFFIX, ""))] || null;
+  }
+
   function lookup(raw) {
-    if (typeof G.BBA_TM_GET !== "function" && !G.BBA_TM) return null;
     var flat = flatten(raw);
     if (!flat) return null;
+
+    // 1. local overrides (translations the user/bridge corrected or added).
+    var ov = overrideFor(flat);
+    if (ov) return { text: ov, wasCopy: false, via: "override" };
+
+    // 2. the shipped memory (Chinese only).
+    if (TARGET_LANG !== "zh-Hans") return null;
+    if (typeof G.BBA_TM_GET !== "function" && !G.BBA_TM) return null;
     // Candidates: [text, wasCopySuffixStripped]. The stripped-suffix variant
     // is reported back so the caller can re-append the copy marker.
     var candidates = [[flat, false]];
@@ -348,8 +367,8 @@
       // takes one text at a time, so it gets them one by one.
       var batchable = LIVE_TARGET.tag === "BBT" && chunk.length > 1;
       var req = batchable
-        ? { kind: "batch", texts: chunk, target: "zh-Hans" }
-        : { kind: "text", text: chunk[0], target: "zh-Hans" };
+        ? { kind: "batch", texts: chunk, target: TARGET_LANG }
+        : { kind: "text", text: chunk[0], target: TARGET_LANG };
       liveSend(
         req,
         LIVE_REQUEST_TIMEOUT,
@@ -434,6 +453,8 @@
     pending: null, // { id, text, target, done, startedAt, to }
     queue: [],
     cache: Object.create(null),
+    tried: Object.create(null), // texts already requested this session
+    triedCount: 0,
     cacheKeys: [],
     hardFails: 0,
     translated: 0,
@@ -493,6 +514,10 @@
   function liveRequestUrl(t, id, req) {
     var base = "https://localhost:" + t.port + "/bridge?id=" + id;
     if (req.kind === "health") return base + "&op=health";
+    if (req.kind === "overrides") {
+      return base + "&op=health&api=" + encodeURIComponent("/api/v1/tm/overrides") +
+        "&target=" + encodeURIComponent(req.target || "zh-Hans");
+    }
     var payload;
     var extra = "";
     if (req.kind === "batch") {
@@ -500,12 +525,18 @@
       // our page needs to know which endpoint to hit; BabelTower's ignores ?p
       if (t.tag === "BBT") extra = "&p=/api/v1/tm/translate";
     } else {
-      payload = { operation: "translate", text: req.text, targetLanguage: req.target || "zh-Hans" };
+      payload = { operation: "translate", text: req.text, targetLanguage: req.target || TARGET_LANG };
     }
     return base + "&op=translate&d=" + encodeURIComponent(JSON.stringify(payload)) + extra;
   }
 
   function liveSend(req, timeoutSec, cb, target) {
+    // Only one request may be in flight: document.title is a single channel and
+    // a second job would clobber the first one's pending slot (losing its reply).
+    if (live.pending) {
+      cb(false, "busy", null);
+      return null;
+    }
     var panel = livePanel();
     if (!panel || typeof panel.SetURL !== "function") {
       cb(false, "panel_unavailable", null);
@@ -595,6 +626,11 @@
         live.targetName = payload.name ? String(payload.name) : t.name;
         live.state = "on";
         stats.liveProvider = live.provider;
+        // Delayed so the first on-screen texts get the channel first: overrides
+        // exist to correct the pak, not to block it.
+        $.Schedule(1.5, function () {
+          try { liveFetchOverrides(); } catch (e) {}
+        });
         $.Msg("[BBT] live bridge: connected to " + live.targetName + " (localhost:" + t.port +
           (live.provider ? ", provider=" + live.provider : "") +
           "), offline memory + live fallback" +
@@ -656,7 +692,7 @@
       applyLiveUpgrade(job, cached);
       return;
     }
-    liveSend({ kind: "text", text: job.text, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    liveSend({ kind: "text", text: job.text, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) { liveMarkFailure(err || "no_answer"); return; }
       var out = payload && payload.translations ? payload.translations[0] : null;
       if (payload && payload.ok && out) {
@@ -677,6 +713,34 @@
       if (debugOn()) logWrite(p, job.text, value, "live-upgrade");
     }
     remember(p, 1, job.text, value);
+  }
+
+  // Pull the local translations that differ from the shipped memory, so a
+  // correction made in the local table wins over the pak.
+  function liveFetchOverrides(attempt) {
+    attempt = attempt || 0;
+    if (!LIVE_TARGET || LIVE_TARGET.tag !== "BBT") return; // only our bridge has it
+    liveSend({ kind: "overrides", target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, res) {
+      if (!ok || !res || !res.overrides) {
+        // "busy" just means a translation is in flight: try again later.
+        if (attempt < 3) {
+          $.Schedule(err === "busy" ? 1.0 : 3.0, function () { liveFetchOverrides(attempt + 1); });
+        }
+        return;
+      }
+      var map = Object.create(null);
+      var n = 0;
+      for (var i = 0; i < res.overrides.length; i += 1) {
+        var row = res.overrides[i];
+        if (!row || !row.k || !row.tr) continue;
+        map[row.k] = String(row.tr);
+        n += 1;
+      }
+      overrides = map;
+      stats.overrides = n;
+      $.Msg("[BBT] local overrides loaded: " + n);
+      try { resetMemos($.GetContextPanel()); } catch (e) {}
+    }, LIVE_TARGET, "/api/v1/tm/overrides?target=" + encodeURIComponent(TARGET_LANG));
   }
 
   function liveCacheGet(text) {
@@ -703,13 +767,22 @@
       remember(panel, 1, raw, cached);
       return true;
     }
+    if (live.tried[raw]) return false; // asked already: wait for the answer
     if (live.pending) {
       // One request at a time; retry this text shortly.
       if (live.queue.indexOf(raw) < 0) live.queue.push(raw);
       return false;
     }
-    liveSend({ kind: "text", text: raw, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    live.tried[raw] = 1;
+    live.triedCount += 1;
+    if (live.triedCount > 2000) {
+      live.tried = Object.create(null);
+      live.triedCount = 1;
+      live.tried[raw] = 1;
+    }
+    liveSend({ kind: "text", text: raw, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) {
+        stats.liveLastError = err || "no_answer";
         liveMarkFailure(err || "no_answer");
         return;
       }
@@ -738,7 +811,7 @@
     if (liveCacheGet(next)) return;
     // No panel reference any more: the label is re-scanned anyway, so just ask
     // for the text and let the cache serve it next tick.
-    liveSend({ kind: "text", text: next, target: "zh-Hans" }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    liveSend({ kind: "text", text: next, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) { liveMarkFailure(err || "no_answer"); return; }
       var out = payload && payload.translations ? payload.translations[0] : null;
       if (payload && payload.ok && out) {
@@ -850,6 +923,7 @@
     writes: 0, rebinds: 0, skipped: 0, hidden: 0, fragments: 0, live: 0,
     liveProvider: "",
     batchAdded: 0,
+    overrides: 0,
     tableEntries: 0,
     tableAliases: 0,
   };
@@ -1043,7 +1117,16 @@
     var seen = memo.get(panel);
     if (seen) {
       if (seen.k === 0) {
-        if (raw === seen.in) return;
+        if (raw === seen.in) {
+          // Memoised as "nothing found". Re-check the cheap sources: the live
+          // cache may have been filled (background translation, overrides fetch)
+          // since then, in which case this label must be redone now.
+          if (!liveCacheGet(raw) && !overrideFor(raw)) {
+            // Not available yet. If the bridge is up and we have not asked for
+            // this text, fall through and ask now; otherwise stay quiet.
+            if (!(live.state === "on" && !live.tried[raw])) return;
+          }
+        }
       } else if (raw === seen.out) {
         return;
       }
@@ -1263,6 +1346,22 @@
     return uiPanel("BBTMenu");
   }
 
+  // Small introspection helper (console: BBT_LIVE_STATE()) - handy when a user
+  // reports "the button does nothing".
+  G.BBT_LIVE_STATE = function () {
+    return {
+      state: live.state,
+      target: LIVE_TARGET ? LIVE_TARGET.name + ":" + LIVE_TARGET.port : null,
+      pending: !!live.pending,
+      queue: live.queue.length,
+      cache: Object.keys(live.cache).length,
+      overrides: overrides ? Object.keys(overrides).length : -1,
+      mode: mode,
+      targetLang: TARGET_LANG,
+      stats: stats,
+    };
+  };
+
   G.BBTToggleMenu = function () {
     var m = uiMenuPanel();
     if (!m) return;
@@ -1350,6 +1449,24 @@
     });
   };
 
+  G.BBTSetTargetLang = function (lang) {
+    if (!lang || typeof lang !== "string") return;
+    TARGET_LANG = lang;
+    settingsSet(LANG_KEY, TARGET_LANG);
+    overrides = null;
+    try { resetMemos($.GetContextPanel()); } catch (e) {}
+    // Non-Chinese targets come from the local table / bridge only.
+    if (LIVE_TARGET && LIVE_TARGET.tag === "BBT") {
+      try { liveFetchOverrides(); } catch (e) {}
+    }
+    uiSetLabel("语言:" + TARGET_LANG);
+    var m = uiMenuPanel();
+    if (m && m.RemoveClass) {
+      try { m.RemoveClass("BBTMenuOpen"); } catch (e) {}
+    }
+    $.Msg("[BBT] target language -> " + TARGET_LANG);
+  };
+
   // Dropdown: push what is on screen into the local table (no network calls).
   G.BBTSavePageToTable = function () {
     if (live.state !== "on" || !LIVE_TARGET || LIVE_TARGET.tag !== "BBT") {
@@ -1389,7 +1506,7 @@
       return;
     }
     liveSend(
-      { kind: "batch", texts: pairs.map(function (x) { return x.text; }), target: "zh-Hans" },
+      { kind: "batch", texts: pairs.map(function (x) { return x.text; }), target: TARGET_LANG },
       LIVE_REQUEST_TIMEOUT,
       function (ok, err, res) {
         uiSetLabel(ok ? "已存入本地库 " + pairs.length + " 条" : "存入失败: " + err);
@@ -1413,6 +1530,8 @@
     buildTermRegex();
     var saved = settingsGet(MODE_KEY, "zh");
     if (saved === "zh" || saved === "orig" || saved === "both") mode = saved;
+    var savedLang = settingsGet(LANG_KEY, "zh-Hans");
+    if (savedLang) TARGET_LANG = savedLang;
     // bba_tm.js publishes the entry count; counting 58k keys at boot would stall
     // the UI for tens of milliseconds on every layout instance.
     var tmCount = G.BBA_TM_COUNT || 0;
