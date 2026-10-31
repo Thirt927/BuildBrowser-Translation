@@ -144,6 +144,48 @@ function report(name, ok, detail) {
 // override contains a text-surface node AND that bba_translate translates
 // build.name / build.description when injected into such a node.
 // =====================================================================
+// ---------------------------------------------------------------------
+// Structural checks on the shipped overrides: they must be well formed and must
+// not declare the same id twice inside one layout (the engine resolves ids by
+// search, and a duplicate silently breaks lookups).
+// ---------------------------------------------------------------------
+{
+  const { execFileSync } = require("child_process");
+  const files = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".xml")) files.push(p);
+    }
+  })(LAYOUT);
+  let ok = true;
+  for (const f of files) {
+    const raw = fs.readFileSync(f, "utf8");
+    const xml = raw.replace(/<!--[\s\S]*?-->/g, "");
+    // balance check: the parser used elsewhere in this file
+    let depth = 0;
+    let balanced = true;
+    for (const m of xml.matchAll(/<(\/?)([a-zA-Z0-9_]+)([^>]*)>/g)) {
+      const closing = m[1] === "/";
+      const selfClosing = /\/\s*$/.test(m[3] || "");
+      if (closing) depth -= 1;
+      else if (!selfClosing) depth += 1;
+      if (depth < 0) balanced = false;
+    }
+    if (!balanced || depth !== 0) {
+      report("well formed: " + path.basename(f), false, "unbalanced tags");
+      ok = false;
+    }
+    const ids = [...xml.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    report("unique ids: " + path.basename(f), dupes.length === 0, "duplicates: " + dupes.join(", "));
+    if (dupes.length) ok = false;
+  }
+  void execFileSync;
+  void ok;
+}
+
 console.log("\n=== Scene 1: build browser right-hand panel (CitadelBuildDetails) ===");
 {
   const selectorXml = fs.readFileSync(path.join(LAYOUT, "citadel_ui_build_selector.xml"), "utf8");

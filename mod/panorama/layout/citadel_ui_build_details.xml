@@ -16,8 +16,8 @@
 	</scripts>
 
 	<CitadelBuildDetails>
-		<!-- optional live-bridge panel: declared here because CreatePanel at runtime does not produce a real <HTML> panel -->
-		<HTML id="BBTBridgePanel" class="BBTBridgePanel" />
+		<!-- optional live-bridge panel: must be declared in the layout (a runtime CreatePanel is not a real HTML panel) -->
+		<HTML id="BBTBridgePanelDetails" class="BBTBridgePanel" />
 		<GlobalClassListener classes="gShopOpen" />
 		<Panel class="HeroBuildsExtraInfo">
 			<Panel id="Background" />

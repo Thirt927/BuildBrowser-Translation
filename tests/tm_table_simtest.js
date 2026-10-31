@@ -166,6 +166,20 @@ function tmpDir() {
   check("templates do not fold across languages", r.added === 1, JSON.stringify(r));
 }
 
+// ---------------------------------------------------------------- template conflict
+{
+  const dir = tmpDir();
+  const t = new T.TranslationTable({ dir });
+  t.load();
+  t.add("Deal +20% damage.", "造成 20% 伤害。", { explicit: true });
+  // Same template shape but a genuinely different translation (context matters):
+  // it must be stored, not folded away.
+  const r = t.add("Deal +20% armor.", "获得 20% 护甲。", { explicit: true });
+  check("different meaning is stored, not folded", r.added === 1, JSON.stringify(r));
+  check("both exact hits work", t.lookup("Deal +20% damage.").translation === "造成 20% 伤害。" && t.lookup("Deal +20% armor.").translation === "获得 20% 护甲。");
+  check("template follows the newest row", t.lookup("Deal +99% armor.").translation === "获得 99% 护甲。", JSON.stringify(t.lookup("Deal +99% armor.")));
+}
+
 // ---------------------------------------------------------------- adaptive thresholds
 {
   check("short text has a strict threshold", T.distanceFor("gg") === 2, String(T.distanceFor("gg")));

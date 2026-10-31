@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.2.1";
+  var VERSION = "1.6.1";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -38,7 +38,7 @@
   var FAST_INTERVAL = 0.08; // burst poll right after new content appears
   var BURST_TICKS = 4; // how many fast polls after a change
   var IDLE_MAX_INTERVAL = 1.0; // back off to this when the tree is quiet
-  var PARKED_INTERVAL = 2.0; // layout not visible (shop closed, browser closed)
+  var PARKED_INTERVAL = 0.5; // layout not visible (shop closed, browser closed)
   var IDLE_TICKS_BEFORE_BACKOFF = 6;
   var SCAN_BUDGET = 6000; // panels visited per tick
   var TERM_FALLBACK_MAX = 160; // only short labels get glossary substitution
@@ -52,7 +52,9 @@
   // session and the mod behaves exactly like a pure offline build.
   // Runtime override: set `BBT_LIVE = "off"` (or "on") in the game console.
   var LIVE_MODE_DEFAULT = "auto"; // "auto" | "off" | "on"
-  var LIVE_PANEL_ID = "BBTBridgePanel";
+  // One id per layout: the details layout is instantiated *inside* the selector,
+  // so reusing a single id would put two panels with the same id in one tree.
+  var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails"];
   // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
   // it serves a page with the same technique and the same certificate, so people
   // who already use that mod need neither a second certificate nor a second
@@ -66,7 +68,8 @@
   var LIVE_REQUEST_TIMEOUT = 6.0; // seconds per translation request
   var LIVE_POLL = 0.1; // title poll interval
   var LIVE_HARD_FAILS_MAX = 3; // give up after this many dead round trips
-  var LIVE_TEXT_MAX = 400; // skip absurdly long labels (title length limit)
+  var LIVE_TEXT_MAX = 700; // per-text cap (the title channel is a few KB)
+  var LIVE_BATCH_CHARS = 2500; // total source characters per batch request
   var LIVE_CACHE_MAX = 600; // session-only memory of live translations
 
   var G = globalThis || this || {};
@@ -207,31 +210,29 @@
   // Split on sentence enders, line breaks and the ">" / "|" separators common in
   // build notes. No lookbehind (Panorama's engine does not support it).
   function splitFragments(text) {
+    // Split on sentence enders and the separators build notes use, but KEEP the
+    // separator in the output: the caller joins the parts back and compares with
+    // the input, and a dropped ">" or space would corrupt the mixed result.
     var out = [];
     var buf = "";
     for (var i = 0; i < text.length; i += 1) {
       var c = text.charAt(i);
-      if (c === "\n" || c === "|") {
-        out.push(buf);
-        buf = "";
-        continue;
-      }
-      if (c === ">") {
+      if (c === "\n" || c === "|" || c === ">") {
+        buf += c;
         out.push(buf);
         buf = "";
         continue;
       }
       buf += c;
-      if ((c === "." || c === "!" || c === "?" || c === ";") && i + 1 < text.length) {
-        var nx = text.charAt(i + 1);
+      if (c === "." || c === "!" || c === "?" || c === ";") {
+        var nx = i + 1 < text.length ? text.charAt(i + 1) : "";
         if (nx === " " || nx === "\n" || nx === "\t") {
           out.push(buf);
           buf = "";
-          i += 1;
         }
       }
     }
-    out.push(buf);
+    if (buf) out.push(buf);
     return out;
   }
 
@@ -251,8 +252,11 @@
       if (hit && hit.text) {
         covered += trimmed.length;
         hits += 1;
-        // keep the original leading whitespace for readable spacing
-        out.push(piece.slice(0, piece.length - piece.replace(/^\s+/, "").length) + hit.text);
+        // Keep the original leading/trailing whitespace so the joined text keeps
+        // its shape (the separators themselves live in the parts).
+        var lead = piece.slice(0, piece.indexOf(trimmed));
+        var trail = piece.slice(piece.indexOf(trimmed) + trimmed.length);
+        out.push(lead + hit.text + trail);
       } else {
         out.push(piece);
       }
@@ -322,8 +326,8 @@
       if (typeof t === "string" && t.length >= 3 && t.length <= LIVE_TEXT_MAX) {
         if (t.indexOf("#") !== 0 && !HAS_CJK.test(t) && !seen[t]) {
           var rec = memo.get(p);
-          var known = rec && (rec.k === 1 ? rec.in === t : rec.in === t);
-          if (!known && !lookup(t) && !liveCacheGet(t)) {
+          var translatedAlready = rec && rec.k === 1 && rec.in === t;
+          if (!translatedAlready && !lookup(t) && !liveCacheGet(t) && !overrideFor(t)) {
             seen[t] = 1;
             out.push(t);
             if (limit && out.length >= limit) break;
@@ -351,8 +355,22 @@
       onDone(null, "offline");
       return;
     }
+    // Chunk by count *and* by characters: eight long descriptions would blow the
+    // document.title budget and come back as "too_large".
     var chunks = [];
-    for (var i = 0; i < texts.length; i += UI_BATCH) chunks.push(texts.slice(i, i + UI_BATCH));
+    var cur = [];
+    var chars = 0;
+    for (var i = 0; i < texts.length; i += 1) {
+      var len = String(texts[i]).length;
+      if (cur.length && (cur.length >= UI_BATCH || chars + len > LIVE_BATCH_CHARS)) {
+        chunks.push(cur);
+        cur = [];
+        chars = 0;
+      }
+      cur.push(texts[i]);
+      chars += len;
+    }
+    if (cur.length) chunks.push(cur);
     var results = Object.create(null);
     var index = 0;
 
@@ -385,6 +403,7 @@
             }
             stats.batchAdded += res.added || 0;
             stats.live += appliedCount;
+            noteTableSize(res.table);
             // BabelTower answers one text per request: continue with the rest of
             // the chunk by re-queueing the remainder.
             if (!batchable && appliedCount && chunk.length > 1) {
@@ -448,6 +467,7 @@
     state: "unknown", // unknown | probing | on | off
     provider: "",
     targetName: "",
+    tableSize: -1,
     panel: null,
     seq: 0,
     pending: null, // { id, text, target, done, startedAt, to }
@@ -471,7 +491,7 @@
       var p = stack.pop();
       if (!p) continue;
       try {
-        if (p.id === LIVE_PANEL_ID) return p;
+        if (p.id && LIVE_PANEL_IDS.indexOf(String(p.id)) >= 0) return p;
       } catch (e) {}
       var n = 0;
       try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
@@ -514,6 +534,10 @@
   function liveRequestUrl(t, id, req) {
     var base = "https://localhost:" + t.port + "/bridge?id=" + id;
     if (req.kind === "health") return base + "&op=health";
+    if (req.kind === "remember") {
+      return base + "&op=health&api=" + encodeURIComponent("/api/v1/tm/remember") +
+        "&d=" + encodeURIComponent(JSON.stringify({ pairs: req.pairs, target: req.target || TARGET_LANG }));
+    }
     if (req.kind === "overrides") {
       return base + "&op=health&api=" + encodeURIComponent("/api/v1/tm/overrides") +
         "&target=" + encodeURIComponent(req.target || "zh-Hans");
@@ -708,15 +732,25 @@
     var cur;
     try { cur = p.text; } catch (e) { return; }
     if (cur !== job.shown) return; // user already moved on
-    if (writeText(p, value)) {
+    var shown = present(job.text, value);
+    if (writeText(p, shown)) {
       stats.live += 1;
-      if (debugOn()) logWrite(p, job.text, value, "live-upgrade");
+      if (debugOn()) logWrite(p, job.text, shown, "live-upgrade");
     }
-    remember(p, 1, job.text, value);
+    remember(p, 1, job.text, shown);
   }
 
   // Pull the local translations that differ from the shipped memory, so a
   // correction made in the local table wins over the pak.
+  // Track the bridge's table size: when it grows, the overrides may have changed
+  // (a correction made later must still win over the shipped text).
+  function noteTableSize(n) {
+    if (typeof n !== "number") return;
+    if (live.tableSize === n) return;
+    live.tableSize = n;
+    if (live.state === "on") $.Schedule(0.5, function () { try { liveFetchOverrides(); } catch (e) {} });
+  }
+
   function liveFetchOverrides(attempt) {
     attempt = attempt || 0;
     if (!LIVE_TARGET || LIVE_TARGET.tag !== "BBT") return; // only our bridge has it
@@ -736,10 +770,25 @@
         map[row.k] = String(row.tr);
         n += 1;
       }
+      var changed = false;
+      if (overrides) {
+        var oldKeys = Object.keys(overrides);
+        changed = oldKeys.length !== n;
+        for (var j = 0; j < oldKeys.length && !changed; j += 1) {
+          if (overrides[oldKeys[j]] !== map[oldKeys[j]]) changed = true;
+        }
+      } else {
+        changed = n > 0;
+      }
       overrides = map;
       stats.overrides = n;
-      $.Msg("[BBT] local overrides loaded: " + n);
-      try { resetMemos($.GetContextPanel()); } catch (e) {}
+      if (changed) {
+        $.Msg("[BBT] local overrides loaded: " + n);
+        try { resetMemos($.GetContextPanel()); } catch (e) {}
+      }
+      // No timer: the bridge reports its table size on every response, and a
+      // change there (new translations, new corrections) triggers a refetch. See
+      // noteTableSize().
     }, LIVE_TARGET, "/api/v1/tm/overrides?target=" + encodeURIComponent(TARGET_LANG));
   }
 
@@ -760,11 +809,12 @@
     if (typeof raw !== "string" || raw.length < 3 || raw.length > LIVE_TEXT_MAX) return false;
     var cached = liveCacheGet(raw);
     if (cached) {
-      if (writeText(panel, cached)) {
+      var shown = present(raw, cached);
+      if (writeText(panel, shown)) {
         stats.live += 1;
-        if (debugOn()) logWrite(panel, raw, cached, "live-cache");
+        if (debugOn()) logWrite(panel, raw, shown, "live-cache");
       }
-      remember(panel, 1, raw, cached);
+      remember(panel, 1, raw, shown);
       return true;
     }
     if (live.tried[raw]) return false; // asked already: wait for the answer
@@ -789,14 +839,16 @@
       var out = payload && payload.translations ? payload.translations[0] : null;
       if (payload && payload.ok && out) {
         live.hardFails = 0;
+        noteTableSize(payload.table);
         liveCachePut(raw, String(out));
         stats.live += 1;
         // Re-read the label: it may have been repainted meanwhile.
         var cur;
         try { cur = panel.text; } catch (e) { cur = null; }
         if (cur === raw) {
-          writeText(panel, String(out));
-          remember(panel, 1, raw, String(out));
+          var shownLive = present(raw, String(out));
+          writeText(panel, shownLive);
+          remember(panel, 1, raw, shownLive);
         } else {
           memo.delete(panel); // let the next scan decide with the current text
         }
@@ -908,6 +960,10 @@
         try { fresh = p.text; } catch (e) { fresh = null; }
         if (typeof fresh === "string" && fresh.length >= 2 && fresh !== tok) {
           try { translatePanel(p, fresh); } catch (e) {}
+        } else {
+          // The engine did not resolve it (yet): watch it, and if it stays a raw
+          // token the label is not token-bound (a runtime-created label).
+          pendingRebind.push({ p: p, tok: tok, prev: rec.in });
         }
       }
     }
@@ -924,11 +980,19 @@
     liveProvider: "",
     batchAdded: 0,
     overrides: 0,
+    rebindUndone: 0,
     tableEntries: 0,
     tableAliases: 0,
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
+  // Labels we literally saw as "#Something" (not merely inferred from the layout
+  // table). Restoring a token is only safe when we really saw one; see
+  // rebindCheck below for the safety net.
+  var observedToken = new WeakMap();
+  // Panels whose token we just restored: the engine has to resolve it on the next
+  // frame. If it does not, the label was not token-bound after all.
+  var pendingRebind = [];
   // Panels we have written a translation into (bounded, for the rebind sweep).
   var written = [];
   // Panels whose text we only changed by substituting glossary terms. When the
@@ -1098,6 +1162,7 @@
       // label is engine-driven (and, when the localized value contains {s:var},
       // that it is bound to dialog variables).
       if (!memo.has(panel)) tokenOf.set(panel, raw);
+      observedToken.set(panel, raw);
       remember(panel, 0, raw, null);
       return;
     }
@@ -1155,6 +1220,7 @@
     // Sentence-level: new builds mostly reuse sentences from older ones.
     var frag = fragmentTranslate(raw);
     if (frag) {
+      frag = present(raw, frag); // "both" mode appends the source text
       if (writeText(panel, frag)) {
         stats.fragments += 1;
         if (debugOn()) logWrite(panel, raw, frag, "frag");
@@ -1171,6 +1237,7 @@
     var mixed = null;
     if (normalize(raw).length <= TERM_FALLBACK_MAX) {
       mixed = substituteTerms(raw);
+      if (mixed) mixed = present(raw, mixed);
       if (mixed && writeText(panel, mixed)) {
         stats.fallback += 1;
         stats.writes += 1;
@@ -1274,8 +1341,29 @@
   var burstTicks = 0;
   var ticksSinceRebind = 99;
 
+  function rebindCheck() {
+    if (!pendingRebind.length) return;
+    var keep = [];
+    for (var i = 0; i < pendingRebind.length; i += 1) {
+      var item = pendingRebind[i];
+      var cur;
+      try { cur = item.p.text; } catch (e) { continue; }
+      if (cur === item.tok) {
+        // Still the raw token after a frame: this label is NOT engine-driven.
+        try { item.p.text = item.prev; } catch (e) {}
+        tokenOf.delete(item.p);
+        memo.delete(item.p);
+        stats.rebindUndone = (stats.rebindUndone || 0) + 1;
+        if (debugOn()) $.Msg("[BBT] label is not token-bound, restored its text");
+      }
+      // Resolved (engine wrote something) or fixed: nothing left to watch.
+    }
+    pendingRebind = keep;
+  }
+
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
+    try { rebindCheck(); } catch (e) {}
     var before = stats.translated + stats.fallback;
     var fresh = 0;
     var hidden = false;
@@ -1467,7 +1555,9 @@
     $.Msg("[BBT] target language -> " + TARGET_LANG);
   };
 
-  // Dropdown: push what is on screen into the local table (no network calls).
+  // Dropdown: push what is on screen into the local table (NO network call).
+  // It sends the pairs it already has, so this works even when the bridge cannot
+  // reach a provider.
   G.BBTSavePageToTable = function () {
     if (live.state !== "on" || !LIVE_TARGET || LIVE_TARGET.tag !== "BBT") {
       uiSetLabel("本地库需要本仓库的 bridge");
@@ -1488,7 +1578,16 @@
         if (rec && rec.k === 1 && rec.in) {
           var cur = null;
           try { cur = p.text; } catch (e) { cur = null; }
-          if (cur && cur !== rec.in) pairs.push({ text: rec.in, translation: cur });
+          if (cur && cur !== rec.in) {
+            // In "both" mode the label shows translation + original: keep only
+            // the translation part.
+            var tr = cur;
+            if (mode === "both") {
+              var nl = cur.indexOf("\n");
+              if (nl > 0) tr = cur.slice(0, nl);
+            }
+            pairs.push({ text: rec.in, translation: tr });
+          }
         }
         var n = 0;
         try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
@@ -1506,11 +1605,16 @@
       return;
     }
     liveSend(
-      { kind: "batch", texts: pairs.map(function (x) { return x.text; }), target: TARGET_LANG },
+      { kind: "remember", pairs: pairs, target: TARGET_LANG },
       LIVE_REQUEST_TIMEOUT,
       function (ok, err, res) {
-        uiSetLabel(ok ? "已存入本地库 " + pairs.length + " 条" : "存入失败: " + err);
-        stats.batchAdded += (res && res.added) || 0;
+        if (ok && res) {
+          uiSetLabel("已存入本地库:新增 " + (res.added || 0) + " 条");
+          stats.batchAdded += res.added || 0;
+          noteTableSize(res.table);
+        } else {
+          uiSetLabel("存入失败: " + err);
+        }
         $.Schedule(3.0, function () { uiSetLabel("翻译本页"); });
       },
       LIVE_TARGET,

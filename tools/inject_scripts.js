@@ -19,8 +19,13 @@ const fs = require("fs");
 const path = require("path");
 
 function arg(name, fallback) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  const i = process.argv.indexOf("--" + name);
+  if (i < 0) return fallback;
+  const next = process.argv[i + 1];
+  // A bare flag (--dry) is true regardless of what follows, so the order of
+  // arguments never changes the meaning.
+  if (next === undefined || next.startsWith("--")) return true;
+  return next;
 }
 
 const input = process.argv[2];
@@ -60,7 +65,7 @@ if ((m = xml.match(/<styles>[\s\S]*?<\/styles>/))) {
   process.exit(1);
 }
 
-const outArg = arg("--out", "");
+const outArg = arg("out", "");
 let out;
 if (outArg) {
   out = path.resolve(outArg);

@@ -83,7 +83,7 @@
 		</snippet>
 	</snippets>
 	<CitadelHeroBuildsSelector>
-		<!-- optional live-bridge panel: declared here because CreatePanel at runtime does not produce a real <HTML> panel -->
+		<!-- optional live-bridge panel: must be declared in the layout (a runtime CreatePanel is not a real HTML panel) -->
 		<HTML id="BBTBridgePanel" class="BBTBridgePanel" />
 		<Panel class="HeroSelectorHeader">
 			<Panel class="SearchContainer">

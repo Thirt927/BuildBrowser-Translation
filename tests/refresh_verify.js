@@ -266,6 +266,33 @@ function check(name, cond, detail) {
   check("[D] description still translated", descP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descP.text));
 }
 
+// =====================================================================
+// Case E: a label whose class matches the generated token table but which is NOT
+// engine-driven (runtime-created). Restoring the token must be undone, and the
+// label must end up translated, never showing "#Token".
+// =====================================================================
+{
+  const root = makePanel({});
+  const idP = makeBoundPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID");
+  // plain label: .text is written by the game JS, it has no dialog-variable
+  // binding, but its class is in the layout token table.
+  const plain = makePanel({ text: "Rend > Heal > Repeat.", cls: "BuildDescription" });
+  root.children.push(idP, plain);
+  const { sandbox, queue } = boot(root);
+  const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
+  tick(3);
+  check("[E] plain label translated", plain.text === "撕裂 > 治疗 > 重复。", JSON.stringify(plain.text));
+
+  // a new build arrives: the identity label changes, so the scanner "rebinds"
+  // every label it had written -- including this plain one.
+  idP.engineSet("BUILD-222");
+  plain.text = "Key item for Drifter early game.";
+  tick(3);
+  check("[E] never shows a raw #token", plain.text.indexOf("#") !== 0, JSON.stringify(plain.text));
+  tick(4);
+  check("[E] ends up translated", plain.text === "孤猎前期的重要装备。", JSON.stringify(plain.text));
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log("");
 if (failures) {

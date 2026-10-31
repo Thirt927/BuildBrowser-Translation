@@ -20,8 +20,13 @@ const CACHE_DIR = path.join(__dirname, "cache");
 const OUT = path.join(CACHE_DIR, "extra_texts.json");
 
 function arg(name, fallback) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  const i = process.argv.indexOf("--" + name);
+  if (i < 0) return fallback;
+  const next = process.argv[i + 1];
+  // A bare flag (--dry) is true regardless of what follows, so the order of
+  // arguments never changes the meaning.
+  if (next === undefined || next.startsWith("--")) return true;
+  return next;
 }
 
 const GAME_LOG_CANDIDATES = [
@@ -31,7 +36,7 @@ const GAME_LOG_CANDIDATES = [
 ];
 
 function findLog() {
-  const given = arg("--log", "");
+  const given = arg("log", "");
   if (given) return given;
   for (const p of GAME_LOG_CANDIDATES) if (fs.existsSync(p)) return p;
   return "";

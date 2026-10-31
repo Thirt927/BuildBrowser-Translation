@@ -469,13 +469,18 @@ class TranslationTable {
         const sameMeaning = this._translationFromTemplate(row.trm || row.tr, flat) === tr;
         row.n = (row.n || 0) + 1;
         row.at = nowMs();
-        if (sameMeaning && (row.v || []).length < aliasCapFor(row, this.policy) && !(row.v || []).includes(k)) {
-          row.v = row.v || [];
-          row.v.push(k);
-          this.aliasIndex.set(k, tplOwner);
-          this._append({ op: "alias", k: tplOwner, a: k });
+        if (sameMeaning) {
+          if ((row.v || []).length < aliasCapFor(row, this.policy) && !(row.v || []).includes(k)) {
+            row.v = row.v || [];
+            row.v.push(k);
+            this.aliasIndex.set(k, tplOwner);
+            this._append({ op: "alias", k: tplOwner, a: k });
+          }
+          return { added: 0, folded: 1, updated: 0, evicted: 0 };
         }
-        return { added: 0, folded: 1, updated: 0, evicted: 0 };
+        // Same template but a genuinely different translation (context matters):
+        // store it as its own entry instead of throwing it away. The template
+        // index keeps pointing at the newest row, exact hits still find both.
       }
     }
 

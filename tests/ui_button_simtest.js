@@ -88,6 +88,11 @@ function boot(texts, opts) {
     const op = u.searchParams.get("op");
     const tag = Number(u.port) === 8792 ? "LCT" : "BBT";
     timers.push(() => {
+      if (decodeURIComponent(url).indexOf("tm/remember") > 0) {
+        const dd = JSON.parse(u.searchParams.get("d") || "{}");
+        bridge._title = tag + id + JSON.stringify({ ok: true, added: (dd.pairs || []).length });
+        return;
+      }
       if (decodeURIComponent(url).indexOf("tm/overrides") > 0) {
         const list = Object.keys(opts.overrides || {}).map((text) => ({
           k: hashKey(text),
@@ -254,6 +259,19 @@ function check(name, cond, detail) {
   pump(ctx, 10);
   check("language choice is persisted", ctx.stored.bbt_target_lang === "ja", JSON.stringify(ctx.stored));
   check("stats report the target language", ctx.sandbox.BBT_LIVE_STATE().targetLang === "ja", JSON.stringify(ctx.sandbox.BBT_LIVE_STATE().targetLang));
+}
+
+// ---------------------------------------------------------------- save page to table
+{
+  const ctx = boot(["Rend > Heal > Repeat."], { port: 8793 });
+  pump(ctx, 200);
+  const before = ctx.urls.length;
+  ctx.sandbox.BBTSavePageToTable();
+  pump(ctx, 10);
+  const reqs = ctx.urls.slice(before).map((u) => decodeURIComponent(u));
+  check("save-to-table calls tm/remember", reqs.some((u) => u.indexOf("/api/v1/tm/remember") > 0), JSON.stringify(reqs));
+  check("save-to-table sends the translation it already has", reqs.some((u) => u.indexOf("撕裂 > 治疗 > 重复。") > 0), JSON.stringify(reqs));
+  check("label reports the result", /存入|翻译本页/.test(ctx.label.text), ctx.label.text);
 }
 
 // ---------------------------------------------------------------- no bridge: button says so

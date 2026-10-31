@@ -196,6 +196,8 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   } catch (e) {}
 }
 
+const SEEN_MAX = 20000;
+
 function recordSeen(text, translation, target) {
   if (!text || !translation) return;
   const list = loadSeen();
@@ -210,10 +212,13 @@ function recordSeen(text, translation, target) {
     }
   }
   list.push({ text, translation, target, at: new Date().toISOString() });
+  // Bound the file: the oldest rows are dropped first. They are already in the
+  // translation table, so nothing is really lost.
+  if (list.length > SEEN_MAX) list.splice(0, list.length - SEEN_MAX);
   scheduleSave();
 }
 
-async function translateOne(text, target) {
+async function translateOne(text, target, opts) {
   const src = String(text == null ? "" : text);
   if (!src.trim()) return src;
   const key = target + "\u0000" + src;
@@ -227,7 +232,11 @@ async function translateOne(text, target) {
     // Auto-save: everything the game asked for lands in the local table, so the
     // next time it is an instant lookup instead of a network round trip.
     try {
-      table.add(src, value, { source: "auto", explicit: true, lg: target });
+      // Automatic saves go through the admission throttle (a one-off long text is
+      // only stored when it appears a second time); the button/API path passes
+      // explicit:true.
+      const explicit = !opts || opts.explicit !== false;
+      table.add(src, value, { source: "auto", explicit, lg: target, uses: 1 });
     } catch (e) {
       /* a broken table must never break translation */
     }
@@ -262,7 +271,9 @@ function bridgePage(query) {
   // { operation, text, sourceLanguage, targetLanguage } so the same in-game
   // client can talk to either bridge.
   let reqBody;
-  if (d && Array.isArray(d.texts)) {
+  if (d && Array.isArray(d.pairs)) {
+    reqBody = { pairs: d.pairs, target: String(d.target || target) };
+  } else if (d && Array.isArray(d.texts)) {
     reqBody = { texts: d.texts, target: String(d.target || d.targetLanguage || target) };
   } else if (d && (d.operation || d.targetLanguage)) {
     reqBody = {
@@ -280,20 +291,29 @@ function bridgePage(query) {
   // ?api= is a raw GET passthrough for whitelisted endpoints (used by the
   // overrides fetch, which needs a query string of its own).
   const rawApi = String(query.get("api") || "");
-  if (/^\/api\/v1\/(tm\/(lookup|overrides|stats|translate)|translate)(\?[^\s]*)?$/.test(rawApi)) {
+  if (/^\/api\/v1\/(tm\/(lookup|overrides|stats|translate|remember)|translate)(\?[^\s]*)?$/.test(rawApi)) {
+    // Raw passthrough with its own query string; a ?d= body turns it into a POST.
+    let rawBody = null;
+    const rawD = query.get("d");
+    if (rawD) {
+      try { rawBody = JSON.parse(rawD); } catch (e) { rawBody = null; }
+    }
     return [
       "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>bbt-bridge</title></head><body>",
       "<script>(function(){",
       "var id=" + JSON.stringify(id) + ";",
+      "var api=" + JSON.stringify(rawApi) + ";",
+      "var body=" + JSON.stringify(rawBody) + ";",
       "function out(o){try{document.title='BBT'+id+JSON.stringify(o);}catch(e){}}",
       "try{document.title='bbt-alive';}catch(e){}",
-      "fetch(" + JSON.stringify(rawApi) + ").then(function(r){return r.json();})",
+      "var opts=body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{method:'GET'};",
+      "fetch(api,opts).then(function(r){return r.json();})",
       ".then(function(j){out(j);}).catch(function(e){out({ok:false,error:String(e)});});",
       "})();</script></body></html>",
     ].join("");
   }
   const wantedPath = String(query.get("p") || "");
-  const apiPath = /^\/api\/v1\/(translate|tm\/translate|health)$/.test(wantedPath)
+  const apiPath = /^\/api\/v1\/(translate|tm\/(translate|remember|lookup|stats)|health)$/.test(wantedPath)
     ? wantedPath
     : op === "health" ? "/api/v1/health" : "/api/v1/translate";
   // The page writes one string into document.title; Panorama matches on the
@@ -340,22 +360,21 @@ function readJson(req) {
 }
 
 // ---- overrides against the shipped memory ----
-let offlineCache = null; // { "zh-Hans": { key: translation } }
+// Loaded once; the shipped memory is Chinese only, so every other language gets
+// an empty map (nothing in the pak can conflict with it).
+let offlineZh = null;
 function offlineMemory(lg) {
-  if (offlineCache && offlineCache[lg]) return offlineCache[lg];
-  offlineCache = offlineCache || {};
+  const isZh = !lg || lg === "zh-Hans";
+  if (!isZh) return {};
+  if (offlineZh) return offlineZh;
   const file = path.join(ROOT, "mod", "panorama", "scripts", "bba_tm.js");
-  let map = {};
   try {
     const { readFromScript } = require("../tm_format.js");
-    map = readFromScript(fs.readFileSync(file, "utf8"));
+    offlineZh = readFromScript(fs.readFileSync(file, "utf8"));
   } catch (e) {
-    map = {};
+    offlineZh = {};
   }
-  // The shipped memory is Chinese only.
-  offlineCache[lg] = lg === "zh-Hans" || !lg ? map : {};
-  offlineCache["zh-Hans"] = offlineCache[lg];
-  return offlineCache[lg];
+  return offlineZh;
 }
 
 /** Local rows whose translation differs from what the VPK ships. */
@@ -410,13 +429,40 @@ function start() {
       return send(200, "text/html; charset=utf-8", bridgePage(url.searchParams));
     }
     if (p === "/api/v1/health") {
-      return send(200, "application/json", JSON.stringify({ ok: true, version: "1.0.0", target: TARGET }));
+      let entries = 0;
+      try { entries = table.summary().entries; } catch (e) { entries = 0; }
+      return send(200, "application/json", JSON.stringify({
+        ok: true, version: "1.0.0", target: TARGET, name: "bbt-bridge", table: entries,
+      }));
     }
     if (p === "/api/v1/tm/stats") {
     return send(200, "application/json", JSON.stringify({ ok: true, table: table.summary() }));
   }
 
   // Batch lookup only (no network): what the UI asks for on every page open.
+  // Store translations the caller already has (the "save this page" menu item).
+  // No network: it only writes into the local table.
+  if (p === "/api/v1/tm/remember") {
+    let body = {};
+    if (req.method === "POST") body = await readJson(req);
+    else body = Object.fromEntries(url.searchParams.entries());
+    const target = String(body.target || body.lg || TARGET);
+    const pairs = Array.isArray(body.pairs) ? body.pairs : [];
+    let added = 0;
+    let folded = 0;
+    for (const pair of pairs) {
+      if (!pair || !pair.text || !pair.translation) continue;
+      const r = table.add(String(pair.text), String(pair.translation), {
+        source: "button", explicit: true, lg: target,
+      });
+      added += r.added;
+      folded += r.folded;
+    }
+    return send(200, "application/json", JSON.stringify({
+      ok: true, added, folded, table: table.summary().entries,
+    }));
+  }
+
   if (p === "/api/v1/tm/lookup") {
     let body = {};
     if (req.method === "POST") body = await readJson(req);
@@ -469,7 +515,11 @@ function start() {
         added += r.added;
         out.push(value);
       }
-      return send(200, "application/json", JSON.stringify({ ok: true, translations: out, hits, added }));
+      let entries2 = 0;
+      try { entries2 = table.summary().entries; } catch (e) { entries2 = 0; }
+      return send(200, "application/json", JSON.stringify({
+        ok: true, translations: out, hits, added, table: entries2,
+      }));
     } catch (e) {
       return send(502, "application/json", JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) }));
     }

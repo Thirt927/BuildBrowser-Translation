@@ -109,6 +109,16 @@ function run(text) {
   check("whole-text hit still wins over fragments", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
 }
 
+// Separators must survive: ">" and "|" separate build note fragments, and the
+// mixed result has to keep them or the text becomes unreadable.
+{
+  const text = "Key item for Drifter early game. > Lane phase matters a lot. > Buy boots early and rotate.";
+  const { label } = run(text);
+  check("separators are preserved", (label.text.match(/>/g) || []).length === 2, JSON.stringify(label.text));
+  check("fragments around separators translated", label.text.indexOf("孤猎前期的重要装备。") >= 0 && label.text.indexOf("对线阶段非常关键。") >= 0, JSON.stringify(label.text));
+  check("untranslated fragment kept verbatim", label.text.indexOf("Buy boots early and rotate.") >= 0, JSON.stringify(label.text));
+}
+
 // A wholly unknown long text: untouched.
 {
   const text = "Nobody has written this note before, so there is nothing to look up anywhere.";
