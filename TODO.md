@@ -565,3 +565,14 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
 
 另外:再往上爬 GameBanana 时被 403 限流,批量扫描不可行 —— 所以"靠 mod 找布局"只能逐个来,
 **最可靠的仍然是拿到 `game/citadel/pak01_dir.vpk` 一次枚举**。
+
+## 十三、布局清单(靠 mod 逆向,2026-10-31)
+
+详见 [`docs/layout-inventory.md`](docs/layout-inventory.md)。要点:
+
+- 出装相关界面共 **7 个布局**,已覆盖 **6 个**(v1.7.5 补上 `citadel_shop_mods_build_category`);
+- 剩余 **`popups/citadel_popup_build_browser`**(HUD/商店弹出的出装浏览器弹窗):它内部就是
+  `<CitadelHeroBuildsSelector>`,所以列表/详情仍由我们已覆盖的布局负责 —— 只有弹窗自己的
+  `#Citadel_BuildBrowser_Title` 等少量文字是英文。补它需要原生布局(现有样本被 mod 重写过,不能直接用)。
+- 其余界面(`citadel_hud_active_player_stats`、`hud_data_feed`、`profile_card` …)与本 mod 无关。
+- 关键限制重申:**mod 只带它改过的文件**,完整枚举只能来自 `game/citadel/pak01_dir.vpk`。
