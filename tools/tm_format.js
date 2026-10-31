@@ -104,7 +104,9 @@ function emitScript(map, meta) {
     "    }\n" +
     "    return null;\n" +
     "  }\n" +
-    "  var g = globalThis || this || {};\n" +
+    "  var g;\n" +
+    "  try { if (typeof globalThis !== \"undefined\" && globalThis) g = globalThis; } catch (e) {}\n" +
+    "  if (!g) { try { g = Function(\"return this\")(); } catch (e) { g = {}; } }\n" +
     "  g.BBA_TM_GET = get;\n" +
     "  g.BBA_TM_COUNT = " + count + ";\n" +
     "})();\n"

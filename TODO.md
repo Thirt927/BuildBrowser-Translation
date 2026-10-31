@@ -477,3 +477,52 @@ tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬�
 - 「把新译文存入本地库」改为调用 `/api/v1/tm/remember`(纯写库、**不联网**),并能在对照模式下正确截取译文部分。
 - 新增结构检查:`scene_verify` 现在校验 5 个覆盖布局的标签配平与 **id 唯一性**。
 - 工具条按钮/菜单在文件里首次出现前不会崩(所有 handler 都做 null 检查)。
+
+## 十、用户反馈修复(2026-10-31,v1.7.0)
+
+用户反馈四条:**概述里的描述没翻译 / 翻译按钮无效 / 无法下拉 / 点进出装后翻译一直覆盖**。
+定位到两个根因 + 一个覆盖缺口:
+
+### 根因 1:写 `.text` 会摧毁 `{s:var}` 模板(→"一直覆盖")
+
+之前靠"回绑"补救:把 `#Token` 写回去让引擎重新解析。一旦某标签的 class 有**两个候选 token**
+(例如 `ModifiesLabel` 同时被 `#Citadel_Item_Build_Annotation` 与 `#Citadel_ItemModifies` 使用),
+回绑会写错 token → 标签卡在 `#Token` → 扫描又把 token 当"内容变化" → 再次回绑 → **死循环**,
+表现就是"翻译一直覆盖,没法正常翻译"。
+
+修法(彻底,不再依赖回绑):
+- 用 `$.Localize(token)` 取出本地化模板,解析出 `{s:varName}`,再用
+  **`panel.SetDialogVariable(varName, 译文)`** 写入。模板保留、绑定保留,换出装/换装备时引擎
+  照旧更新,我们下一帧翻译新英文即可。写入后**回读校验**,不生效才退回写 `.text`。
+- `tools/build_layout_tokens.js` 现在同时产出 `byClass`(唯一声明)和 `byClassAll`(全部候选);
+  歧义 class 不再用于回绑(只用于挑 dialog variable),运行时还能用 `$.Localize` 的值比对候选。
+- 回绑退化为"极少数标签"的安全网(仅 id/唯一 class/亲见过的 token),并加 `rebindCheck()`
+  自愈:写完 token 下一帧仍未解析 → 判定非引擎驱动 → 还原并拉黑。
+
+### 根因 2:按钮/下拉依赖全局函数名解析(→"按钮无效/无法下拉")
+
+`onactivate="BBTTranslatePage()"` 需要引擎在布局的全局作用域里找到该函数,IIFE 包装 + 严格模式
+下很容易失效且**静默**。修法:
+- 启动后用 **`panel.SetPanelEvent("onactivate", 回调)`** 直接绑定(`wireToolbar()`,带重试),
+  不依赖名字解析;XML 里的 `onactivate` 保留为后备,`uiGuard()` 防重复触发。
+- 所有按钮内 `<Label>` 加 `hittest="false"`,控件面板加 `hittest="true"`(Label 吞点击会
+  导致 onactivate 不触发)。
+- 首次绑定成功会打印 `[BBT] toolbar wired: N control(s)`,便于你自己确认。
+- `globalThis` 兼容:某些引擎没有 `globalThis` 且**引用未声明标识符会抛错**,改用
+  `Function("return this")()` 兜底(tm_format.js / layout_tokens 生成器同步修)。
+
+### 覆盖缺口:概述页是另一个布局文件
+
+"概述"里的描述不在已覆盖的 5 个布局里,大概率是独立布局(如 `citadel_ui_build_details_*`)。
+`tools/get_layouts.ps1` 现在支持**通配符**,一条命令覆盖一整类:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导出目录>" -Names "*build*" -NoTm
+```
+
+然后把新生成的覆盖布局名加进 `scripts/build.ps1` 的 `$required` 列表(或直接让我加)。
+
+### 测试
+- `refresh_verify` 新增 Case F(真实 `SetDialogVariable` 行为):译文写入后**模板仍绑定**、
+  连换两次出装都能跟着变、`rebinds === 0`;Case C 改为真实绑定,验证悬停复用面板。
+- `scene_verify` 新增布局配平 + id 唯一性检查。

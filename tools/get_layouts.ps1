@@ -16,6 +16,11 @@
 # the leaf name is matched anywhere in the export tree, the directory part only
 # narrows the search when a matching subpath exists.
 #
+# Wildcards: a name may use * (e.g. -Names "*build*" injects into every layout
+# whose file name contains "build"). This is the quick way to cover a panel that
+# lives in a layout we did not know about -- for example the "Overview" tab of the
+# build details, which is a separate layout file.
+#
 # How to get the decompiled layouts (one-off, 30 seconds):
 #   1. Open the game's citadel VPKs (game\citadel\*.vpk) in Source 2 Viewer
 #      (see https://deadlockmodding.pages.dev/modding-tools/source-2-viewer)
@@ -47,7 +52,8 @@ foreach ($name in $request) {
   $wantDir = $null
   if ($parts.Count -gt 1) { $wantDir = [string]::Join("/", $parts[0..($parts.Count - 2)]) }
 
-  $candidates = @(Get-ChildItem -Path $S2VDir -Recurse -File -Filter "$leaf.*" |
+  $filter = if ($leaf -match "[*?]") { $leaf } else { "$leaf.*" }
+  $candidates = @(Get-ChildItem -Path $S2VDir -Recurse -File -Filter $filter |
     Where-Object { $_.Extension -in ".xml", ".vxml" })
   if ($candidates.Count -eq 0) {
     Write-Warning ("layout '{0}' not found under {1} (S2V export keeps the original path; search for '{2}.xml')") -f $name, $S2VDir, $leaf
@@ -57,10 +63,19 @@ foreach ($name in $request) {
     $inDir = @($candidates | Where-Object { ($_.FullName -ireplace "[\\]+", "/") -like "*/$wantDir/*" })
     if ($inDir.Count -gt 0) { $candidates = $inDir }
   }
-  $hits = $candidates | Select-Object -First 1
-
-  Write-Host ("[{0}] found: {1}" -f $name, $hits.FullName)
   $inject = Join-Path $ProjectRoot "tools/inject_scripts.js"
+  if ($leaf -match "[*?]" -and $candidates.Count -gt 1) {
+    # Wildcard with several hits: inject into all of them.
+    foreach ($c in $candidates) {
+      Write-Host ("[{0}] found: {1}" -f $name, $c.FullName)
+      & $Node.Source $inject $c.FullName @NoTmFlag
+      if ($LASTEXITCODE -ne 0) { Write-Error ("inject_scripts.js failed for {0}" -f $c.Name); exit 1 }
+      $made += $c.BaseName
+    }
+    continue
+  }
+  $hits = $candidates | Select-Object -First 1
+  Write-Host ("[{0}] found: {1}" -f $name, $hits.FullName)
   & $Node.Source $inject $hits.FullName @NoTmFlag
   if ($LASTEXITCODE -ne 0) { Write-Error ("inject_scripts.js failed for {0}" -f $name); exit 1 }
   $made += $name

@@ -26,6 +26,8 @@ const SRC = {
   "Rend > Heal > Repeat.": "撕裂 > 治疗 > 重复。",
   "Key item for Drifter early game.": "孤猎前期的重要装备。",
   "After you upgrade your Rend once.": "升级一次撕裂之后。",
+  "Buy this before the team fight.": "团战前先买这个。",
+  "Build Three": "构建三",
 };
 function hash32(s, seed) {
   let h = seed >>> 0;
@@ -75,6 +77,55 @@ function makePanel(opts) {
 //             removes it, after which the engine's updates go nowhere)
 //   _varValue the latest value the engine stored in the dialog variable
 //   _text     what the label currently displays
+// Labels that the engine fills through SetDialogVariable, exactly like Panorama:
+//   * text defaults to the token template "{s:name}"
+//   * SetDialogVariable("name", v) re-renders it
+//   * assigning .text destroys the template (the old buggy path)
+const LOCALIZE = {
+  "#Citadel_HeroBuilds_BuildName": "{s:build_name}",
+  "#Citadel_HeroBuilds_BuildDescription": "{s:build_description}",
+  "#Citadel_Item_Build_Annotation": "{s:mod_annotation}",
+  "#Citadel_HeroBuilds_BuildID": "Build # {s:build_id}",
+};
+
+function makeVarPanel(token, value, cls, varName) {
+  const name = varName || (/\{s:([A-Za-z0-9_]+)\}/.exec(LOCALIZE[token] || "") || [])[1];
+  const p = makePanel({ cls: cls });
+  p._template = LOCALIZE[token] || null; // null = destroyed
+  p._tok = token;
+  p._vars = {};
+  if (name) p._vars[name] = value;
+  p._text = name && p._template ? p._template.replace(/\{s:[A-Za-z0-9_]+\}/, String(value)) : String(value);
+  Object.defineProperty(p, "text", {
+    get: () => p._text,
+    set: (v) => {
+      if (v === token && p._tok) {
+        // restoring the declared token re-arms the template
+        p._template = LOCALIZE[token] || null;
+        const vn = p._varName;
+        p._text = p._template ? p._template.replace(/\{s:[A-Za-z0-9_]+\}/, String(p._vars[vn] == null ? "" : p._vars[vn])) : String(v);
+        return;
+      }
+      p._template = null; // assigning .text kills the binding
+      p._text = String(v);
+    },
+    configurable: true,
+  });
+  p._varName = name;
+  p.SetDialogVariable = (vn, v) => {
+    p._vars[vn] = v;
+    if (p._template) p._text = p._template.replace(/\{s:[A-Za-z0-9_]+\}/, String(v));
+  };
+  // engine side: the game picks another build -> new dialog variable value
+  p.engineSet = (v) => {
+    p._vars[p._varName] = v;
+    if (p._template) p._text = p._template.replace(/\{s:[A-Za-z0-9_]+\}/, String(v));
+    return !!p._template;
+  };
+  p.bound = () => !!p._template;
+  return p;
+}
+
 function makeBoundPanel(token, value, cls) {
   const p = makePanel({ cls: cls });
   p._token = token;
@@ -118,6 +169,7 @@ function boot(root) {
       GetContextPanel: () => root,
       Schedule: (d, fn) => queue.push(fn),
       Msg: (m) => log.push(String(m)),
+      Localize: (tok) => LOCALIZE[tok] || tok,
     },
   };
   vm.createContext(sandbox);
@@ -212,33 +264,34 @@ function check(name, cond, detail) {
 }
 
 // =====================================================================
-// Case C: item hover tooltip. The annotation label is bound to
-// #Citadel_Item_Build_Annotation; the tooltip is reused across hovers, so the
-// annotation must be re-translated for every item.
+// Case C: item hover tooltip. The annotation label is bound to a dialog variable
+// ({s:mod_annotation}); the tooltip panel is reused for every hovered item, so the
+// annotation must follow each item without the engine losing its binding.
 // =====================================================================
 {
   const root = makePanel({ cls: "ModDetailsTooltip" });
-  const modNameP = makeBoundPanel("{s:mod_name}", "元灵收割", "ModName");      // game-localized item name
-  const compP = makeBoundPanel("{s:modName}", "元灵收割", "componentModName");
-  const levelP = makeBoundPanel("+{d:mod_level}", "+2", "ModLevel");           // ticking-ish, must not trigger
-  const annP = makeBoundPanel("#Citadel_Item_Build_Annotation", "Rend > Heal > Repeat.", "ModifiesLabel");
+  const modNameP = makeVarPanel("#Citadel_Item_Name", "元灵收割", "ModName", "mod_name");
+  const compP = makeVarPanel("#Citadel_Item_Name", "元灵收割", "componentModName", "modName");
+  const levelP = makeBoundPanel("+{d:mod_level}", "+2", "ModLevel"); // ticking-ish, must not trigger
+  const annP = makeVarPanel("#Citadel_Item_Build_Annotation", "Rend > Heal > Repeat.", "ModifiesLabel", "mod_annotation");
+  modNameP._cls = "ModName"; // class drives the identity signal
   root.children.push(modNameP, compP, levelP, annP);
   const { sandbox, queue } = boot(root);
   const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
-  tick(2);
+  tick(3);
   check("[C] tooltip annotation translated", annP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annP.text));
+  check("[C] annotation keeps its binding", annP.bound(), "the engine can no longer update it");
 
-  // hover a different item: the engine re-fills the dialog variables
+  // hover a different item: the engine re-fills the same label with new English
   modNameP.engineSet("乘胜追击");
   compP.engineSet("乘胜追击");
   levelP.engineSet("+3");
-  const annOk = annP.engineSet("Key item for Drifter early game.");
-  check("[C] annotation update is lost while we hold the label", annOk === false);
+  annP.engineSet("Key item for Drifter early game.");
+  tick(2);
+  check("[C] annotation follows the hovered item", annP.text === "孤猎前期的重要装备。", JSON.stringify(annP.text));
+  check("[C] still bound after the hover", annP.bound());
 
-  tick(1);
-  check("[C] annotation follows the hovered item in the same tick", annP.text === "孤猎前期的重要装备。", JSON.stringify(annP.text));
-
-  // and again, back to the first item
+  // and back to the first item
   modNameP.engineSet("元灵收割");
   compP.engineSet("元灵收割");
   annP.engineSet("Rend > Heal > Repeat.");
@@ -291,6 +344,39 @@ function check(name, cond, detail) {
   check("[E] never shows a raw #token", plain.text.indexOf("#") !== 0, JSON.stringify(plain.text));
   tick(4);
   check("[E] ends up translated", plain.text === "孤猎前期的重要装备。", JSON.stringify(plain.text));
+}
+
+// =====================================================================
+// Case F: the real fix -- a {s:var} label is translated through
+// SetDialogVariable, so its template survives and the engine can keep updating
+// it (selecting another build must NOT leave the first translation behind).
+// =====================================================================
+{
+  const root = makePanel({});
+  const idP = makeVarPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID", "build_id");
+  const nameP = makeVarPanel("#Citadel_HeroBuilds_BuildName", "Build One", "BuildName", "build_name");
+  const descP = makeVarPanel("#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BuildDescription", "build_description");
+  root.children.push(idP, nameP, descP);
+  const { sandbox, queue } = boot(root);
+  const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
+  tick(3);
+
+  check("[F] description translated", descP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descP.text));
+  check("[F] template still bound after translating", descP.bound(), "the engine lost the binding");
+  check("[F] used the dialog variable, not .text", (sandbox.BBT_STATS.dialogVar || 0) >= 1, String(sandbox.BBT_STATS.dialogVar));
+
+  // the game selects another build: the engine writes new English into the SAME label
+  descP.engineSet("Key item for Drifter early game.");
+  idP.engineSet("BUILD-222");
+  tick(4);
+  check("[F] follows the newly selected build", descP.text === "孤猎前期的重要装备。", JSON.stringify(descP.text));
+  check("[F] still bound after the switch", descP.bound());
+
+  // and again, to make sure it is not a one-shot
+  descP.engineSet("Buy this before the team fight.");
+  tick(4);
+  check("[F] follows a third build", descP.text === "团战前先买这个。", JSON.stringify(descP.text));
+  check("[F] no rebind loop needed", (sandbox.BBT_STATS.rebinds || 0) === 0, String(sandbox.BBT_STATS.rebinds));
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

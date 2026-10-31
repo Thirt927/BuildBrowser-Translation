@@ -41,8 +41,9 @@ function usableClass(cls) {
 }
 
 function collect() {
-  const table = {}; // class -> token
-  const byId = {}; // id -> token
+  const table = {}; // class -> token (only when unambiguous)
+  const all = {}; // class -> [tokens] (every declaration, for runtime matching)
+  const byId = {}; // id -> token (always authoritative)
   const conflicts = [];
   for (const file of listLayouts(LAYOUT_DIR)) {
     const xml = fs.readFileSync(file, "utf8");
@@ -58,6 +59,8 @@ function collect() {
       const cls = usableClass((/class="([^"]*)"/.exec(attrs) || [])[1]);
       const id = (/id="([^"]*)"/.exec(attrs) || [])[1];
       if (cls) {
+        all[cls] = all[cls] || [];
+        if (all[cls].indexOf(text) < 0) all[cls].push(text);
         if (table[cls] && table[cls] !== text) conflicts.push(cls + ": " + table[cls] + " vs " + text);
         else table[cls] = text;
       }
@@ -67,10 +70,12 @@ function collect() {
       }
     }
   }
-  return { table, byId, conflicts };
+  return { table, all, byId, conflicts };
 }
 
-function render(table, byId) {
+function render(table, all, byId, ambiguous) {
+  // Drop every class that was declared with more than one token.
+  for (const cls of ambiguous) delete table[cls];
   const sort = (o) => {
     const out = {};
     for (const k of Object.keys(o).sort()) out[k] = o[k];
@@ -82,17 +87,23 @@ function render(table, byId) {
     "// Used by bba_translate.js to restore a token-bound label to the engine when\n" +
     "// a new build/item is shown (see the rebind logic there).\n" +
     "(function () {\n" +
-    "  var g = globalThis || this || {};\n" +
+    "  var g;\n" +
+    "  try { if (typeof globalThis !== \"undefined\" && globalThis) g = globalThis; } catch (e) {}\n" +
+    "  if (!g) { try { g = Function(\"return this\")(); } catch (e) { g = {}; } }\n" +
     "  g.BBA_LAYOUT_TOKENS = {\n" +
     "    byClass: " + JSON.stringify(sort(table)) + ",\n" +
+    "    // Every declaration, including ambiguous classes: the script picks the\n" +
+    "    // candidate whose $.Localize() text matches what the label shows.\n" +
+    "    byClassAll: " + JSON.stringify(sort(all)) + ",\n" +
     "    byId: " + JSON.stringify(sort(byId)) + ",\n" +
     "  };\n" +
     "})();\n"
   );
 }
 
-const { table, byId, conflicts } = collect();
-const body = render(table, byId);
+const { table, all, byId, conflicts } = collect();
+const ambiguous = new Set(conflicts.map((c) => c.split(":")[0].replace(/^#/, "")));
+const body = render(table, all, byId, ambiguous);
 
 if (process.argv.indexOf("--check") >= 0) {
   const cur = fs.existsSync(OUT_JS) ? fs.readFileSync(OUT_JS, "utf8") : "";
@@ -110,6 +121,6 @@ console.log(
     Object.keys(byId).length + " ids",
 );
 if (conflicts.length) {
-  console.warn("conflicting declarations (first wins):");
+  console.warn("ambiguous declarations (class dropped, id kept):");
   for (const c of conflicts) console.warn("  " + c);
 }
