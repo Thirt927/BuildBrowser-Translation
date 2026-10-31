@@ -1684,13 +1684,29 @@
     return true;
   }
 
+  // Debug-gated, permanent instrumentation for the click-report bugs (B1/B2/B5):
+  // every toolbar handler logs what fired and on which panel, guarded actions
+  // log the guard rejection, and the menu toggle logs open/close. All lines are
+  // [BBT] prefixed and BBT_DEBUG-gated - zero output when debug is off, so no
+  // temporary-log cleanup is ever needed.
+  function clickProbe(name, panel) {
+    if (!debugOn()) return;
+    var tag = "?";
+    try {
+      if (panel) tag = String(panel.id || (panel.tag ? panel.tag : "panel")) || "?";
+    } catch (e) { tag = "?"; }
+    $.Msg("[BBT] click " + name + " on " + tag);
+  }
+
   function onActivate(ids, fn, name) {
     var panel = uiPanel(ids);
     if (!panel) return false;
     try {
       if (typeof panel.SetPanelEvent === "function") {
         panel.SetPanelEvent("onactivate", function () {
-          if (uiGuard(name)) fn();
+          if (!uiGuard(name)) { clickProbe(name + ":guard-skip", panel); return; }
+          clickProbe(name, panel);
+          fn();
         });
         uiWired[name] = true;
         return true;

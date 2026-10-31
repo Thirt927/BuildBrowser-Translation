@@ -78,6 +78,12 @@
   周期轮询)。
 - **早间 3 分钟步骤 ②**:进出装选择器,悬停物品看「Modifies」描述是否随出装刷新,
   日志出 `resync-localized`(哪个候选命中)或 `resync-defer`(候选清单)。
+- **B1 — 点击类打点(永久,`BBT_DEBUG` 门控)**:新增 `clickProbe()`——所有工具栏
+  handler(翻译/刷新按钮及菜单项,`onActivate` / `onActivateChild` / `toggleMenu`)触发时
+  打 `[BBT] click <名字> on <面板>`,被 `uiGuard` 拦截时打 `…:guard-skip`,菜单打
+  `menu->open/close`。默认(`BBT_DEBUG` 未设)零输出,无临时日志残留。
+- **早间 3 分钟步骤 ③**:`globalThis.BBT_DEBUG = true` 后点「翻译本页」,应出现
+  `[BBT] click translate` 或 `translate:guard-skip`(定位是 handler 没接上还是被守卫拒)。
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
