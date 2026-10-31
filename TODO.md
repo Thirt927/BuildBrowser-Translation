@@ -221,3 +221,24 @@
 - 有 `[BBT] W ...` 但 `rebinds` 不涨 → 身份标签没被识别(把该布局里 build id/版本标签的
   class 加进 `IDENTITY_TOKEN` 或补进 layout tokens 表);
 - 有 `rebind` 但文本仍是旧译文 → 该布局的 token 与变量名不匹配(`build_layout_tokens.js` 重新生成)。
+
+### 五-补:悬停提示(装备 tooltip)的同一问题
+
+用户反馈"悬停只翻了物品名,作者写的出装描述不更新"——与右侧详情同因:
+`tooltips/citadel_tooltip_mod_details.xml` 里
+`<Label class="ModifiesLabel" text="#Citadel_Item_Build_Annotation" />` 是变量绑定标签;
+物品名是 `{s:mod_name}`(游戏本地化,本来就是中文,所以"只翻了物品名")。
+tooltip 面板会被反复复用,所以第一次写入译文后,后续每次悬停引擎的
+`SetDialogVariable` 都被吞掉 → 作者注释永远停在第一条。
+
+修复(已在 v1.2.1 之上补齐,`tests/refresh_verify.js` 场景 C 覆盖):
+- tooltip 里的 `.ModName` / `.componentModName`(`{s:mod_name}` 等)作为身份信号:
+  它们随悬停物品变化 → 触发回绑 → 作者注释重新解析出新英文 → 再翻译。
+- 若某个布局**一个身份标签都没有**,退化为"任何未翻译标签的文本变化"也算信号
+  (`contentChanged`),但排除会自己走的标签(`TICKING_TOKEN`:
+  `_Time`/`LastUpdated`/`Timer`/`Cooldown`/`Level` 等),并加 3 tick 冷却,
+  防止面板每 tick 反复重译(场景 D 验证:相对时间标签跳动不会引发重写风暴)。
+- 已知小瑕疵:`.ModifiesLabel` 这个 class 在 tooltip 里被复用两次
+  (`#Citadel_Item_Build_Annotation` 与 `#Citadel_ItemModifies`),生成的对照表按
+  "文档顺序第一个"取值;第二个标签我们基本不会写(不在译文库里),影响可忽略。
+  若将来出问题,给布局加 `id` 后用 byId 精确匹配即可。

@@ -215,11 +215,17 @@
   // the shown build/item changes.
   var identity = new WeakMap();
   var identityChanged = false;
+  // Set when an untranslated label changed for a reason other than identity.
+  var contentChanged = false;
 
   // Only labels we never translate can act as "the shown build changed" signals:
   // build id, version, last-updated, mod name. (Build name/description are user
   // text, so they get translated and would feed us our own writes.)
   var IDENTITY_TOKEN = /BuildID|LastUpdatedTime|HeroBuilds_Version|ModName|Item_Name/i;
+  // Labels that change on their own (relative timestamps, timers): they must not
+  // be read as "a different build is shown", or the panel would re-translate
+  // every second.
+  var TICKING_TOKEN = /_Time|LastUpdated|Timer|Clock|Cooldown|Ammo|Health|Level/i;
 
   function classOf(panel) {
     try {
@@ -439,12 +445,18 @@
       // Track identity only on labels the translator leaves alone; tracking a
       // label we translated would see our own write as "the build changed".
       var tok = tokenOf.get(p);
-      if (tok && IDENTITY_TOKEN.test(tok) && typeof t === "string") {
-        var rec = memo.get(p);
-        if (!rec || rec.k === 0) {
+      var rec = memo.get(p);
+      if (tok && typeof t === "string" && (!rec || rec.k === 0)) {
+        if (IDENTITY_TOKEN.test(tok)) {
           var prev = identity.get(p);
           if (prev !== undefined && prev !== t) identityChanged = true;
           identity.set(p, t);
+        } else if (!TICKING_TOKEN.test(tok) && rec && rec.in !== t) {
+          // Some other engine-driven label changed inside this layout: the
+          // hovered item / opened panel is a different one even if no explicit
+          // identity label exists (tooltips have very few labels).
+          contentChanged = true;
+          remember(p, 0, t, null);
         }
       }
       var n = 0;
@@ -471,6 +483,7 @@
   // second forever while the player is just looking at a screen.
   var interval = POLL_INTERVAL;
   var idleTicks = 0;
+  var ticksSinceRebind = 99;
 
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
@@ -481,12 +494,17 @@
       if (ctx && panelVisible(ctx)) fresh = scan(ctx);
     } catch (e) {}
     // A new build/item is on screen: labels that are still showing our old
-    // translation of the previous build were bound to dialog variables that we
-    // clobbered, so hand them back to the engine.
-    if (identityChanged) {
+    // translation of the previous one were bound to dialog variables that we
+    // clobbered, so hand them back to the engine. The cooldown keeps a chatty
+    // label from making the panel re-translate on every tick.
+    if (identityChanged || (contentChanged && ticksSinceRebind > 3)) {
       identityChanged = false;
-      try { rebindStale(); } catch (e) {}
+      contentChanged = false;
+      try {
+        if (rebindStale()) ticksSinceRebind = 0;
+      } catch (e) {}
     }
+    ticksSinceRebind += 1;
     var worked = stats.translated + stats.fallback > before || fresh > 0;
     if (worked) {
       idleTicks = 0;

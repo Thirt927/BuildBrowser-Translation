@@ -177,8 +177,9 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 - `node tools\build_layout_tokens.js --check`:`bba_layout_tokens.js`(布局里 class/id →
   `text="#Token"` 的对照表)是否与覆盖布局同步。
 - `perf_probe.js`:量测译文库启动成本与每 tick 扫描成本(变更检测 + 空闲退避是否生效)。
-- `refresh_verify.js`:切换出装/装备后译文必须跟着刷新。覆盖两种引擎更新方式:
-  直接写 `label.text`,以及 `text="#Token"` + `SetDialogVariable`(变量绑定)的标签。
+- `refresh_verify.js`:切换出装/装备后译文必须跟着刷新。覆盖:直接写 `label.text`、
+  `text="#Token"` + `SetDialogVariable`(变量绑定)、tooltip 反复复用、以及"相对时间标签
+  跳动不能引发重写风暴"四种情形。
 - `layout_dom_simtest.js`:用游戏原版反编译布局搭出真实的嵌套面板树(列表 → 详情 →
   出装分类 → 装备注释 / 装备提示),灌入真实出装文本,验证各位置的文本都会被替换。
   需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条),缺省时自动 SKIP。

@@ -211,6 +211,61 @@ function check(name, cond, detail) {
   check("[B] third build refreshed", nameP.text === "构建一" && descP.text === "升级一次撕裂之后。", JSON.stringify([nameP.text, descP.text]));
 }
 
+// =====================================================================
+// Case C: item hover tooltip. The annotation label is bound to
+// #Citadel_Item_Build_Annotation; the tooltip is reused across hovers, so the
+// annotation must be re-translated for every item.
+// =====================================================================
+{
+  const root = makePanel({ cls: "ModDetailsTooltip" });
+  const modNameP = makeBoundPanel("{s:mod_name}", "元灵收割", "ModName");      // game-localized item name
+  const compP = makeBoundPanel("{s:modName}", "元灵收割", "componentModName");
+  const levelP = makeBoundPanel("+{d:mod_level}", "+2", "ModLevel");           // ticking-ish, must not trigger
+  const annP = makeBoundPanel("#Citadel_Item_Build_Annotation", "Rend > Heal > Repeat.", "ModifiesLabel");
+  root.children.push(modNameP, compP, levelP, annP);
+  const { sandbox, queue } = boot(root);
+  const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
+  tick(2);
+  check("[C] tooltip annotation translated", annP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annP.text));
+
+  // hover a different item: the engine re-fills the dialog variables
+  modNameP.engineSet("乘胜追击");
+  compP.engineSet("乘胜追击");
+  levelP.engineSet("+3");
+  const annOk = annP.engineSet("Key item for Drifter early game.");
+  check("[C] annotation update is lost while we hold the label", annOk === false);
+
+  tick(20);
+  check("[C] annotation follows the hovered item", annP.text === "孤猎前期的重要装备。", JSON.stringify(annP.text));
+
+  // and again, back to the first item
+  modNameP.engineSet("元灵收割");
+  compP.engineSet("元灵收割");
+  annP.engineSet("Rend > Heal > Repeat.");
+  tick(20);
+  check("[C] annotation follows back", annP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annP.text));
+}
+
+// =====================================================================
+// Case D: a ticking label must NOT make the panel re-translate forever.
+// =====================================================================
+{
+  const root = makePanel({});
+  const timeP = makeBoundPanel("#Citadel_HeroBuilds_LastUpdatedTime", "2 hours ago", "LastUpdated");
+  const descP = makeBoundPanel("#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BuildDescription");
+  root.children.push(timeP, descP);
+  const { sandbox, queue } = boot(root);
+  const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
+  tick(2);
+  const writesAfterFirst = sandbox.BBT_STATS.writes;
+  for (let i = 0; i < 10; i += 1) {
+    timeP.engineSet("2 hours ago"); // same value; relative time labels repaint anyway
+    tick(3);
+  }
+  check("[D] no runaway rewrites from a ticking label", sandbox.BBT_STATS.writes - writesAfterFirst <= 1, String(sandbox.BBT_STATS.writes - writesAfterFirst));
+  check("[D] description still translated", descP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descP.text));
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log("");
 if (failures) {
