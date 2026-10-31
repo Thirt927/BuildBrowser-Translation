@@ -76,7 +76,7 @@
 				<Panel class="AuthoringInfo">
 					<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_name}) -->
 					<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-					<Label class="BBTDst BuildName" html="true" />
+					<Label class="BBTProbe BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 				</Panel>
 				<Panel id="ControlArea">
 					<Panel class="ExtraInfo">
@@ -123,7 +123,7 @@
 					<Panel id="BuildDetails_Overview">
 						<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_description}) -->
 						<Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
-						<Label class="BBTDst BuildDescription" />
+						<Label class="BBTProbe BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
 						<CitadelShopModsBuild id="ShopModsBuild" />
 						<Panel class="ModListContainer">
 							<CitadelModsPurchasedPanel id="mod_universal" class="ModList" mod_category="Universal" read_only="true" />

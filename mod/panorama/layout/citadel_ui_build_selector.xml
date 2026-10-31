@@ -38,10 +38,11 @@
 								<Label id="AllTimeLabel" text="#Citadel_HeroBuilds_AllTimeFavorite" />
 							</Panel>
 						</Panel>
-						<!-- engine-owned build name ({s:selected_hero_build_name}); the mod
-						     mirrors it into the BBTDst label instead of writing here -->
+						<!-- engine-owned build name ({s:selected_hero_build_name}); the 1px
+						     probe carries the same token so the mod can read the current
+						     English without ever writing to it -->
 						<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-						<Label class="BBTDst BuildName" html="true" />
+						<Label class="BBTProbe BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 						<Label id="OldIcon" class="InfoIcon" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_OldButtonTooltip )" onmouseout="UIHideTextTooltip()" />
 					</Panel>
 					<Label class="SelectedBuild" text="#Citadel_HeroBuilds_Selected" />

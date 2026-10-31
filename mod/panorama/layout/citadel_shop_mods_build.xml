@@ -23,9 +23,9 @@
 	<snippets>
 		<snippet name="FavoriteBuildEntry">
 			<Panel class="FavoriteBuildEntryContainer">
-				<!-- engine-owned build name; the mod mirrors it (see bba_translate.js) -->
+				<!-- engine-owned build name; the 1px probe keeps the current text readable -->
 				<Label class="BBTSrc FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-				<Label class="BBTDst FavoriteBuildEntryLabel SelectedBuildName" html="true" />
+				<Label class="BBTProbe FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 				<Panel class="TagList">
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag1" />
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag2" />

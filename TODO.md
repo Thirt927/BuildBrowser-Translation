@@ -612,3 +612,22 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
 - 测试:`refresh_verify` 重写为源+镜像模型(B/C/D 覆盖换出装、悬停换物品、时间标签抖动);
   `toolbar_cover_simtest` 改为断言"详情里有原生工具栏、选择器里没有第二个"。
 
+### 十四-补:v1.8.1 —— 折叠的源标签不会解析模板(列表名字全空)
+
+v1.8.0 把源标签设成 `visibility: collapse`,实测**列表里所有出装名、出装标题、概述描述、
+分类名/说明全部变空**。原因:Panorama 只在**渲染**时解析 `{s:var}`,折叠的 Label 从不渲染,
+`.text` 一直停在原始 `#Token`;脚本把"未解析的 token"当成"没内容",于是镜像标签保持空。
+
+修正:源标签不再折叠,改成 **可见标签 + 1px 探针**:
+- `BBTSrc` = 可见的那一个,由我们翻译(写 `.text`,模板被覆盖无所谓);
+- `BBTProbe` = 同 token 的副本,`width/height: 1px; opacity: 0.01; overflow: clip;`,
+  **正常渲染**所以引擎每次换出装都会在这里刷新出最新英文,任何代码都不写它;
+- 脚本每 tick 读探针 → 翻好写进可见标签;探针拿不到可解析文本时,可见标签保留引擎自己的英文
+  (降级可见,不会再出现空白)。
+- 顺带去掉 `bba.css` 里无效的 `hittest: false`(控制台那条 `Invalid property name: hittest` 警告)。
+
+另:排查时发现 `addons` 里有多份重复/过期归档,会与我们抢同名布局/脚本,已禁用:
+`pak14_dir.vpk`(本 mod 旧版)、`pak22_dir.vpk`(与 pak11 哈希完全相同的 DeadlockLingua 副本)、
+`local-…_pak13_dir.vpk`(Mod 管理器自动导入的 v1.7.3 副本)。
+
+

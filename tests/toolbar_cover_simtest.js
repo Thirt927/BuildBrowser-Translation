@@ -73,7 +73,7 @@ const selectorFile = "citadel_ui_build_selector.xml";
   // the tabs and produced a dead button.
   const xml = fs.readFileSync(path.join(LAYOUT, selectorFile), "utf8");
   check(selectorFile + ": no duplicate toolbar", xml.indexOf('id="BBTControls"') < 0 && xml.indexOf('id="BBTMenu"') < 0);
-  check(selectorFile + ": build list rows use the source+mirror pair", /class="BBTSrc BuildName"/.test(xml) && /class="BBTDst BuildName"/.test(xml));
+  check(selectorFile + ": build list rows use the probe pair", /class="BBTSrc BuildName"/.test(xml) && /class="BBTProbe BuildName"/.test(xml));
 }
 
 // the script must know how to drive this toolbar

@@ -56,11 +56,10 @@ function makePanel(opts) {
     GetParent: () => p._parent,
     _cls: opts.cls || "",
   };
-  const isSrc = (opts.cls || "").indexOf("BBTSrc") >= 0;
   Object.defineProperty(p, "IsValid", { value: () => true });
-  // BBTSrc labels are declared with visibility: collapse, so the scan's
-  // "skip invisible subtrees" rule applies to them in game too.
-  Object.defineProperty(p, "BIsVisible", { value: () => !isSrc });
+  // Both the visible label and the 1px probe are rendered in game (a collapsed
+  // label never resolves its {s:var} template, which is why the probe exists).
+  Object.defineProperty(p, "BIsVisible", { value: () => true });
   Object.defineProperty(p, "class", { get: () => p._cls });
   p._text = opts.text || "";
   Object.defineProperty(p, "text", {
@@ -124,6 +123,16 @@ function makeVarRoot() {
   };
   root.track = (p) => { root._bound.push(p); return p; };
   return root;
+}
+
+// A BBTSrc label (visible, translated in place) plus its 1px BBTProbe copy of
+// the same token (never written, always re-resolved by the engine).
+function pair(root, token, value, cls) {
+  const holder = makePanel({});
+  const src = root.track(makeVarPanel(token, value, "BBTSrc " + cls));
+  const probe = root.track(makeVarPanel(token, value, "BBTProbe " + cls));
+  attach(holder, src, probe);
+  return { holder, src, probe };
 }
 
 function boot(root) {
@@ -190,39 +199,35 @@ function check(name, cond, detail) {
 }
 
 // =====================================================================
-// Case B: details panel -- the engine-owned name/description are mirrored.
+// Case B: details panel -- the visible label follows the 1px probe.
 // =====================================================================
 {
   const root = makeVarRoot();
   const idP = makeVarPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID");
-  const nameSrc = root.track(makeVarPanel("#Citadel_HeroBuilds_BuildName", "Build One", "BBTSrc BuildName"));
-  const nameDst = makePanel({ cls: "BBTDst BuildName" });
-  const descSrc = root.track(makeVarPanel("#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BBTSrc BuildDescription"));
-  const descDst = makePanel({ cls: "BBTDst BuildDescription" });
-  attach(root, idP);
-  attach(root, nameSrc, nameDst);
-  attach(root, descSrc, descDst);
+  const name = pair(root, "#Citadel_HeroBuilds_BuildName", "Build One", "BuildName");
+  const desc = pair(root, "#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BuildDescription");
+  attach(root, idP, name.holder, desc.holder);
   const { sandbox, queue } = boot(root);
   run(queue, 3);
-  check("[B] mirror shows the translation", nameDst.text === "构建一" && descDst.text === "撕裂 > 治疗 > 重复。", JSON.stringify([nameDst.text, descDst.text]));
-  check("[B] source label is never written", nameSrc.text === "Build One" && descSrc.text === "Rend > Heal > Repeat.", JSON.stringify([nameSrc.text, descSrc.text]));
-  check("[B] source label keeps its binding", nameSrc.bound() && descSrc.bound());
+  check("[B] visible label shows the translation", name.src.text === "构建一" && desc.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify([name.src.text, desc.src.text]));
+  check("[B] probe keeps the engine's English", name.probe.text === "Build One" && desc.probe.text === "Rend > Heal > Repeat.", JSON.stringify([name.probe.text, desc.probe.text]));
+  check("[B] probe keeps its binding", name.probe.bound() && desc.probe.bound());
   check("[B] no dialog-variable writes at all", (sandbox.BBT_STATS.varWrites || 0) === 0, String(sandbox.BBT_STATS.varWrites));
 
   // the game selects another build: it re-fills the same variables
   root.SetDialogVariable("selected_hero_build_name", "Build Two");
   root.SetDialogVariable("selected_hero_build_description", "Key item for Drifter early game.");
   run(queue, 2);
-  check("[B] name follows the new build", nameDst.text === "构建二", JSON.stringify(nameDst.text));
-  check("[B] description follows the new build", descDst.text === "孤猎前期的重要装备。", JSON.stringify(descDst.text));
-  check("[B] still bound after the switch", nameSrc.bound() && descSrc.bound());
+  check("[B] name follows the new build", name.src.text === "构建二", JSON.stringify(name.src.text));
+  check("[B] description follows the new build", desc.src.text === "孤猎前期的重要装备。", JSON.stringify(desc.src.text));
+  check("[B] probe still bound after the switch", name.probe.bound() && desc.probe.bound());
 
   root.SetDialogVariable("selected_hero_build_name", "Build Three");
   root.SetDialogVariable("selected_hero_build_description", "Buy this before the team fight.");
   run(queue, 2);
-  check("[B] third build follows", nameDst.text === "构建三" && descDst.text === "团战前先买这个。", JSON.stringify([nameDst.text, descDst.text]));
+  check("[B] third build follows", name.src.text === "构建三" && desc.src.text === "团战前先买这个。", JSON.stringify([name.src.text, desc.src.text]));
   check("[B] no rebinds were needed", sandbox.BBT_STATS.rebinds === 0, String(sandbox.BBT_STATS.rebinds));
-  check("[B] mirrored writes counted", (sandbox.BBT_STATS.twins || 0) >= 5, String(sandbox.BBT_STATS.twins));
+  check("[B] probe writes counted", (sandbox.BBT_STATS.probes || 0) >= 3, String(sandbox.BBT_STATS.probes));
 }
 
 // =====================================================================
@@ -231,25 +236,23 @@ function check(name, cond, detail) {
 {
   const root = makeVarRoot();
   const modName = root.track(makeVarPanel("#Citadel_Item_Name", "元灵收割", "ModName"));
-  const annSrc = root.track(makeVarPanel("#Citadel_Item_Build_Annotation", "Rend > Heal > Repeat.", "BBTSrc ModifiesLabel"));
-  const annDst = makePanel({ cls: "BBTDst ModifiesLabel" });
-  attach(root, modName);
-  attach(root, annSrc, annDst);
+  const ann = pair(root, "#Citadel_Item_Build_Annotation", "Rend > Heal > Repeat.", "ModifiesLabel");
+  attach(root, modName, ann.holder);
   const { sandbox, queue } = boot(root);
   run(queue, 3);
-  check("[C] tooltip annotation translated", annDst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annDst.text));
-  check("[C] annotation keeps its binding", annSrc.bound(), "the engine can no longer update it");
+  check("[C] tooltip annotation translated", ann.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
+  check("[C] annotation probe keeps its binding", ann.probe.bound(), "the engine can no longer update it");
 
   root.SetDialogVariable("mod_name", "乘胜追击");
   root.SetDialogVariable("mod_annotation", "Key item for Drifter early game.");
   run(queue, 2);
-  check("[C] annotation follows the hovered item", annDst.text === "孤猎前期的重要装备。", JSON.stringify(annDst.text));
-  check("[C] still bound after the hover", annSrc.bound());
+  check("[C] annotation follows the hovered item", ann.src.text === "孤猎前期的重要装备。", JSON.stringify(ann.src.text));
+  check("[C] still bound after the hover", ann.probe.bound());
 
   root.SetDialogVariable("mod_name", "元灵收割");
   root.SetDialogVariable("mod_annotation", "Rend > Heal > Repeat.");
   run(queue, 2);
-  check("[C] annotation follows back", annDst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(annDst.text));
+  check("[C] annotation follows back", ann.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
   check("[C] no rebind needed", sandbox.BBT_STATS.rebinds === 0, String(sandbox.BBT_STATS.rebinds));
 }
 
@@ -259,10 +262,8 @@ function check(name, cond, detail) {
 {
   const root = makeVarRoot();
   const timeP = root.track(makeVarPanel("#Citadel_HeroBuilds_LastUpdatedTime", "2 hours ago", "LastUpdated"));
-  const descSrc = root.track(makeVarPanel("#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BBTSrc BuildDescription"));
-  const descDst = makePanel({ cls: "BBTDst BuildDescription" });
-  attach(root, timeP);
-  attach(root, descSrc, descDst);
+  const desc = pair(root, "#Citadel_HeroBuilds_BuildDescription", "Rend > Heal > Repeat.", "BuildDescription");
+  attach(root, timeP, desc.holder);
   const { sandbox, queue } = boot(root);
   run(queue, 2);
   const writesAfterFirst = sandbox.BBT_STATS.writes;
@@ -271,7 +272,7 @@ function check(name, cond, detail) {
     run(queue, 3);
   }
   check("[D] no runaway rewrites from a ticking label", sandbox.BBT_STATS.writes - writesAfterFirst === 0, String(sandbox.BBT_STATS.writes - writesAfterFirst));
-  check("[D] description still translated", descDst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descDst.text));
+  check("[D] description still translated", desc.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(desc.src.text));
 }
 
 // =====================================================================

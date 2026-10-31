@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.8.0";
+  var VERSION = "1.8.1";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -364,6 +364,9 @@
       var p = stack.pop();
       if (!p) continue;
       if (!panelVisible(p)) continue;
+      // Never send our own hidden probe copies to the bridge: they are the
+      // engine's source text and must keep their template intact.
+      if (isProbe(p)) continue;
       var t = null;
       try { t = p.text; } catch (e) { t = null; }
       if (typeof t === "string" && t.length >= 3 && t.length <= LIVE_TEXT_MAX) {
@@ -993,7 +996,7 @@
     var n = 0;
     for (var i = 0; i < written.length; i += 1) {
       var p = written[i];
-      if (isTwinDst(p)) continue; // our own mirror label: nothing to rebind
+      if (isProbePartner(p)) continue; // driven by its probe, nothing to rebind
       var tok = tokenFor(p);
       if (!tok) continue; // unknown declaration: leave the label alone
       var cur;
@@ -1081,8 +1084,8 @@
     try {
       var c = panel.class;
       if (typeof c === "string") {
-        // Our own source/mirror labels are never token-bound for our purposes.
-        if (c.indexOf("BBTDst") >= 0 || c.indexOf("BBTSrc") >= 0) return null;
+        // Our own probe/partner labels are never token-bound for our purposes.
+        if (c.indexOf("BBTProbe") >= 0 || c.indexOf("BBTSrc") >= 0) return null;
         var parts = c.split(/\s+/);
         for (var i = 0; i < parts.length; i += 1) {
           var cls = parts[i];
@@ -1101,19 +1104,23 @@
     return null;
   }
 
-  // ---------- source + mirror labels ----------
+  // ---------- probe labels ----------
   // A label whose localized template contains {s:var} is owned by the engine:
   // writing `.text` destroys the template (the label then shows the first
   // translation forever) and writing the dialog variable on a shared root leaks
   // the value into every sibling that inherits it (all list rows showed the same
-  // build name). Both problems disappear when the engine's label is left alone:
+  // build name). A collapsed label does not resolve its template either, so the
+  // pair that works is:
   //
   //   <Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription"/>
-  //   <Label class="BBTDst BuildDescription" />
+  //   <Label class="BBTProbe BuildDescription" text="#Citadel_HeroBuilds_BuildDescription"/>
   //
-  // BBTSrc is collapsed (still gets every engine update, stays readable) and
-  // BBTDst is ours: we read the source text each tick and write its translation
-  // there. .text on BBTDst cannot freeze anything because nothing else owns it.
+  // BBTSrc is the visible label we translate (we own its text from now on);
+  // BBTProbe is a 1px, near-transparent copy of the same token: it is rendered,
+  // so the engine resolves the current English there on every build switch, and
+  // nothing ever writes to it. Each tick we read the probe and mirror the
+  // translation into its partner. If a probe cannot be resolved (layout change,
+  // game update) the partner simply keeps the engine's own English.
   function classListOf(panel) {
     try {
       var c = panel.class;
@@ -1122,28 +1129,28 @@
     return "";
   }
 
-  function isTwinDst(panel) {
-    return classListOf(panel).indexOf("BBTDst") >= 0;
+  function isProbe(panel) {
+    return classListOf(panel).indexOf("BBTProbe") >= 0;
   }
 
-  function isTwinSrc(panel) {
+  function isProbePartner(panel) {
     return classListOf(panel).indexOf("BBTSrc") >= 0;
   }
 
-  // The mirror's source is the nearest preceding sibling marked BBTSrc. Nearest
-  // (not "first") matters on the category header, which has two pairs in a row.
-  var twinSrc = new WeakMap();
+  // The partner is the nearest preceding sibling marked BBTSrc. Nearest (not
+  // "first") matters on the category header, which has two pairs in a row.
+  var probePair = new WeakMap();
 
-  function twinSourceFor(dst) {
-    var cached = twinSrc.get(dst);
+  function probePartner(probe) {
+    var cached = probePair.get(probe);
     if (cached) {
       try {
         if (!cached.IsValid || cached.IsValid()) return cached;
       } catch (e) {}
-      twinSrc.delete(dst);
+      probePair.delete(probe);
     }
     var parent = null;
-    try { parent = dst.GetParent ? dst.GetParent() : null; } catch (e) {}
+    try { parent = probe.GetParent ? probe.GetParent() : null; } catch (e) {}
     if (!parent) return null;
     var n = 0;
     try { n = parent.GetChildCount ? parent.GetChildCount() : 0; } catch (e) { n = 0; }
@@ -1152,37 +1159,38 @@
       var c = null;
       try { c = parent.GetChild(i); } catch (e) { c = null; }
       if (!c) continue;
-      if (c === dst) { at = i; break; }
+      if (c === probe) { at = i; break; }
     }
     if (at < 0) return null;
     for (var j = at - 1; j >= 0; j -= 1) {
       var s = null;
       try { s = parent.GetChild(j); } catch (e) { s = null; }
-      if (s && isTwinSrc(s)) {
-        twinSrc.set(dst, s);
+      if (s && isProbePartner(s)) {
+        probePair.set(probe, s);
         return s;
       }
     }
     return null;
   }
 
-  function translateTwin(dst) {
-    var src = twinSourceFor(dst);
-    if (!src) return;
+  // Translate what the probe currently shows into the visible partner label.
+  function translateFromProbe(probe) {
+    var dst = probePartner(probe);
+    if (!dst) return;
     var raw = null;
-    try { raw = src.text; } catch (e) { return; }
+    try { raw = probe.text; } catch (e) { return; }
     if (typeof raw !== "string") return;
-    var st = "";
-    try { st = String(src.paneltype || ""); } catch (e) { st = ""; }
-    if (raw === st) return; // .text mirrors the panel type: no content yet
-    if (raw.indexOf("#") === 0) return; // still the unresolved #token
+    var pt = "";
+    try { pt = String(probe.paneltype || ""); } catch (e) { pt = ""; }
+    if (raw === pt) return; // .text mirrors the panel type: no content yet
+    if (raw.indexOf("#") === 0) return; // template not resolved: keep the engine text
 
     var seen = memo.get(dst);
     var shown = null;
     try { shown = dst.text; } catch (e) { shown = null; }
 
     if (!raw) {
-      // Empty source (build without a description): clear the mirror.
+      // Empty source (build without a description): clear the visible label.
       if (shown) {
         try { dst.text = ""; } catch (e) {}
       }
@@ -1193,16 +1201,14 @@
     if (mode === "orig") {
       if (shown !== raw) {
         try { dst.text = raw; } catch (e) {}
-        stats.twins = (stats.twins || 0) + 1;
+        stats.probes = (stats.probes || 0) + 1;
       }
       remember(dst, 0, raw, raw);
       return;
     }
-    // The source text is the cache key: while it is unchanged we only have to
-    // make sure our mirror still shows what we wrote for it.
-    if (seen && seen.in === raw) {
-      if (shown === seen.out) return;
-    }
+    // The probe text is the cache key: while it is unchanged we only have to
+    // make sure the partner still shows what we wrote for it.
+    if (seen && seen.in === raw && shown === seen.out) return;
     if (HAS_CJK.test(raw)) {
       if (shown !== raw) {
         try { dst.text = raw; } catch (e) {}
@@ -1232,8 +1238,8 @@
     out = present(raw, out);
     if (writeText(dst, out)) {
       stats.translated += 1;
-      stats.twins = (stats.twins || 0) + 1;
-      if (debugOn()) logWrite(dst, raw, out, "twin");
+      stats.probes = (stats.probes || 0) + 1;
+      if (debugOn()) logWrite(dst, raw, out, "probe");
     }
     remember(dst, 1, raw, out);
   }
@@ -1441,15 +1447,16 @@
   }
 
   var lastVisited = 0;
-  // Mirror labels we own (see translateTwin). Registered on first sight, then
-  // driven from tick() so a label the scan skips never overwrites their memo.
-  var twinDsts = [];
-  var twinDstSet = new WeakSet();
+  // Probe labels (see translateFromProbe). Registered on first sight, then
+  // driven from tick() so the scan never writes into them or their partners.
+  var probes = [];
+  var probeSet = new WeakSet();
+  var partnerSet = new WeakSet();
 
-  function translateTwins() {
+  function translateProbes() {
     var live = [];
-    for (var i = 0; i < twinDsts.length; i += 1) {
-      var p = twinDsts[i];
+    for (var i = 0; i < probes.length; i += 1) {
+      var p = probes[i];
       var ok = true;
       try {
         if (p.IsValid && !p.IsValid()) ok = false;
@@ -1458,9 +1465,9 @@
       }
       if (!ok) continue; // the layout was rebuilt: drop it
       live.push(p);
-      try { translateTwin(p); } catch (e) {}
+      try { translateFromProbe(p); } catch (e) {}
     }
-    if (live.length !== twinDsts.length) twinDsts = live;
+    if (live.length !== probes.length) probes = live;
   }
 
   function scan(root) {
@@ -1478,12 +1485,14 @@
         continue;
       }
       var known = memo.has(p);
-      // Our mirror labels are translated from their BBTSrc sibling in tick();
-      // touching them here would overwrite that memo with the Chinese text.
-      if (twinDstSet.has(p)) continue;
-      if (!known && isTwinDst(p)) {
-        twinDstSet.add(p);
-        if (twinDsts.length < 400) twinDsts.push(p);
+      // Probes and their partners are handled in tick() (probe -> partner);
+      // letting the generic pass touch them would clobber the probe template.
+      if (probeSet.has(p) || partnerSet.has(p)) continue;
+      if (!known && isProbe(p)) {
+        probeSet.add(p);
+        if (probes.length < 600) probes.push(p);
+        var pn = probePartner(p);
+        if (pn) partnerSet.add(pn);
         continue;
       }
       if (!known) fresh += 1;
@@ -1618,9 +1627,9 @@
       } catch (e) {}
     }
     ticksSinceRebind += 1;
-    // Mirror labels are fed from their BBTSrc sibling every tick: that sibling is
-    // engine-owned and always current, so the translation can never go stale.
-    try { translateTwins(); } catch (e) {}
+    // Probe labels: read the engine-resolved English from the 1px copy and
+    // mirror its translation into the visible partner label.
+    try { translateProbes(); } catch (e) {}
     try { liveDrainQueue(); } catch (e) {}
     try { liveDrainUpgrades(); } catch (e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
