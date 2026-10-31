@@ -1736,6 +1736,7 @@
     return { x: x, y: y };
   }
 
+  var placeProbeDone = false;
   function placeToolbar() {
     var ctl = uiPanel("BBTControls2");
     var menu = uiPanel("BBTMenu2");
@@ -1751,8 +1752,20 @@
     try { ch = Number(ctl.actualheight) || 0; cw = Number(ctl.actualwidth) || 0; } catch (e) {}
     try { rw = Number(root.actualwidth) || 0; } catch (e) {}
     // Before the first layout pass every size is 0; the CSS fallback stays until
-    // the next attempt.
-    if (ch <= 0 || cw <= 0 || rw <= 0) return false;
+    // the next attempt. One debug dump explains WHY the measured placement is
+    // unavailable in game (the B1/B2 "dropdown unclickable" report).
+    if (ch <= 0 || cw <= 0 || rw <= 0 || !off) {
+      if (!placeProbeDone && debugOn()) {
+        placeProbeDone = true;
+        $.Msg(
+          "[BBT] toolbar-place css-fallback ctl=" + (ch + "x" + cw) +
+            " root=" + rw + " off=" + JSON.stringify(off) +
+            " actualx=" + (function () { try { return ctl.actualx; } catch (e) { return "?"; } })() +
+            " actualy=" + (function () { try { return ctl.actualy; } catch (e) { return "?"; } })()
+        );
+      }
+      return false;
+    }
     var top = Math.round(off.y + ch + 4);
     var right = Math.round(rw - (off.x + cw));
     if (!(top > 0)) return false;
@@ -1833,7 +1846,9 @@
     try {
       if (typeof panel.SetPanelEvent === "function") {
         panel.SetPanelEvent("onactivate", function () {
-          if (uiGuard(name)) fn();
+          if (!uiGuard(name)) { clickProbe(name + ":guard-skip", panel); return; }
+          clickProbe(name, panel);
+          fn();
         });
         uiWired[name] = true;
         return true;
@@ -1888,7 +1903,9 @@
   }
 
   function toggleMenu() {
-    setMenuOpen(!menuOpen);
+    var next = !menuOpen;
+    setMenuOpen(next);
+    clickProbe("menu->" + (next ? "open" : "close"), uiMenuPanel());
   }
   G.BBTToggleMenu = toggleMenu;
 

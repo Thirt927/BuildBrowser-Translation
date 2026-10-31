@@ -84,6 +84,13 @@
   `menu->open/close`。默认(`BBT_DEBUG` 未设)零输出,无临时日志残留。
 - **早间 3 分钟步骤 ③**:`globalThis.BBT_DEBUG = true` 后点「翻译本页」,应出现
   `[BBT] click translate` 或 `translate:guard-skip`(定位是 handler 没接上还是被守卫拒)。
+- **B2 — 下拉/工具栏位置打点(永久,`BBT_DEBUG` 门控)**:工具栏「css-fallback」路径(实测
+  尺寸不可得时保留 CSS 定位)加一次性 dump `[BBT] toolbar-place css-fallback
+  ctl=WxH root=RW off=... actualx=? actualy=?`(`placeProbeDone` 门控,每实例一行)——
+  解释游戏里为什么落不到实测位置;菜单项(`onActivateChild`)与 `toggleMenu`
+  同走 `clickProbe`(打 `menu->open/close`)。
+- **早间 3 分钟步骤 ④**:点语言下拉,应出现 `[BBT] click menu->open on BBTMenu2`;
+  若位置异常,看 `toolbar-place css-fallback` 行的 actualx/actualy 是否全 0。
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
