@@ -23,6 +23,7 @@ Commit,typos 从历史上**消除**(不再引入后修复,改为预防性静态�
 | B5 详情页缺按钮/hover 页点不中 | `8b16120` | `fix(toolbar)`:boot `toolbar-geom` 一次性 dump + `toolbar hidden in tooltip context` 行;tooltip 隐藏判定改走 panelHasClass(B5b 随公共根因修复) | 代码完成,待游戏验证 |
 | P1 帧率 | `12240e3` | `docs(perf)`:仅文档——静态热路径审查 + BBT_STATS 四步计时打点方案(实测数字→早间 TODO「四-补」) | 方案完成,实测待早间 |
 | (前置 v1.9.6) | `f4833e6` | classList.contains 读类 —— 游戏证据表明在真引擎上假设仍错,被 v1.9.7 的 BHasClass 三层取代 | 已被取代 |
+| B3' 诊断门控统一 | `2e6f286` | `fix(resync)`:`resync-fail`(未门控重复行)/`localize-probe`(debug 关也输出)统一改走 `debugOn()`——B3 回归检查声称「probe 一次性门控」,这两行与之不符,已消除;TODO 早间步骤 ①② 补 `globalThis.BBT_DEBUG = true` 前置 | 代码完成,待游戏验证 |
 | (本日志,推送前终态) | 本 commit | 重写 overnight-log 至终态;推送后 SHA 于 `origin/main` | 已记录 |
 
 **终态验证(推送前)**:基线三条(`scene_verify` ALL SCENES VERIFIED / `refresh_verify`
@@ -31,7 +32,7 @@ ALL REFRESH CHECKS PASSED / `build_layout_tokens --check` in sync,26 classes 16 
 vpk_list/toolbar_cover;layout_dom_simtest 需 S2V 目录,默认 SKIP 非 FAIL)+
 `git status` 已跟踪区干净 + 生成物零改动 + 无临时日志残留 +
 `dist/pak13_dir.vpk` 已按 v1.9.7 终态重打(二进制校验含 `1.9.7`、含 ModifiesLabel 候选、
-全仓 0 处 `Citaled`)。**未复制进 Steam addons(红线;早间步骤:复制 + 重启 Steam)。**
+全仓 0 处 `Citaled`)。**未复制进 Steam addons(红线;早间步骤:复制 + 重启 Steam)。** dist 在 `2e6f286` 后再次重打(2026-11-01 05:13,4,225,943 B)并二进制复校通过(见复审 ④)。
 
 ## 阶段0 基线自检(只读+跑测试)
 
@@ -115,3 +116,9 @@ vpk_list/toolbar_cover;layout_dom_simtest 需 S2V 目录,默认 SKIP 非 FAIL)+
   VERSION 终态为 1.9.7(不再是 1.9.7.1),dist 按 1.9.7 重打并二进制校验(0 处 `Citaled`)。
 - ③ 提交粒度:初版 B3+B4 / B1+B2+B5 各合一个、非 conventional → 本次重写为 5 个独立 Conventional
   Commit + P1 docs + 本日志,备份 tag `backup-before-rewrite` 保留旧历史可回退。
+- ④ 诊断门控不一致(第 4 次审计否决后自查):`resync-fail` 是未门控的重复行、`localize-probe`
+  在 debug 关闭时也会输出,与 B3 回归检查「probe 一次性门控,无临时日志残留」矛盾 → `2e6f286`
+  统一走 `debugOn()`(v1.9.7 全部 [BBT] 诊断行默认零输出);TODO 早间步骤 ①② 增加 BBT_DEBUG
+  前置说明。dist 于 2e6f286 后重打(05:13,4,225,943 B),二进制复校:1.9.7=1、1.9.7.1=0、
+  Citaled=0、Citadel_ItemModifies=2、Citadel_Item_Build_Annotation=2、BHasClass=5、
+  panelHasClass=10、resync-defer=1、resync-localized=1、toolbar-geom=2、clickProbe=6(全中)。
