@@ -12,6 +12,7 @@
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
 		<include src="s2r://panorama/styles/citadel_shop_mods_list.vcss" />
 		<include src="s2r://panorama/styles/citadel_shop_mods_build.vcss" />
+		<include src="s2r://panorama/styles/bba.css" />
 	</styles>
 	<scripts>
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
@@ -22,7 +23,9 @@
 	<snippets>
 		<snippet name="FavoriteBuildEntry">
 			<Panel class="FavoriteBuildEntryContainer">
-				<Label class="FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+				<!-- engine-owned build name; the mod mirrors it (see bba_translate.js) -->
+				<Label class="BBTSrc FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+				<Label class="BBTDst FavoriteBuildEntryLabel SelectedBuildName" html="true" />
 				<Panel class="TagList">
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag1" />
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag2" />

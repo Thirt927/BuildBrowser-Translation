@@ -179,7 +179,10 @@
 				<Panel class="BuildInfoContainer">
 					<CitadelAvatarImage id="AuthorAvatar" />
 					<Panel class="NotesContainer">
-						<Label class="ModifiesLabel" text="#Citadel_Item_Build_Annotation" />
+						<!-- engine-owned author annotation ({s:mod_annotation}); the mod
+						     mirrors it so hovering another item never keeps the old note -->
+						<Label class="BBTSrc ModifiesLabel" text="#Citadel_Item_Build_Annotation" />
+						<Label class="BBTDst ModifiesLabel" />
 						<Label class="SellPriorityLabel BuildInfoLabel" text="#Citadel_Item_Build_SellPriority" />
 						<Panel class="ImbueTargetContainer">
 							<Label text="#Citadel_Item_Build_ImbueTarget" />

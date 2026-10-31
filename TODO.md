@@ -576,3 +576,39 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
   `#Citadel_BuildBrowser_Title` 等少量文字是英文。补它需要原生布局(现有样本被 mod 重写过,不能直接用)。
 - 其余界面(`citadel_hud_active_player_stats`、`hud_data_feed`、`profile_card` …)与本 mod 无关。
 - 关键限制重申:**mod 只带它改过的文件**,完整枚举只能来自 `game/citadel/pak01_dir.vpk`。
+
+## 十四、"换出装译文不变 / 所有出装同一个名字" —— v1.8.0 根治
+
+用户反馈(游戏内实测):①列表里所有出装变成同一个名字,反复点"我的出装"描述会变;
+②每条出装的"概览"都是同一段译文;③左上角按钮与下拉都无效;④希望"翻译本页"放到详情区
+(红色方块处),样式与商店的"快速购买/出装浏览器"一致;⑤不同出装的装备描述不跟着变。
+
+### 根因
+
+1. **在共享根面板上写 dialog variable 会"串味"**:`SetDialogVariable("selected_hero_build_name")`
+   写在选择器根上,所有没有自己值的行标签都继承了它 → 列表里每行都显示当前选中出装的名字;
+   写在详情根上则被引擎覆盖,描述/分类说明仍然冻结。两条路都不可行。
+2. **写 `.text` 会摧毁 `{s:var}` 模板**:模板没了,引擎后续 `SetDialogVariable` 无处落地,
+   标签永远停第一次译文 → "每条出装都是同一段译文"。
+3. **工具栏位置**:`.BBTControls` 之前的 `position` 只是偏移量,面板仍在 header 的流里,
+   于是压在"我的出装/公开"页签上;下拉用 `.BBTMenu.BBTMenuOpen` 复合选择器控制可见性,
+   在游戏里不生效(点击后样式没变)。
+4. 残留的 `addons\pak13_disadsadr.vpk`(旧版副本)可能以更小编号遮蔽同名布局。
+
+### 修法(v1.8.0)
+
+- **源标签 + 镜像标签**:覆盖布局里所有引擎驱动的文本标签拆成两个
+  ——`BBTSrc`(保持原样、`visibility: collapse`,永远由引擎更新)和 `BBTDst`(mod 专属、空)。
+  脚本每个 tick 读 `BBTSrc.text` 翻好后写进 `BBTDst`,源标签从不被写坏,换出装/换装备一定跟着变。
+  覆盖范围:出装名/出装描述、分类名/分类说明、悬停里的作者注释、列表行名、商店页顶部的出装名。
+- **彻底删除 `SetDialogVariable` 写入路径**(含 k:2 校验状态机、varWrites、varTracked),
+  不再有任何跨标签泄漏。
+- **工具栏**:从选择器 header 移到详情页头部、紧挨"出装选项",用游戏自带的
+  `TextButton class="Medium Fill"`(与"快速购买/出装浏览器"同款);下拉改为脚本直接写
+  `style.visibility`(不再依赖 CSS 级联),位置改为详情根下的 `align: right top`。
+  详情布局同时被用作悬停提示(`citadel_tooltip_build_details`),那里会自动隐藏工具栏。
+- `BBTTranslatePage` 等按钮动作改为从按钮自身向上找 `CitadelHeroBuildsSelector` 作为作用域,
+  避免"最后 boot 的 tooltip 实例"把整页翻译缩小成只翻 tooltip。
+- 测试:`refresh_verify` 重写为源+镜像模型(B/C/D 覆盖换出装、悬停换物品、时间标签抖动);
+  `toolbar_cover_simtest` 改为断言"详情里有原生工具栏、选择器里没有第二个"。
+

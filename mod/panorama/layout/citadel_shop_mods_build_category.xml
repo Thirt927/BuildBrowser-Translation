@@ -20,9 +20,14 @@
 
 	<CitadelShopModsBuildCategory hittest="true">
 		<Panel id="BuildCategoryHeader" class="BuildCategory" hittest="true">
-			<Label id="BuildCategoryName" class="CategoryName" text="#Citadel_HeroBuilds_CategoryName" />
+			<!-- category name / description are engine-owned ({s:category_name},
+			     {s:category_description}); the mod mirrors them into BBTDst labels
+			     so a new build's categories are never frozen on an old translation -->
+			<Label id="BuildCategoryName" class="BBTSrc CategoryName" text="#Citadel_HeroBuilds_CategoryName" />
+			<Label class="BBTDst CategoryName" />
 			<Label class="OptionalLabel" text="#Citadel_HeroBuilds_OptionalParens" onmouseover="CitadelUIShowTextTooltip( #Citadel_HeroBuilds_Optional, &apos;&apos;, &apos;&apos; );" onmouseout="CitadelUIHideTextTooltip()" />
-			<Label class="CategoryDescription" text="#Citadel_HeroBuilds_CategoryDescription" />
+			<Label class="BBTSrc CategoryDescription" text="#Citadel_HeroBuilds_CategoryDescription" />
+			<Label class="BBTDst CategoryDescription" />
 		</Panel>
 		<Panel id="BuildCategoryHeaderEdit" class="BuildCategory">
 			<Panel class="CategoryControls">

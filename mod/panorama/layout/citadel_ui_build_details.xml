@@ -1,4 +1,20 @@
 <!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
+<!--
+  BuildBrowser Translation - override of panorama/layout/citadel_ui_build_details.xml
+
+  Two kinds of change against Valve's layout:
+
+  1. Labels whose localized value is a {s:var} template (build name, build
+     description) are split into a BBTSrc label (unchanged, but collapsed) and a
+     BBTDst label that the mod owns. The engine keeps feeding the source label on
+     every build switch, the mod mirrors it translated into the destination one.
+     Writing the source label directly is what froze the text on the first
+     translation ("every overview shows the same translation").
+
+  2. A "翻译本页" toolbar next to 出装选项 (native TextButton styling), with the
+     language dropdown below it. It is the only toolbar now: the one in the
+     selector header used to overlap the 我的出装 / 公开 tabs.
+-->
 <root>
 	<styles>
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
@@ -16,17 +32,9 @@
 	<CitadelBuildDetails>
 		<!-- optional live-bridge panel: must be declared in the layout (a runtime CreatePanel is not a real HTML panel) -->
 		<HTML id="BBTBridgePanelDetails" class="BBTBridgePanel" />
-		<!-- BBT toolbar for the standalone build-details view (hidden by the
-		     script when this panel is rendered inside the build browser, which
-		     already has the selector toolbar) -->
-		<Panel id="BBTControls2" class="BBTControls" hittest="true">
-			<Button id="BBTTranslateButton2" class="BBTButton" hittest="true" onactivate="BBTTranslatePage()">
-				<Label id="BBTTranslateLabel2" text="翻译本页"  hittest="false"/>
-			</Button>
-			<Button id="BBTMenuButton2" class="BBTButton BBTMenuButton" hittest="true" onactivate="BBTToggleMenu()">
-				<Label text="&#9662;"  hittest="false"/>
-			</Button>
-		</Panel>
+		<GlobalClassListener classes="gShopOpen" />
+		<!-- Dropdown: a sibling of the header, so it drops below the toolbar
+		     instead of flowing off the right edge (see .BBTMenu in bba.css). -->
 		<Panel id="BBTMenu2" class="BBTMenu" hittest="true">
 			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
 				<Label text="显示中文"  hittest="false"/>
@@ -62,12 +70,13 @@
 				<Label text="查看本地库统计"  hittest="false"/>
 			</Button>
 		</Panel>
-		<GlobalClassListener classes="gShopOpen" />
 		<Panel class="HeroBuildsExtraInfo">
 			<Panel id="Background" />
 			<Panel id="BuildInfo">
 				<Panel class="AuthoringInfo">
-					<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+					<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_name}) -->
+					<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+					<Label class="BBTDst BuildName" html="true" />
 				</Panel>
 				<Panel id="ControlArea">
 					<Panel class="ExtraInfo">
@@ -86,6 +95,11 @@
 						</Panel>
 					</Panel>
 					<Panel id="BuildControls">
+						<!-- BBT toolbar: same TextButton styling as 出装选项 next to it -->
+						<Panel id="BBTControls2" class="BBTControls" hittest="true">
+							<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTTranslatePage()" />
+							<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTToggleMenu()" />
+						</Panel>
 						<Button />
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">
 							<Panel class="DropdownArrow" />
@@ -107,7 +121,9 @@
 						</Panel>
 					</Panel>
 					<Panel id="BuildDetails_Overview">
-						<Label class="BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
+						<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_description}) -->
+						<Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
+						<Label class="BBTDst BuildDescription" />
 						<CitadelShopModsBuild id="ShopModsBuild" />
 						<Panel class="ModListContainer">
 							<CitadelModsPurchasedPanel id="mod_universal" class="ModList" mod_category="Universal" read_only="true" />
