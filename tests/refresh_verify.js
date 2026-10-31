@@ -106,9 +106,6 @@ function makeVarPanel(token, value, cls, varName) {
         p._text = p._template ? p._template.replace(/\{s:[A-Za-z0-9_]+\}/, String(p._vars[vn] == null ? "" : p._vars[vn])) : String(v);
         return;
       }
-      if (process.env.BBT_TRACE) {
-        try { p.__killedBy = new Error("text write").stack; } catch (e) {}
-      }
       p._template = null; // assigning .text kills the binding
       p._text = String(v);
     },
@@ -185,7 +182,7 @@ function boot(root) {
     $: {
       GetContextPanel: () => root,
       Schedule: (d, fn) => queue.push(fn),
-      Msg: (m) => { log.push(String(m)); (sandbox.__msgs = sandbox.__msgs || []).push(String(m)); },
+      Msg: (m) => log.push(String(m)),
       Localize: (tok) => LOCALIZE[tok] || tok,
     },
   };
@@ -383,22 +380,11 @@ function check(name, cond, detail) {
   byVar.selected_hero_build_description.push(descP);
   root.children.push(idP, nameP, descP);
   const { sandbox, queue } = boot(root);
-  sandbox.BBT_TRACE_VARS = true;
   const tick = (n) => { for (let i = 0; i < n; i += 1) { const f = queue.shift(); if (f) f(); } };
-  tick(12);
-  console.log("   VARLOG:", (sandbox.__msgs || []).filter((m) => m.indexOf("BBTDBG") >= 0).slice(0, 6).join(" || "));
-  if (descP.text !== "撕裂 > 治疗 > 重复。") {
-    console.log("   DBG stats:", JSON.stringify(sandbox.BBT_STATS));
-    console.log("   DBG log:", JSON.stringify((sandbox.__log || []).slice(0, 6)));
-    console.log("   DBG desc text:", JSON.stringify(descP.text), "bound:", descP.bound());
-    console.log("   DBG killedBy:", String(descP.__killedBy || "").split("\n").slice(0, 5).join(" <- "));
-  }
+  tick(6);
 
   check("[F] description translated", descP.text === "撕裂 > 治疗 > 重复。", JSON.stringify(descP.text));
   check("[F] wrote through the dialog variable", (sandbox.BBT_STATS.varWrites || 0) >= 1, String(sandbox.BBT_STATS.varWrites));
-  if (!descP.bound()) {
-    console.log("   TRACE:", String(descP.__killedBy || "(none)").split("\n").slice(0, 6).join(" | "));
-  }
   check("[F] template still bound after translating", descP.bound(), "the engine lost the binding");
 
   // the game selects another build: it re-fills the same variables
