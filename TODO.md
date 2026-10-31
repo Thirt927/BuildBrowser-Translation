@@ -264,7 +264,34 @@
 - 游戏内实测数据仍缺:启动项加 `-condebug` 后 `console.log` 里 `[BBT] v1.2.0 loaded (...)`、
   以及 `BBT_STATS`(含 `ms` 单 tick 耗时、`interval` 当前轮询间隔)可用控制台读取。
 
-## 五、"翻译不刷新 / 一直是同一个翻译" —— 2026-10-31 定位与修复
+### 四-补:v1.9.7 静态热路径审查 + 计时打点方案(2026-11-01,夜间,实测数字待早间)
+
+**静态结论(读码,未改任何热路径代码)**:
+- v1.9.7 相对 v1.9.6 **不新增任何 per-tick 成本**:`panelHasClass` 多出的
+  `BHasClass` 尝试只在事件路径触发——`roleTokenFor`(仅 `resyncAll(40)` 在
+  identity/content 变化时跑,40 标签 × 5 类 = 每刷新 ≤200 次 C++ 调用)、
+  `tokenFor`(一次性:`tokenOf` WeakMap 缓存 + memo `known` 门控,每面板实例只跑一次
+  26 类探测)、启动判定、probe(一次性 + debugOn 门控)。空闲 tick 不碰类探测。
+- 现状每 tick 主要成本(既有,未动):`scan` 预算 6000,每面板 =
+  `IsValid`(C++) + `memo.has`(WeakMap) + `.text` 读(C++) + `GetChild`/
+  `panelVisible`→`BIsVisible`(C++);空闲退避 150ms→×2 封顶 1s;布局不可见时 parked
+  0.5s 只走 `GetContextPanel` + 一次 `panelVisible`,不树走。
+- 「不用时零开销」的精确表述:关闭商店/浏览器后每个布局 JS 上下文仍每 0.5s 做一次
+  `GetContextPanel`+`panelVisible`(6 上下文 ≈ 12 次 C++ 调用/s,亚毫秒级,无 DOM 走),
+  严格说非 0 但可忽略;实测以早间数字定论。
+
+**早间计时打点方案(不改码,只用现有 `BBT_STATS`)**:
+1. `-condebug` 启动,进商城/出装浏览器,等 10s 空闲 → 控制台读 `BBT_STATS`:
+   记录 `ms`(单 tick 墙钟)与 `interval`(应≈1s)。
+2. 连续换 3 条出装 + 逐个悬停 3 件物品 → 读 `ms`/`scanned`/`skipped`:
+   burst 期(0.08s×4)的 `ms` 峰值 vs 空闲期 `ms` 基线,差值即使用期成本。
+3. `scanned` 对比 VPK 移除重启后的同场景:mod 不在场时没有 `[BBT]` 行,用
+   游戏自带表现(同场景、同操作序列)对比帧率感知 + 记录 `scanned` 峰值
+   (预期 ≤6000/tick,预算封顶)。
+4. 判定阈值:空闲 tick `ms` < 2ms 且使用期 burst tick `ms` < 10ms → 达标;
+   超标则先查 `scanned`(是否预算爆 6000)与 `skipped`(隐藏子树门控是否生效)。
+
+## 五、“翻译不刷新 / 一直是同一个翻译” —— 2026-10-31 定位与修复
 
 **症状**:换一条出装后,右侧详情(或悬停装备提示)仍显示上一条出装的译文,永远不更新。
 
