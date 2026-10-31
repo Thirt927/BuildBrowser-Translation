@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.8.1";
+  var VERSION = "1.8.2";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
