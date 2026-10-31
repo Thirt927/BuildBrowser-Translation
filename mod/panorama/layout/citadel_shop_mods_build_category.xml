@@ -1,4 +1,4 @@
-<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
+﻿<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
 <!-- This is Valve's layout (citadel_shop_mods_build_category) with only the BBT
      <scripts> include added. The decompiled text was obtained from a publicly
      released mod that ships its copy of this file; that mod's own style include
@@ -21,13 +21,10 @@
 	<CitadelShopModsBuildCategory hittest="true">
 		<Panel id="BuildCategoryHeader" class="BuildCategory" hittest="true">
 			<!-- category name / description are engine-owned ({s:category_name},
-			     {s:category_description}); the mod mirrors them into the BBTDst
-			     labels so a new build's categories are never frozen on an old translation -->
-			<Label id="BuildCategoryName" class="BBTSrc CategoryName" text="#Citadel_HeroBuilds_CategoryName" />
-			<Label class="BBTDst CategoryName" />
+			     {s:category_description}); translated in place, re-resolved on every build switch -->
+			<Label id="BuildCategoryName" class="CategoryName" text="#Citadel_HeroBuilds_CategoryName" />
 			<Label class="OptionalLabel" text="#Citadel_HeroBuilds_OptionalParens" onmouseover="CitadelUIShowTextTooltip( #Citadel_HeroBuilds_Optional, &apos;&apos;, &apos;&apos; );" onmouseout="CitadelUIHideTextTooltip()" />
-			<Label class="BBTSrc CategoryDescription" text="#Citadel_HeroBuilds_CategoryDescription" />
-			<Label class="BBTDst CategoryDescription" />
+			<Label class="CategoryDescription" text="#Citadel_HeroBuilds_CategoryDescription" />
 		</Panel>
 		<Panel id="BuildCategoryHeaderEdit" class="BuildCategory">
 			<Panel class="CategoryControls">

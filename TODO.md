@@ -671,6 +671,32 @@ v1.8.0 把源标签设成 `visibility: collapse`,实测**列表里所有出装�
   `[BBT] refresh: N engine label(s) .BuildDescription="…" | …`,直接告诉你
   源标签当前读到的是什么(能读到英文 = 源标签正常;读到 `#Token`/空 = 源标签没解析)。
 
+### 十四-补四:v1.9.1 —— 0×0 也不行,改成"原地翻译 + 换出装时重新解析 token"
+
+**实测**:v1.9.0(源标签 0×0 + 镜像)上线后,**列表名字与概览又全空了**。
+结论:**折叠(visibility: collapse)和 0 尺寸都会让 Label 完全不解析 `{s:var}` 模板**
+——只要标签不真正参与排版,引擎就不给它算文本。所以"源标签必须正常显示"是硬约束。
+
+**最终方案(v1.9.1)**:不再做任何"隐藏源标签 + 镜像"的花活,标签就放原位、
+原地翻译;换出装(或点"刷新")时把 **显式 token 重新赋给标签**:
+```js
+label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 新英文
+```
+0.2s 后回读:
+- 读到的不是 `#...` → `[BBT] resync-ok <token> -> "新英文…"`,清掉 memo 再翻译;
+- 仍是 `#...`/空 → 还原旧文本(屏幕上永远不会停在 `#Token`),打
+  `[BBT] resync-fail <token> raw=… lz=… lz2=…`
+  (`lz`/`lz2` 是 `$.Localize(token)` 与 `$.Localize(token, panel)` 的返回值,
+  留作下一步"直接取文本"方案的依据)。
+
+覆盖:`BuildName` / `BuildDescription` / `CategoryName` / `CategoryDescription`
+(类名与 token 的对应写死在 `RESYNC_TOKENS`,避免历史上"class 有两个 token"踩过的坑;
+`ModifiesLabel` 不参与,因为 tooltip 里它对应两个不同 token,而 tooltip 本身每次悬停都会重建)。
+
+测试:`refresh_verify` 改为"原地翻译 + token 重新解析"模型,新增 Case E(解析失败时保留旧文本、
+绝不显示 `#Token`)。
+
+
 
 
 

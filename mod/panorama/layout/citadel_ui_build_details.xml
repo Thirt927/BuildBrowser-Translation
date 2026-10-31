@@ -1,19 +1,16 @@
-<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
+﻿<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
 <!--
   BuildBrowser Translation - override of panorama/layout/citadel_ui_build_details.xml
 
   Two kinds of change against Valve's layout:
 
-  1. Labels whose localized value is a {s:var} template (build name, build
-     description) are split into a BBTSrc label (unchanged, but collapsed) and a
-     BBTDst label that the mod owns. The engine keeps feeding the source label on
-     every build switch, the mod mirrors it translated into the destination one.
-     Writing the source label directly is what froze the text on the first
-     translation ("every overview shows the same translation").
+  1. The engine-owned labels (build name, build description) are translated in
+     place; on every build switch / manual refresh the mod re-applies their
+     #token so the engine re-resolves the new English (see resyncLabel in
+     bba_translate.js), then translates again.
 
-  2. A "翻译本页" toolbar next to 出装选项 (native TextButton styling), with the
-     language dropdown below it. It is the only toolbar now: the one in the
-     selector header used to overlap the 我的出装 / 公开 tabs.
+  2. A "翻译本页 / 刷新" toolbar next to 出装选项 (native TextButton styling), with
+     the language dropdown below it.
 -->
 <root>
 	<styles>
@@ -75,8 +72,7 @@
 			<Panel id="BuildInfo">
 				<Panel class="AuthoringInfo">
 					<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_name}) -->
-					<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-					<Label class="BBTDst BuildName" html="true" />
+					<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 				</Panel>
 				<Panel id="ControlArea">
 					<Panel class="ExtraInfo">
@@ -123,8 +119,7 @@
 					</Panel>
 					<Panel id="BuildDetails_Overview">
 						<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_description}) -->
-						<Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
-						<Label class="BBTDst BuildDescription" />
+						<Label class="BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
 						<CitadelShopModsBuild id="ShopModsBuild" />
 						<Panel class="ModListContainer">
 							<CitadelModsPurchasedPanel id="mod_universal" class="ModList" mod_category="Universal" read_only="true" />

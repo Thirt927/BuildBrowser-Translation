@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
   BuildBrowser Translation - override of panorama/layout/citadel_shop_mods_build.xml
   Base structure decompiled from the shipped citadel_shop_mods_build.vxml_c
@@ -23,9 +23,8 @@
 	<snippets>
 		<snippet name="FavoriteBuildEntry">
 			<Panel class="FavoriteBuildEntryContainer">
-				<!-- engine-owned build name; the mod mirrors it into the BBTDst label -->
-				<Label class="BBTSrc FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-				<Label class="BBTDst FavoriteBuildEntryLabel SelectedBuildName" html="true" />
+				<!-- engine-owned build name ({s:selected_hero_build_name}); translated in place -->
+				<Label class="FavoriteBuildEntryLabel SelectedBuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 				<Panel class="TagList">
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag1" />
 					<CitadelBuildTag class="BuildTag Small" id="BuildTag2" />

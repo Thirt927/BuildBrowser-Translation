@@ -2,10 +2,11 @@
    Panorama's <styles> section only accepts <include /> elements, so the rules
    live here and are referenced with s2r://panorama/styles/bba.css. */
 
-/* Engine-owned label: keeps the #token (so the game keeps updating it) but takes
-   no visual space. It must stay *rendered* - a collapsed label resolves nothing
-   and a duplicate copy never receives the engine's updates (both seen in game). */
-.BBTSrc { width: 0px; height: 0px; max-width: 0px; max-height: 0px; min-width: 0px; min-height: 0px; opacity: 0.01; overflow: clip; margin: 0px; padding: 0px; }
+/* The engine-owned labels (build name/description, category names, tooltip
+   annotation) are translated in place; HIDING them never works: a collapsed or
+   zero-sized label does not resolve its {s:var} template at all, so the text
+   simply disappears. See resyncLabel in bba_translate.js. */
+
 
 /* Toolbar: sits in the details header next to 出装选项 and uses the game's own
    TextButton classes, so it looks like 快速购买 / 出装浏览器. */

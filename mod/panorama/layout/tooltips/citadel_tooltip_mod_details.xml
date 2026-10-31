@@ -1,4 +1,4 @@
-<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
+﻿<!-- xml reconstructed by Source 2 Viewer 20.1.0.0 - https://valveresourceformat.github.io -->
 <root>
 	<styles>
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
@@ -179,10 +179,8 @@
 				<Panel class="BuildInfoContainer">
 					<CitadelAvatarImage id="AuthorAvatar" />
 					<Panel class="NotesContainer">
-						<!-- engine-owned author annotation ({s:mod_annotation}); the mod
-						     mirrors it into the BBTDst label and never writes this one -->
-						<Label class="BBTSrc ModifiesLabel" text="#Citadel_Item_Build_Annotation" />
-						<Label class="BBTDst ModifiesLabel" />
+						<!-- engine-owned author annotation ({s:mod_annotation}); translated in place -->
+						<Label class="ModifiesLabel" text="#Citadel_Item_Build_Annotation" />
 						<Label class="SellPriorityLabel BuildInfoLabel" text="#Citadel_Item_Build_SellPriority" />
 						<Panel class="ImbueTargetContainer">
 							<Label text="#Citadel_Item_Build_ImbueTarget" />

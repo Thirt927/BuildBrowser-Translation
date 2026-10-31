@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
   BuildBrowser Translation - override of panorama/layout/citadel_ui_build_selector.xml
   Base structure decompiled from the shipped citadel_ui_build_selector.vxml_c
@@ -38,10 +38,8 @@
 								<Label id="AllTimeLabel" text="#Citadel_HeroBuilds_AllTimeFavorite" />
 							</Panel>
 						</Panel>
-						<!-- engine-owned build name ({s:selected_hero_build_name}); the mod
-						     mirrors it into the BBTDst label and never writes this one -->
-						<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-						<Label class="BBTDst BuildName" html="true" />
+						<!-- engine-owned build name ({s:selected_hero_build_name}); translated in place -->
+						<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
 						<Label id="OldIcon" class="InfoIcon" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_OldButtonTooltip )" onmouseout="UIHideTextTooltip()" />
 					</Panel>
 					<Label class="SelectedBuild" text="#Citadel_HeroBuilds_Selected" />
