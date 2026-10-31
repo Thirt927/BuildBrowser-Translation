@@ -29,6 +29,7 @@
   var FAST_INTERVAL = 0.08; // burst poll right after new content appears
   var BURST_TICKS = 4; // how many fast polls after a change
   var IDLE_MAX_INTERVAL = 1.0; // back off to this when the tree is quiet
+  var PARKED_INTERVAL = 2.0; // layout not visible (shop closed, browser closed)
   var IDLE_TICKS_BEFORE_BACKOFF = 6;
   var SCAN_BUDGET = 6000; // panels visited per tick
   var TERM_FALLBACK_MAX = 160; // only short labels get glossary substitution
@@ -217,7 +218,10 @@
     return n;
   }
 
-  var stats = { translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0, writes: 0, rebinds: 0 };
+  var stats = {
+    translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0,
+    writes: 0, rebinds: 0, skipped: 0, hidden: 0,
+  };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
   // Panels we have written a translation into (bounded, for the rebind sweep).
@@ -425,6 +429,7 @@
     var stack = [root];
     var visited = 0;
     var fresh = 0;
+    var skipped = 0;
     while (stack.length && visited < SCAN_BUDGET) {
       var p = stack.pop();
       visited += 1;
@@ -479,11 +484,20 @@
       for (var i = n - 1; i >= 0; i -= 1) {
         try {
           var c = p.GetChild(i);
-          if (c) stack.push(c);
+          if (!c) continue;
+          // Hidden subtrees cannot show text (collapsed build sections, closed
+          // tabs, off-screen list pages). Skipping them costs one call and
+          // saves every read below them -- this is what keeps a big page cheap.
+          if (!panelVisible(c)) {
+            skipped += 1;
+            continue;
+          }
+          stack.push(c);
         } catch (e) {}
       }
     }
     stats.scanned += visited;
+    stats.skipped += skipped;
     lastVisited = visited;
     return fresh;
   }
@@ -501,10 +515,25 @@
     var t0 = Date.now ? Date.now() : 0;
     var before = stats.translated + stats.fallback;
     var fresh = 0;
+    var hidden = false;
     try {
       var ctx = $.GetContextPanel();
       if (ctx && panelVisible(ctx)) fresh = scan(ctx);
-    } catch (e) {}
+      else hidden = true;
+    } catch (e) {
+      hidden = true;
+    }
+    if (hidden) {
+      // Nothing on screen: no reason to walk anything. Re-check rarely; the
+      // panel becomes visible again long before a human notices 2s.
+      stats.hidden += 1;
+      stats.interval = PARKED_INTERVAL;
+      idleTicks = 0;
+      burstTicks = 0;
+      interval = POLL_INTERVAL;
+      $.Schedule(PARKED_INTERVAL, tick);
+      return;
+    }
     // A new build/item is on screen: labels that are still showing our old
     // translation of the previous one were bound to dialog variables that we
     // clobbered, so hand them back to the engine. The cooldown keeps a chatty

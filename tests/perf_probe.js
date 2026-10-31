@@ -124,6 +124,72 @@ function runTicks(ctx, ticks) {
   return times;
 }
 
+// ---------- 3. hidden-subtree skipping ----------
+// Big pages keep lots of collapsed/off-screen content instantiated. Those
+// subtrees cannot show text, so the scanner skips them wholesale.
+function makeMixedTree(visible, hiddenSections, perSection) {
+  const root = { text: undefined, children: [] };
+  for (let i = 0; i < visible; i += 1) {
+    root.children.push({ text: PLAYER_EN[i % PLAYER_EN.length], children: [] });
+  }
+  for (let s = 0; s < hiddenSections; s += 1) {
+    const sec = { text: undefined, hidden: true, children: [] };
+    for (let j = 0; j < perSection; j += 1) sec.children.push({ text: PLAYER_EN[j % PLAYER_EN.length], hidden: true, children: [] });
+    root.children.push(sec);
+  }
+  return root;
+}
+function instrumentHidden(tree) {
+  let reads = 0;
+  const wrap = (p) => {
+    if (p.hidden) {
+      p.IsValid = () => true;
+      p.BIsVisible = () => false;
+      p.GetChildCount = function () { return this.children.length; };
+      p.GetChild = function (i) { return this.children[i] || null; };
+      p.children.forEach(wrap);
+      return p;
+    }
+    const original = p.text;
+    p.IsValid = () => true;
+    p.BIsVisible = () => true;
+    p.GetChildCount = function () { return this.children.length; };
+    p.GetChild = function (i) { return this.children[i] || null; };
+    p._t = original;
+    Object.defineProperty(p, "text", {
+      get() { reads += 1; return p._t; },
+      set(v) { p._t = v; },
+      configurable: true,
+    });
+    p.children.forEach(wrap);
+    return p;
+  };
+  wrap(tree);
+  return () => reads;
+}
+{
+  const tree = makeMixedTree(60, 200, 10); // 60 visible + 200 hidden sections x10
+  const readsOf = instrumentHidden(tree);
+  const sandbox = { console: { log() {} } };
+  const queue = [];
+  sandbox.$ = {
+    GetContextPanel: () => tree,
+    Schedule: (d, fn) => queue.push({ d, fn }),
+    Msg: () => {},
+  };
+  vm.createContext(sandbox);
+  for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(SCRIPTS, f), "utf8"), sandbox, { filename: f });
+  }
+  queue.shift().fn();
+  const before = readsOf();
+  for (let i = 0; i < 10; i += 1) { const n = queue.shift(); if (n) n.fn(); }
+  const reads = (readsOf() - before) / 10;
+  console.log("\nhidden subtrees: 60 visible + 2000 hidden panels");
+  console.log("  .text reads per tick: " + reads.toFixed(0) + " (invisible: 1 BIsVisible() call each, no reads)");
+  console.log("  panels skipped so far: " + sandbox.BBT_STATS.skipped);
+}
+
 const N = Number(process.argv[2] || 1200);
 const ctx = boot(makeTree(N));
 // first scheduled callback is the boot hand-off (schedules tick), then ticks
