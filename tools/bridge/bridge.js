@@ -127,6 +127,11 @@ function cachePut(key, value) {
 //   tools/cache/translations.json   { <textKey>: translation } the pipeline's own
 //                                   cache, so build_tm.js does not re-translate
 const { textKey } = require("../build_tm.js");
+const { TranslationTable } = require("../tm_table.js");
+
+// Growing translation table (tools/cache/tm_table.jsonl + .json). Lookups here
+// happen before the network, so a text translated once is instant forever.
+const table = new TranslationTable({ dir: path.join(ROOT, "tools", "cache") });
 
 const seenFile = process.env.BBT_SEEN_FILE || path.join(ROOT, "tools", "cache", "live_seen.json");
 const transCacheFile = process.env.BBT_TRANS_CACHE_FILE || path.join(ROOT, "tools", "cache", "translations.json");
@@ -177,11 +182,15 @@ function scheduleSave() {
   if (saveTimer.unref) saveTimer.unref();
 }
 
-process.on("exit", flushSeen);
+process.on("exit", () => {
+  flushSeen();
+  try { table.flush(); } catch (e) {}
+});
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   try {
     process.on(sig, () => {
       flushSeen();
+      try { table.flush(); } catch (e) {}
       process.exit(0);
     });
   } catch (e) {}
@@ -246,7 +255,9 @@ function bridgePage(query) {
   // { operation, text, sourceLanguage, targetLanguage } so the same in-game
   // client can talk to either bridge.
   let reqBody;
-  if (d && (d.operation || d.targetLanguage)) {
+  if (d && Array.isArray(d.texts)) {
+    reqBody = { texts: d.texts, target: String(d.target || d.targetLanguage || target) };
+  } else if (d && (d.operation || d.targetLanguage)) {
     reqBody = {
       text: Array.isArray(d.text) ? d.text : [String(d.text || text)],
       target: String(d.targetLanguage || d.target || target),
@@ -257,6 +268,12 @@ function bridgePage(query) {
     reqBody = { text: [text], target };
   }
   const op = String(query.get("op") || "translate").replace(/[^a-z]/g, "");
+  // ?p= lets the caller pick the API endpoint (e.g. /api/v1/tm/translate); it is
+  // whitelisted so the page can never be pointed at arbitrary URLs.
+  const wantedPath = String(query.get("p") || "");
+  const apiPath = /^\/api\/v1\/(translate|tm\/translate|health)$/.test(wantedPath)
+    ? wantedPath
+    : op === "health" ? "/api/v1/health" : "/api/v1/translate";
   // The page writes one string into document.title; Panorama matches on the
   // "BBT<id>" prefix. Keep the payload small enough for the title limit.
   return [
@@ -272,7 +289,7 @@ function bridgePage(query) {
     "var t=setTimeout(function(){if(!done){done=true;out({ok:false,error:'bridge_timeout'});}},8000);",
     "var op=" + JSON.stringify(op) + ";",
     "var body=" + JSON.stringify(reqBody) + ";",
-    "var url=op==='health'?'/api/v1/health':'/api/v1/translate';",
+    "var url=" + JSON.stringify(apiPath) + ";",
     "var opts=op==='health'?{method:'GET'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};",
     "fetch(url,opts).then(function(r){return r.json();})",
     ".then(function(j){if(done)return;done=true;clearTimeout(t);",
@@ -339,7 +356,60 @@ function start() {
     if (p === "/api/v1/health") {
       return send(200, "application/json", JSON.stringify({ ok: true, version: "1.0.0", target: TARGET }));
     }
-    if (p === "/api/v1/translate") {
+    if (p === "/api/v1/tm/stats") {
+    return send(200, "application/json", JSON.stringify({ ok: true, table: table.summary() }));
+  }
+
+  // Batch lookup only (no network): what the UI asks for on every page open.
+  if (p === "/api/v1/tm/lookup") {
+    let body = {};
+    if (req.method === "POST") body = await readJson(req);
+    else body = Object.fromEntries(url.searchParams.entries());
+    const texts = Array.isArray(body.texts) ? body.texts : body.texts ? [body.texts] : [];
+    const results = texts.map((t) => {
+      const hit = table.lookup(String(t || ""));
+      return hit ? hit.translation : null;
+    });
+    return send(200, "application/json", JSON.stringify({ ok: true, results }));
+  }
+
+  // Lookup + translate the misses + grow the table. This is the button's request.
+  if (p === "/api/v1/tm/translate") {
+    let body = {};
+    if (req.method === "POST") body = await readJson(req);
+    else body = Object.fromEntries(url.searchParams.entries());
+    const target = String(body.target || TARGET);
+    const texts = (Array.isArray(body.texts) ? body.texts : [body.texts]).filter((t) => t);
+    if (!texts.length) return send(400, "application/json", JSON.stringify({ ok: false, error: "no_text" }));
+    const source = String(body.source || "button");
+    try {
+      const out = [];
+      let hits = 0;
+      let added = 0;
+      for (const raw of texts) {
+        const text = String(raw);
+        const hit = table.lookup(text);
+        if (hit) {
+          hits += 1;
+          out.push(hit.translation);
+          continue;
+        }
+        const value = await translateOne(text, target);
+        if (!value) {
+          out.push(null);
+          continue;
+        }
+        const r = table.add(text, value, { source, explicit: true });
+        added += r.added;
+        out.push(value);
+      }
+      return send(200, "application/json", JSON.stringify({ ok: true, translations: out, hits, added }));
+    } catch (e) {
+      return send(502, "application/json", JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) }));
+    }
+  }
+
+  if (p === "/api/v1/translate") {
       let body = {};
       if (req.method === "POST") body = await readJson(req);
       else body = Object.fromEntries(url.searchParams.entries());
@@ -358,6 +428,9 @@ function start() {
     return send(404, "application/json", JSON.stringify({ ok: false, error: "not_found" }));
   });
 
+  const loadedRows = table.load();
+  console.log("bridge: translation table " + loadedRows + " rows, " + table.summary().bytes + " bytes");
+
   server.listen(PORT, "127.0.0.1", () => {
     console.log("bridge: https://localhost:" + PORT + "/bridge (cert " + PFX + ")");
     console.log("bridge: health https://localhost:" + PORT + "/api/v1/health");
@@ -367,5 +440,5 @@ function start() {
 if (require.main === module) start();
 
 module.exports = {
-  bridgePage, translateMany, translateOne, resolveCert, knownCerts, recordSeen, flushSeen, seenFile,
+  bridgePage, translateMany, translateOne, resolveCert, knownCerts, recordSeen, flushSeen, seenFile, table,
 };

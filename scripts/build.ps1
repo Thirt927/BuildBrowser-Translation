@@ -129,12 +129,14 @@ Write-Step "verifying VPK..."
 $listing = & $vpkEdit $vpkOut --file-tree 2>&1 | Out-String
 $required = @(
   "citadel_ui_build_selector.vxml_c",
+  "citadel_ui_build_details.vxml_c",
   "citadel_shop_mods_build.vxml_c",
   "citadel_tooltip_build_details.vxml_c",
   "citadel_tooltip_mod_details.vxml_c",
   "bba_translate.vjs_c",
   "bba_tm.vjs_c",
-  "bba_glossary.vjs_c"
+  "bba_glossary.vjs_c",
+  "bba_layout_tokens.vjs_c"
 )
 foreach ($r in $required) {
   if (-not ($listing -match [regex]::Escape($r))) { Fail "missing asset in VPK: $r" }

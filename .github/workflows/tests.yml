@@ -19,3 +19,15 @@ jobs:
         run: node tests/tools_simtest.js
       - name: Scene verification (real override layouts)
         run: node tests/scene_verify.js
+      - name: Translation follows the shown build
+        run: node tests/refresh_verify.js
+      - name: Sentence-level fallback
+        run: node tests/fragment_verify.js
+      - name: Live bridge channel
+        run: node tests/live_channel_simtest.js
+      - name: Growing translation table
+        run: node tests/tm_table_simtest.js
+      - name: Toolbar button and language modes
+        run: node tests/ui_button_simtest.js
+      - name: Layout token table is in sync
+        run: node tools/build_layout_tokens.js --check
