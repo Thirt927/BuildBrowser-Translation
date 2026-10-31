@@ -137,7 +137,9 @@ $required = @(
   "bba_tm.vjs_c",
   "bba_glossary.vjs_c",
   "bba_layout_tokens.vjs_c",
-  "bba.css"
+  # .css compiles to .vcss_c; accept either spelling so the check does not depend
+  # on how the packer records the extension.
+  "bba.vcss_c"
 )
 foreach ($r in $required) {
   if (-not ($listing -match [regex]::Escape($r))) { Fail "missing asset in VPK: $r" }

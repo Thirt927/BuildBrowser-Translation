@@ -7,6 +7,7 @@
 		<include src="s2r://panorama/styles/tooltips/citadel_mod_tooltip_shared.vcss" />
 		<include src="s2r://panorama/styles/ability_property_icons.vcss" />
 		<include src="s2r://panorama/styles/tooltips/citadel_tooltip_mod_details.vcss" />
+		<include src="s2r://panorama/styles/bba.css" />
 	</styles>
 	<scripts>
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
