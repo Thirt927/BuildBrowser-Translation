@@ -1120,13 +1120,16 @@
     return false;
   }
 
-  // Only classes whose declaration is unambiguous get re-resolved: ModifiesLabel,
-  // for instance, is used for two different tokens.
+  // Only classes whose declaration is unambiguous get re-resolved as a single
+  // token. ModifiesLabel is the exception: one class name is declared with two
+  // different #tokens, so it carries a candidate list and resyncLabel tries
+  // them until one resolves (a wrong candidate just fails resolvedText).
   var RESYNC_TOKENS = [
     ["BuildDescription", "#Citadel_HeroBuilds_BuildDescription"],
     ["BuildName", "#Citadel_HeroBuilds_BuildName"],
     ["CategoryName", "#Citadel_HeroBuilds_CategoryName"],
     ["CategoryDescription", "#Citadel_HeroBuilds_CategoryDescription"],
+    ["ModifiesLabel", ["#Citadel_Item_Build_Annotation", "#Citadel_ItemModifies"]],
   ];
 
   function roleTokenFor(panel) {
@@ -1166,16 +1169,26 @@
 
   var localizeProbed = false;
   function resyncLabel(p) {
-    var tok = roleTokenFor(p);
-    if (!tok) return false;
+    var roleTok = roleTokenFor(p);
+    if (!roleTok) return false;
+    // Role entries may carry a candidate list (ambiguous classes declare one
+    // name for two #tokens); resyncLabel tries them until one resolves.
+    var cands = (typeof roleTok === "string" ? [roleTok] : roleTok.slice());
     var prev = null;
     try { prev = p.text; } catch (e) { return false; }
     // 1) Ask the engine for the current value with the label's dialog variables.
     var fresh = null;
-    try { fresh = $.Localize(tok, p); } catch (e) { fresh = null; }
-    fresh = resolvedText(fresh, tok);
+    var usedTok = null;
+    for (var i = 0; i < cands.length; i += 1) {
+      var cand = cands[i];
+      var f = null;
+      try { f = $.Localize(cand, p); } catch (e) { f = null; }
+      f = resolvedText(f, cand);
+      if (f) { fresh = f; usedTok = cand; break; }
+    }
     if (fresh) {
       stats.resyncOk = (stats.resyncOk || 0) + 1;
+      if (debugOn() && cands.length > 1) $.Msg("[BBT] resync-localized " + usedTok);
       applyResync(p, fresh);
       return true;
     }
@@ -1184,28 +1197,38 @@
     // only the raw token / template. The next fix step depends on this answer.
     if (!localizeProbed) {
       localizeProbed = true;
-      var two = null, one = null;
-      try { two = $.Localize(tok, p); } catch (e) { two = "err:" + e; }
-      try { one = $.Localize(tok); } catch (e) { one = "err:" + e; }
-      $.Msg(
-        "[BBT] localize-probe " + tok +
-          " 2arg=" + JSON.stringify(String(two).slice(0, 48)) +
-          " 1arg=" + JSON.stringify(String(one).slice(0, 48))
-      );
+      for (var j = 0; j < cands.length; j += 1) {
+        var two = null, one = null;
+        try { two = $.Localize(cands[j], p); } catch (e) { two = "err:" + e; }
+        try { one = $.Localize(cands[j]); } catch (e) { one = "err:" + e; }
+        $.Msg(
+          "[BBT] localize-probe " + cands[j] +
+            " 2arg=" + JSON.stringify(String(two).slice(0, 48)) +
+            " 1arg=" + JSON.stringify(String(one).slice(0, 48))
+        );
+      }
     }
-    // 2) Not available: put the declared token back and let the engine render
-    // it (0.2s is enough for the label to be laid out again).
+    // 2) Not available. For unambiguous roles put the declared token back and
+    // let the engine render it (0.2s is enough for the label to be laid out
+    // again). Ambiguous roles must not guess (a wrong token renders a
+    // different annotation), so they restore the last seen text instead.
     if (typeof prev !== "string" || prev.indexOf("#") === 0) prev = null;
-    try { p.text = tok; } catch (e) { return false; }
+    if (cands.length > 1) {
+      stats.resyncFail = (stats.resyncFail || 0) + 1;
+      if (prev !== null) { try { p.text = prev; } catch (e) {} }
+      if (debugOn()) $.Msg("[BBT] resync-defer " + cands.join(","));
+      return true;
+    }
+    try { p.text = cands[0]; } catch (e) { return false; }
     var tries = 0;
     (function check() {
       tries += 1;
       var now = null;
       try { now = p.text; } catch (e) { now = null; }
-      var val = resolvedText(now, tok);
+      var val = resolvedText(now, cands[0]);
       if (val) {
         stats.resyncOk = (stats.resyncOk || 0) + 1;
-        if (debugOn()) $.Msg("[BBT] resync-ok " + tok + " -> " + JSON.stringify(val.slice(0, 40)));
+        if (debugOn()) $.Msg("[BBT] resync-ok " + cands[0] + " -> " + JSON.stringify(val.slice(0, 40)));
         applyResync(p, val);
         return;
       }
@@ -1214,7 +1237,7 @@
       if (prev !== null) {
         try { p.text = prev; } catch (e) {}
       }
-      $.Msg("[BBT] resync-fail " + tok + " raw=" + JSON.stringify(String(now).slice(0, 24)));
+      $.Msg("[BBT] resync-fail " + cands[0] + " raw=" + JSON.stringify(String(now).slice(0, 24)));
     })();
     return true;
   }

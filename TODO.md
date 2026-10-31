@@ -70,6 +70,14 @@
 - **早间 3 分钟步骤 ①**:以 `-condebug` 启动,进出装浏览器换一条出装,看日志出
   `resync-ok` / `localize-probe`(每个候选一行),概览/描述跟随新出装。
   若 `BHasClass` 假设也错,probe 行会直接指出,下一轮只改读类策略不动其他。
+- **B4 — 悬停物品注释参与 resync**:`ModifiesLabel` 一个类名声明了两个不同的
+  `#token`(`#Citadel_Item_Build_Annotation` / `#Citadel_ItemModifies`,布局按位置二选一),
+  是唯一允许「候选列表」的类。`resyncLabel` 按序尝试候选直到 `resolvedText` 通过;
+  都失败时**不猜**(错 token 会渲染成另一条注释),退回最近一次文本并记
+  `resync-defer`(B4 落实缓存:候选一次性试完即停,复用 `localizeProbed` 门控,不新增
+  周期轮询)。
+- **早间 3 分钟步骤 ②**:进出装选择器,悬停物品看「Modifies」描述是否随出装刷新,
+  日志出 `resync-localized`(哪个候选命中)或 `resync-defer`(候选清单)。
 
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 

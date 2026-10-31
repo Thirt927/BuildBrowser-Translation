@@ -185,6 +185,36 @@ check(
 );
 
 // =====================================================================
+// Static cross-check: every #token literal hardcoded in RESYNC_TOKENS must
+// exist in the generated token table (source of truth). A misspelled or
+// unknown #token would silently fail resync in game while every sim stays
+// green, because the mocks all carry the *correct* token.
+// =====================================================================
+{
+  const translateSrc = fs.readFileSync(
+    path.join(ROOT, "mod", "panorama", "scripts", "bba_translate.js"),
+    "utf8",
+  );
+  const block = translateSrc.slice(
+    translateSrc.indexOf("var RESYNC_TOKENS"),
+    translateSrc.indexOf("function roleTokenFor"),
+  );
+  const literals = Array.from(new Set(block.match(/#[A-Za-z_][A-Za-z0-9_]*/g) || []));
+  const ctx = vm.createContext({});
+  vm.runInContext(
+    fs.readFileSync(path.join(ROOT, "mod", "panorama", "scripts", "bba_layout_tokens.js"), "utf8"),
+    ctx,
+    { filename: "bba_layout_tokens.js" },
+  );
+  const allTokens = Object.values(ctx.BBA_LAYOUT_TOKENS.byClassAll).flat();
+  check(
+    "resync token literals all exist in the generated token table",
+    literals.length >= 5 && literals.every((t) => allTokens.indexOf(t) >= 0),
+    literals.join(" "),
+  );
+}
+
+// =====================================================================
 // Case A: the game assigns .text itself (labels that are not token-bound)
 // =====================================================================
 {
