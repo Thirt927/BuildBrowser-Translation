@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.6";
+  var VERSION = "1.9.7";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -1097,12 +1097,15 @@
     return "";
   }
 
-  // The real engine exposes no `.class` string: CSS classes live on
-  // panel.classList (a token list with .contains()). The v1.9.5 resync code
-  // read `panel.class` only, so in game every class-keyed path (resync,
-  // token lookups) silently saw "" and the refresh re-resolved 0 labels.
-  // Read both: classList first (engine), `.class` string second (test shims).
+  // Source 2 in-game panels expose no `.class` string and no DOM-like
+  // classList: the engine binding is panel.BHasClass(name) (the form BabelTower
+  // verified in game; our v1.9.6 test proved classList/.class collect 0 labels
+  // there). Test shims lack BHasClass, so read all three: BHasClass first
+  // (engine), classList second, `.class` string last (legacy shims).
   function panelHasClass(panel, cls) {
+    try {
+      if (typeof panel.BHasClass === "function") return panel.BHasClass(cls) === true;
+    } catch (e) {}
     try {
       var cl = panel.classList;
       if (cl && typeof cl.contains === "function") return cl.contains(cls) === true;

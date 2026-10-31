@@ -51,6 +51,26 @@
   `resync-ok`(或 `localize-probe`),概览/描述跟随出装;若 `localize-probe`
   两参返回 null/模板,再按日志证据做下一步。
 
+### 类读取真形态是 BHasClass,annotation 参与 resync(v1.9.7,代码完成待游戏验证,2026-11-01)
+
+- **背景**:v1.9.6 部署后实机日志仍 `refresh: re-resolved 0 engine label(s)` x5,
+  且 `localize-probe` 一行未出 → `classList.contains` 假设在游戏内同样落空。
+  证据(BabelTower 已验证形态 + 本仓库解包脚本):游戏内类读取走引擎绑定
+  `panel.BHasClass(name)`(`BabelTower-fork/mod/panorama/scripts/lingua_chat.js:382`,
+  `temp_extract/ct_check.js:154`,另有 `BAscendantHasClass` / `SetHasClass`)。
+- **修复**:
+  - `panelHasClass` 改为三层:`BHasClass`(引擎)→ `classList.contains`(sim)→
+    `.class` 字符串(旧 sim);`roleTokenFor` / `primaryRole` / `tokenFor` / `classOf` /
+    启动 tooltip 判定全部走它 → B3(概览冻结)根因一次修掉(与 B5b 共用)。
+  - refresh_verify 新增行为 Case G(engine-bound 的 CategoryDescription 标签经
+    `$.Localize` 刷新)+ SRC/LOCALIZE 分类译文;静态交叉校验(RESYNC_TOKENS 里每个
+    `#token` 字面量必须 ∈ 生成物 byClassAll)随 B4 一并落地——防未来任何 typo 的
+    token 像「离线 sim 带正确 token 而真机解析不到」那样静默漏过。
+- **验证状态**:离线套件全绿(refresh_verify 含 sim parity + Case G)。
+- **早间 3 分钟步骤 ①**:以 `-condebug` 启动,进出装浏览器换一条出装,看日志出
+  `resync-ok` / `localize-probe`(每个候选一行),概览/描述跟随新出装。
+  若 `BHasClass` 假设也错,probe 行会直接指出,下一轮只改读类策略不动其他。
+
 ### 布局覆盖(2026-10-30 用户反馈,优先级最高)
 
 0a.【已修·高】**出装浏览器右侧详情"换出装不更新"**:根因是 `citadel_ui_build_details`

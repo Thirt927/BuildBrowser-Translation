@@ -31,6 +31,8 @@ const SRC = {
   "Key item for Drifter early game.": "孤猎前期的重要装备。",
   "After you upgrade your Rend once.": "升级一次撕裂之后。",
   "Buy this before the team fight.": "团战前先买这个。",
+  "Category for the Rend hero.": "撕裂类英雄的分类。",
+  "Category for the Heal hero.": "治疗类英雄的分类。",
 };
 function hash32(s, seed) {
   let h = seed >>> 0;
@@ -82,6 +84,7 @@ function attach(parent, ...kids) {
 const LOCALIZE = {
   "#Citadel_HeroBuilds_BuildName": "{s:selected_hero_build_name}",
   "#Citadel_HeroBuilds_BuildDescription": "{s:selected_hero_build_description}",
+  "#Citadel_HeroBuilds_CategoryDescription": "{s:category_description}",
   "#Citadel_Item_Build_Annotation": "{s:mod_annotation}",
   "#Citadel_Item_Name": "{s:mod_name}",
   "#Citadel_HeroBuilds_BuildID": "Build # {s:build_id}",
@@ -346,6 +349,39 @@ check(
   sandbox.BBTRefreshPage();
   run(queue, 6);
   check("[F] refresh button updates the overview", descP.text === "团战前先买这个。", JSON.stringify(descP.text));
+}
+
+// =====================================================================
+// Case G: category description (B3). The category layout's overview label
+// is engine-bound and cannot re-render from its token, so a refresh must
+// translate the fresh value that $.Localize yields for the role's declared
+// token. If RESYNC_TOKENS carries a wrong/typo'd token, the refresh falls
+// back and the label stays on the previous build's translation.
+// =====================================================================
+{
+  const root = makePanel({});
+  const idP = makeVarPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID");
+  const catP = makePanel({ cls: "CategoryDescription" });
+  catP._tok = "#Citadel_HeroBuilds_CategoryDescription";
+  catP._vars = { category_description: "Category for the Rend hero." };
+  // assigning any text destroys the binding and the engine never repaints
+  Object.defineProperty(catP, "text", {
+    get: () => catP._text,
+    set: (v) => { catP._template = null; catP._text = String(v); },
+    configurable: true,
+  });
+  catP._text = "Category for the Rend hero.";
+  attach(root, idP, catP);
+  const { sandbox, queue } = boot(root);
+  run(queue, 4);
+  check("[G] category description translated", catP.text === "撕裂类英雄的分类。", JSON.stringify(catP.text));
+
+  // another build/category is shown: the engine refills the dialog variables,
+  // but this label cannot re-render from its token
+  idP.engineSet("BUILD-222");
+  catP._vars.category_description = "Category for the Heal hero.";
+  run(queue, 6);
+  check("[G] category description refreshed", catP.text === "治疗类英雄的分类。", JSON.stringify(catP.text));
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });
