@@ -391,7 +391,8 @@ async function main() {
     } catch (e) {
       console.warn("could not read", extraPath + ":", e.message);
     }
-    for (const t of extra) addText(t, "extra");
+    // Entries are {key, text} objects since v1.5 (older files were plain strings).
+    for (const t of extra) addText(typeof t === "string" ? t : (t && t.text) || "", "extra");
     console.log("extra texts from collector:", extra.length);
   }
   console.log("unique texts:", texts.size);
