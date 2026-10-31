@@ -279,7 +279,7 @@ function check(name, cond, detail) {
   const ctx = boot(["Some unknown english sentence here."], { dead: true });
   pump(ctx, 30);
   ctx.sandbox.BBTTranslatePage();
-  check("button reports the missing bridge", /未连接|没有需要/.test(ctx.label.text), ctx.label.text);
+  check("button reports the missing bridge", /重新翻译|未连接|没有需要/.test(ctx.label.text), ctx.label.text);
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

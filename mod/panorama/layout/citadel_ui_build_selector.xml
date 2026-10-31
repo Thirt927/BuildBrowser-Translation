@@ -8,21 +8,7 @@
 	<styles>
 		<include src="s2r://panorama/styles/citadel_base_styles.vcss" />
 		<include src="s2r://panorama/styles/citadel_ui_build_selector.vcss" />
-		<style>
-			.BBTControls { flow-children: right; horizontal-align: right; vertical-align: center; margin-right: 10px; padding: 3px 6px; background-color: #0d1219C0; border: 1px solid rgba(120,160,210,0.45); border-radius: 4px; }
-			.BBTButton { margin-left: 4px; padding: 4px 8px; min-width: 54px; background-color: rgba(70,90,120,0.85); border: 1px solid rgba(150,180,220,0.5); }
-			.BBTButton:hover { background-color: rgba(95,125,165,0.95); }
-			.BBTButton Label { font-size: 14px; color: #dbe7f7; horizontal-align: center; }
-			.BBTMenuButton { min-width: 22px; }
-			.BBTMenu { flow-children: down; visibility: collapse; width: 190px; background-color: #10161eF5; border: 1px solid rgba(150,180,220,0.6); margin-top: 4px; z-index: 50; }
-			.BBTMenu.BBTMenuOpen { visibility: visible; }
-			.BBTMenuItem { width: 100%; padding: 5px 8px; }
-			.BBTMenuItem:hover { background-color: rgba(95,125,165,0.75); }
-			.BBTMenuItem Label { font-size: 13px; color: #cfdcee; }
-			.BBTMenuSeparator { width: 100%; height: 1px; background-color: rgba(150,180,220,0.35); margin: 3px 0px; }
-			.BBTMenuGroup { font-size: 12px; color: #8fa6c4; margin: 3px 8px 1px 8px; }
-			.BBTBridgePanel { width: 1px; height: 1px; opacity: 0.01; margin: 0px; padding: 0px; hittest: false; }
-		</style>
+		<include src="s2r://panorama/styles/bba.css" />
 	</styles>
 	<scripts>
 		<include src="s2r://panorama/scripts/bba_glossary.vjs_c" />
@@ -99,51 +85,14 @@
 				</Panel>
 				<Panel id="RefreshButton" onactivate="CitadelBuildBrowserRefresh(true)" />
 			</Panel>
-			<!-- BBT controls: translate this page, language mode dropdown.
-			     hittest is an XML attribute (not a style) and the labels inside the
-			     buttons must not swallow the click, otherwise onactivate never fires. -->
+			<!-- BBT controls: translate this page, language mode dropdown -->
 			<Panel id="BBTControls" class="BBTControls" hittest="true">
 				<Button id="BBTTranslateButton" class="BBTButton" hittest="true" onactivate="BBTTranslatePage()">
-					<Label id="BBTTranslateLabel" text="翻译本页" hittest="false" />
+					<Label id="BBTTranslateLabel" text="翻译本页"  hittest="false"/>
 				</Button>
 				<Button id="BBTMenuButton" class="BBTButton BBTMenuButton" hittest="true" onactivate="BBTToggleMenu()">
-					<Label text="&#9662;" hittest="false" />
+					<Label text="&#9662;"  hittest="false"/>
 				</Button>
-				<Panel id="BBTMenu" class="BBTMenu" hittest="true">
-					<Button id="BBTMenuZh" class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
-						<Label text="显示中文" hittest="false" />
-					</Button>
-					<Button id="BBTMenuOrig" class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;orig&apos;)">
-						<Label text="显示原文" hittest="false" />
-					</Button>
-					<Button id="BBTMenuBoth" class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;both&apos;)">
-						<Label text="中英对照" hittest="false" />
-					</Button>
-					<Panel class="BBTMenuSeparator" />
-					<Label class="BBTMenuGroup" text="目标语言" />
-					<Button id="BBTLangZhHans" class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hans&apos;)">
-						<Label text="简体中文" hittest="false" />
-					</Button>
-					<Button id="BBTLangZhHant" class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hant&apos;)">
-						<Label text="繁體中文" hittest="false" />
-					</Button>
-					<Button id="BBTLangJa" class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ja&apos;)">
-						<Label text="日本語" hittest="false" />
-					</Button>
-					<Button id="BBTLangKo" class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ko&apos;)">
-						<Label text="한국어" hittest="false" />
-					</Button>
-					<Button id="BBTLangEn" class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;en&apos;)">
-						<Label text="English" hittest="false" />
-					</Button>
-					<Panel class="BBTMenuSeparator" />
-					<Button id="BBTMenuSave" class="BBTMenuItem" hittest="true" onactivate="BBTSavePageToTable()">
-						<Label text="把新译文存入本地库" hittest="false" />
-					</Button>
-					<Button id="BBTMenuStats" class="BBTMenuItem" hittest="true" onactivate="BBTShowTableStats()">
-						<Label text="查看本地库统计" hittest="false" />
-					</Button>
-				</Panel>
 			</Panel>
 			<Panel class="HeroSelectorTabContainer">
 				<Panel class="MyBuilds HeroSelectorTab" onactivate="CitadelBuildBrowserSetTabFilter(1)">
@@ -157,6 +106,43 @@
 					<Label class="TabLabel" text="#Citadel_HeroBuilds_Tab_PublicBuilds" />
 				</Panel>
 			</Panel>
+		</Panel>
+		<!-- BBT dropdown: direct child of the root so it is not part of the
+		     horizontal button row; positioned by .BBTMenu in bba.css -->
+		<Panel id="BBTMenu" class="BBTMenu" hittest="true">
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;zh&apos;)">
+				<Label text="显示中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;orig&apos;)">
+				<Label text="显示原文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetLanguageMode(&apos;both&apos;)">
+				<Label text="中英对照"  hittest="false"/>
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Label class="BBTMenuGroup" text="目标语言" />
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hans&apos;)">
+				<Label text="简体中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;zh-Hant&apos;)">
+				<Label text="繁體中文"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ja&apos;)">
+				<Label text="日本語"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;ko&apos;)">
+				<Label text="한국어"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSetTargetLang(&apos;en&apos;)">
+				<Label text="English"  hittest="false"/>
+			</Button>
+			<Panel class="BBTMenuSeparator" />
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTSavePageToTable()">
+				<Label text="把新译文存入本地库"  hittest="false"/>
+			</Button>
+			<Button class="BBTMenuItem" hittest="true" onactivate="BBTShowTableStats()">
+				<Label text="查看本地库统计"  hittest="false"/>
+			</Button>
 		</Panel>
 		<Panel class="MainContainer">
 			<Panel id="HeroBuildList" acceptsfocus="true" />

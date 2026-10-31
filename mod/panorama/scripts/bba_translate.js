@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.6.1";
+  var VERSION = "1.7.1";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -72,9 +72,6 @@
   var LIVE_BATCH_CHARS = 2500; // total source characters per batch request
   var LIVE_CACHE_MAX = 600; // session-only memory of live translations
 
-  // Panorama may not define `globalThis`, and referencing an undeclared identifier
-  // throws (it is not `undefined`). A Function constructor call is non-strict, so
-  // it hands back the real global object in every engine we support.
   function realGlobal() {
     try {
       if (typeof globalThis !== "undefined" && globalThis) return globalThis;
@@ -288,6 +285,8 @@
   var ui = { busy: false, lastResult: "", batch: [] };
 
   function uiPanel(id) {
+    var ids = typeof id === "string" ? [id] : id;
+    if (!ids || !ids.length) return null;
     var root = null;
     try { root = $.GetContextPanel(); } catch (e) { return null; }
     var stack = [root];
@@ -297,7 +296,9 @@
       var p = stack.pop();
       if (!p) continue;
       try {
-        if (p.id === id) return p;
+        for (var k = 0; k < ids.length; k += 1) {
+          if (p.id === ids[k]) return p;
+        }
       } catch (e) {}
       var n = 0;
       try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
@@ -312,7 +313,7 @@
   }
 
   function uiSetLabel(text) {
-    var l = uiPanel("BBTTranslateLabel");
+    var l = uiPanel(["BBTTranslateLabel", "BBTTranslateLabel2"]);
     if (l) {
       try { l.text = text; } catch (e) {}
     }
@@ -451,7 +452,7 @@
       if (typeof t === "string") {
         var tr = results[t] || liveCacheGet(t);
         if (tr) {
-          if (applyTranslation(p, t, present(t, tr), "batch")) {
+          if (writeText(p, present(t, tr))) {
             applied += 1;
             remember(p, 1, t, present(t, tr));
           }
@@ -745,7 +746,7 @@
     try { cur = p.text; } catch (e) { return; }
     if (cur !== job.shown) return; // user already moved on
     var shown = present(job.text, value);
-    if (applyTranslation(p, job.text, shown, "live-upgrade")) {
+    if (writeText(p, shown)) {
       stats.live += 1;
       if (debugOn()) logWrite(p, job.text, shown, "live-upgrade");
     }
@@ -822,7 +823,7 @@
     var cached = liveCacheGet(raw);
     if (cached) {
       var shown = present(raw, cached);
-      if (applyTranslation(panel, raw, shown, "live-cache")) {
+      if (writeText(panel, shown)) {
         stats.live += 1;
         if (debugOn()) logWrite(panel, raw, shown, "live-cache");
       }
@@ -859,7 +860,7 @@
         try { cur = panel.text; } catch (e) { cur = null; }
         if (cur === raw) {
           var shownLive = present(raw, String(out));
-          applyTranslation(panel, raw, shownLive, "live");
+          writeText(panel, shownLive);
           remember(panel, 1, raw, shownLive);
         } else {
           memo.delete(panel); // let the next scan decide with the current text
@@ -883,140 +884,6 @@
         liveCachePut(next, String(out));
       }
     });
-  }
-
-
-  // ---------- dialog variables: the correct way to translate a bound label ----------
-  // Many labels are declared as text="#Token" and the engine fills them through a
-  // dialog variable ({s:build_name}). Writing .text destroys that template, after
-  // which every later engine update is silently dropped -- which is exactly why the
-  // right-hand panel used to keep the first translation. Instead we look up the
-  // variable name with $.Localize and set the variable: the template survives and
-  // the engine keeps working as usual.
-  var varCache = Object.create(null); // token -> { kind, name } | null
-  var localizeCache = Object.create(null); // token -> localized template
-
-  function localize(tok) {
-    if (Object.prototype.hasOwnProperty.call(localizeCache, tok)) return localizeCache[tok];
-    var out = "";
-    try {
-      if (typeof $.Localize === "function") out = String($.Localize(tok) || "");
-    } catch (e) {
-      out = "";
-    }
-    // An unresolved token localizes to itself.
-    if (!out || out === tok) out = "";
-    localizeCache[tok] = out;
-    return out;
-  }
-
-  function dialogVar(tok) {
-    if (Object.prototype.hasOwnProperty.call(varCache, tok)) return varCache[tok];
-    var tpl = localize(tok);
-    var out = null;
-    if (tpl) {
-      var m = /\{([sgd]):([A-Za-z0-9_]+)\}/.exec(tpl);
-      if (m && m[1] === "s") out = { kind: m[1], name: m[2] };
-    }
-    varCache[tok] = out;
-    return out;
-  }
-
-  // Write through the dialog variable when possible. Returns true only when the
-  // label really shows our text afterwards (the engine may ignore the variable).
-  function writeViaDialogVar(panel, tok, value) {
-    if (!tok || typeof value !== "string") return false;
-    var v = dialogVar(tok);
-    if (!v) return false;
-    try {
-      if (typeof panel.SetDialogVariable !== "function") return false;
-      panel.SetDialogVariable(v.name, value);
-      var now = null;
-      try { now = panel.text; } catch (e) { now = null; }
-      return now === value;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Strict resolver used by the rebind safety net: only tokens we can trust
-  // (observed at runtime, declared by id, or a class with exactly ONE declaration).
-  // Guessing among several candidates would write a wrong token into a label.
-  function tokenForRebind(panel) {
-    var seen = observedToken.get(panel);
-    if (seen) return seen;
-    if (!LAYOUT_TOKENS) return null;
-    try {
-      var id = panel.id;
-      if (typeof id === "string" && id && LAYOUT_TOKENS.byId && LAYOUT_TOKENS.byId[id]) return LAYOUT_TOKENS.byId[id];
-    } catch (e) {}
-    var classes = [];
-    try {
-      var c = panel.class;
-      if (typeof c === "string") classes = c.split(/\s+/);
-    } catch (e) {
-      classes = [];
-    }
-    for (var i = 0; i < classes.length; i += 1) {
-      var cls = classes[i];
-      if (!cls) continue;
-      var all = LAYOUT_TOKENS.byClassAll && LAYOUT_TOKENS.byClassAll[cls];
-      if (all && all.length === 1) return all[0];
-    }
-    return null;
-  }
-
-  // Pick the token a label is actually declared with. Ids are authoritative; for
-  // classes with several candidate tokens we compare the shown text with the
-  // localized value of each candidate.
-  function resolveToken(panel, shownText) {
-    var seen = tokenOf.get(panel);
-    if (seen) return seen;
-    if (!LAYOUT_TOKENS) return null;
-    var idTok = null;
-    try {
-      var id = panel.id;
-      if (typeof id === "string" && id && LAYOUT_TOKENS.byId && LAYOUT_TOKENS.byId[id]) idTok = LAYOUT_TOKENS.byId[id];
-    } catch (e) {}
-    if (idTok) {
-      tokenOf.set(panel, idTok);
-      return idTok;
-    }
-    var classes = [];
-    try {
-      var c = panel.class;
-      if (typeof c === "string") classes = c.split(/\s+/);
-    } catch (e) {
-      classes = [];
-    }
-    var single = null;
-    var multi = null;
-    for (var i = 0; i < classes.length; i += 1) {
-      var cls = classes[i];
-      if (!cls) continue;
-      if (!single && LAYOUT_TOKENS.byClass && LAYOUT_TOKENS.byClass[cls]) single = LAYOUT_TOKENS.byClass[cls];
-      if (!multi && LAYOUT_TOKENS.byClassAll && LAYOUT_TOKENS.byClassAll[cls] && LAYOUT_TOKENS.byClassAll[cls].length > 1) {
-        multi = LAYOUT_TOKENS.byClassAll[cls];
-      }
-    }
-    if (multi && typeof shownText === "string") {
-      // Prefer the candidate whose localized text equals what the label shows.
-      var shown = flatten(shownText);
-      for (var k = 0; k < multi.length; k += 1) {
-        var tpl = localize(multi[k]);
-        if (!tpl) continue;
-        // A {s:var} template shows the variable's value, so it never equals the
-        // template itself: fall back to "this token has a variable" as the tie
-        // breaker, preferring the first declarative annotation.
-        if (flatten(tpl) === shown) {
-          tokenOf.set(panel, multi[k]);
-          return multi[k];
-        }
-      }
-    }
-    var chosen = single || (multi && multi[0]) || null;
-    if (chosen) tokenOf.set(panel, chosen);
-    return chosen;
   }
 
   // ---------- glossary term fallback ----------
@@ -1080,38 +947,55 @@
   // Fix: when a new build/item is detected, put the #token back so the stored
   // dialog variables resolve again; the next tick reads the new English and
   // translates it.
+  // The engine repainted one of its labels (build id, version, last-updated):
+  // hand every detached label back to the engine so the dialog variables can
+  // fill in the new build's text. Covers labels this mod translated directly
+  // (`written`) and labels some older version (or another mod) translated and
+  // left frozen in Chinese - those were never tracked before.
+  function restoreToken(panel, tok, prev) {
+    try { panel.text = tok; } catch (e) { return; }
+    memo.delete(panel);
+    var fresh;
+    try { fresh = panel.text; } catch (e) { fresh = null; }
+    if (typeof fresh === "string" && fresh.length >= 2 && fresh !== tok) {
+      try { translatePanel(panel, fresh); } catch (e) {}
+    } else {
+      pendingRebind.push({ p: panel, tok: tok, prev: prev });
+    }
+  }
+
   function rebindStale() {
     var n = 0;
     for (var i = 0; i < written.length; i += 1) {
       var p = written[i];
-      // Never guess here: a wrong token would be written into the label.
-      var tok = tokenForRebind(p);
-      if (!tok) continue;
+      var tok = tokenFor(p);
+      if (!tok) continue; // unknown declaration: leave the label alone
       var cur;
       try { cur = p.text; } catch (e) { continue; }
       var rec = memo.get(p);
       // Still showing what we wrote -> the engine could not update it.
       if (rec && rec.k === 1 && cur === rec.out) {
-        try {
-          // Restore the template: the value the engine already stored in the
-          // dialog variable resolves immediately, so we can read the new English
-          // and translate it in this same tick (no extra frame, no flash of
-          // English, no waiting for the next poll).
-          p.text = tok;
-        } catch (e) {
-          continue;
-        }
-        memo.delete(p);
+        restoreToken(p, tok, rec.in);
         n += 1;
-        var fresh;
-        try { fresh = p.text; } catch (e) { fresh = null; }
-        if (typeof fresh === "string" && fresh.length >= 2 && fresh !== tok) {
-          try { translatePanel(p, fresh); } catch (e) {}
-        } else {
-          // The engine did not resolve it (yet): watch it, and if it stays a raw
-          // token the label is not token-bound (a runtime-created label).
-          pendingRebind.push({ p: p, tok: tok, prev: rec.in });
-        }
+      }
+    }
+    // Engine-driven labels that show stale Chinese without any write of ours in
+    // this session: an older mod version (or a different mod) detached their
+    // template. Restore those too so they refresh on every build switch.
+    if (varTracked && varTracked.length) {
+      for (var j = 0; j < varTracked.length; j += 1) {
+        var vp = varTracked[j];
+        var vinfo = varInfoFor(vp);
+        if (!vinfo || !vinfo.tok) continue;
+        var vcur;
+        try { vcur = vp.text; } catch (e) { continue; }
+        if (!vcur || vcur.indexOf("#") === 0 || !HAS_CJK.test(vcur)) continue;
+        var vrec = memo.get(vp);
+        // k:1/k:2 mean this session's translation is showing: the var path
+        // keeps it bound, the direct path is handled by the `written` loop.
+        if (vrec && (vrec.k === 1 || vrec.k === 2)) continue;
+        restoreToken(vp, vinfo.tok, vcur);
+        n += 1;
       }
     }
     if (n) {
@@ -1128,7 +1012,6 @@
     batchAdded: 0,
     overrides: 0,
     rebindUndone: 0,
-    dialogVar: 0,
     tableEntries: 0,
     tableAliases: 0,
   };
@@ -1143,6 +1026,9 @@
   var pendingRebind = [];
   // Panels we have written a translation into (bounded, for the rebind sweep).
   var written = [];
+  // Engine-driven (dialog-variable) labels seen on screen, for the frozen-label
+  // recovery sweep in rebindStale.
+  var varTracked = [];
   // Panels whose text we only changed by substituting glossary terms. When the
   // live bridge comes up these are worth redoing: the offline pass produced a
   // mixed string, the bridge can produce a real translation of the original.
@@ -1193,12 +1079,60 @@
       if (typeof c === "string") {
         var parts = c.split(/\s+/);
         for (var i = 0; i < parts.length; i += 1) {
-          if (parts[i] && LAYOUT_TOKENS.byClass[parts[i]]) return LAYOUT_TOKENS.byClass[parts[i]];
+          var cls = parts[i];
+          if (!cls) continue;
+          if (LAYOUT_TOKENS.byClass[cls]) return LAYOUT_TOKENS.byClass[cls];
+        }
+        // Ambiguous classes (two labels, two tokens) are not in byClass; byClassAll
+        // still tells us one plausible token, which is enough for logging and for
+        // the frozen-label sweep (the dialog-variable path keys off the class).
+        for (var j = 0; j < parts.length; j += 1) {
+          var all = LAYOUT_TOKENS.byClassAll && LAYOUT_TOKENS.byClassAll[parts[j]];
+          if (all && all.length) return all[0];
         }
       }
     } catch (e) {}
     return null;
   }
+
+  // ---------- dialog-variable writes ----------
+  // Several build/details labels are engine-driven: their localized template
+  // contains a {s:var} placeholder that the engine feeds through
+  // SetDialogVariable. Writing a translation into such a label's .text detaches
+  // the template, and from then on the engine's updates silently stop reaching
+  // it (the reported "switching builds keeps showing the old translation" bug).
+  // Writing the translation into the variable instead keeps the label bound:
+  // on the next build switch the engine overwrites the variable, the label
+  // re-renders with the new English and the scanner translates it again.
+  var VAR_BY_CLASS = {
+    BuildDescription: "selected_hero_build_description",
+    BuildName: "selected_hero_build_name",
+    CategoryName: "category_name",
+    CategoryDescription: "category_description",
+    ModifiesLabel: "mod_annotation",
+    ModName: "mod_name",
+  };
+
+  function varInfoFor(panel) {
+    var cls = classOf(panel);
+    if (!cls || !Object.prototype.hasOwnProperty.call(VAR_BY_CLASS, cls)) return null;
+    return { varName: VAR_BY_CLASS[cls], tok: tokenFor(panel) };
+  }
+
+  // The layout's own root panel carries the engine's dialog variables; write
+  // there, never on the label itself (a label-local copy would shadow the
+  // engine's variable forever and freeze the label again).
+  function layoutRoot() {
+    try {
+      var r = $.GetContextPanel();
+      if (r && typeof r.SetDialogVariable === "function") return r;
+    } catch (e) {}
+    return null;
+  }
+
+  // Panels we translated through a dialog variable (never pushed to `written`,
+  // so rebindStale leaves them alone - the engine owns their text again).
+  var varWrites = typeof WeakMap !== "undefined" ? new WeakMap() : null;
 
   // One line per write. `via` says which path produced it, and the trailing
   // `tok=` shows the label's original #token (proving it is engine-driven).
@@ -1219,24 +1153,6 @@
   function present(raw, translated) {
     if (mode === "both") return translated + "\n" + raw;
     return translated;
-  }
-
-  // One place that decides HOW to make a label show `value`:
-  //   1. token-bound label -> set the dialog variable (template survives, the
-  //      engine keeps updating the label when another build is selected);
-  //   2. otherwise -> assign .text (plain labels, runtime-created labels).
-  function applyTranslation(panel, raw, value, via) {
-    var tok = resolveToken(panel, raw);
-    if (tok && writeViaDialogVar(panel, tok, value)) {
-      stats.dialogVar = (stats.dialogVar || 0) + 1;
-      if (debugOn()) logWrite(panel, raw, value, via + "/var");
-      return true;
-    }
-    if (writeText(panel, value)) {
-      if (debugOn() && tok) $.Msg("[BBT] token label not bound, wrote .text (" + tok + ")");
-      return true;
-    }
-    return false;
   }
 
   function writeText(panel, value) {
@@ -1313,11 +1229,19 @@
       return;
     }
     if (typeof raw !== "string" || raw.length < 2) return;
+    var vinfo = varInfoFor(panel);
+
     if (mode === "orig") {
       // "show the original": never write; if we had written before, put it back.
       var rec0 = memo.get(panel);
-      if (rec0 && rec0.k === 1 && raw === rec0.out) {
-        try { panel.text = rec0.in; } catch (e) {}
+      if (rec0 && rec0.k >= 1 && raw === rec0.out) {
+        var vw = varWrites ? varWrites.get(panel) : null;
+        var root0 = layoutRoot();
+        if (vw && root0) {
+          try { root0.SetDialogVariable(vw.varName, rec0.in); } catch (e) {}
+        } else {
+          try { panel.text = rec0.in; } catch (e) {}
+        }
         memo.delete(panel);
       }
       return;
@@ -1358,8 +1282,39 @@
             if (!(live.state === "on" && !live.tried[raw])) return;
           }
         }
-      } else if (raw === seen.out) {
-        return;
+      } else if (seen.k === 1) {
+        if (raw === seen.out) return;
+      } else if (seen.k === 2) {
+        // A dialog-variable write waiting for verification.
+        if (raw === seen.out) {
+          seen.k = 1; // the label re-rendered from the variable: confirmed
+          if (debugOn()) logWrite(panel, seen.in, raw, "var-ok");
+          return;
+        }
+        if (raw === seen.in) {
+          // The engine has not rendered the variable. Re-apply it (the root may
+          // have been created after our first attempt) and wait one more frame.
+          // NEVER write .text here: that is what froze these labels.
+          seen.tries = (seen.tries || 0) + 1;
+          var vi = varInfoFor(panel);
+          var r2 = layoutRoot();
+          if (vi && r2) {
+            try { r2.SetDialogVariable(vi.varName, seen.out); } catch (e) {}
+            if (debugOn()) logWrite(panel, seen.in, seen.out, "var-retry");
+            if (seen.tries < 4) return;
+          }
+          // Gave up: leave the label as the engine rendered it (English) and make
+          // it visible in the console instead of silently freezing it.
+          if (!seen.warned) {
+            seen.warned = true;
+            stats.varFailed = (stats.varFailed || 0) + 1;
+            $.Msg("[BBT] could not set dialog variable for " + (vi ? vi.varName : "?") +
+              "; leaving this label to the engine");
+          }
+          memo.delete(panel);
+          return;
+        }
+        memo.delete(panel);
       }
     }
     if (HAS_CJK.test(raw) && !COPY_SUFFIX.test(raw)) {
@@ -1374,7 +1329,33 @@
     if (hit) {
       var display = hit.wasCopy ? hit.text + " 的副本" : hit.text;
       display = present(raw, display);
-      if (applyTranslation(panel, raw, display, "TM")) {
+      // Engine-driven label: write into the dialog variable so the binding stays
+      // alive and the text refreshes on the next build switch. Writing .text here
+      // is what used to freeze the panel on the first translation forever, so it
+      // is only used as a last resort (see the k:2 retry below).
+      if (vinfo && vinfo.varName) {
+        var root = layoutRoot();
+        if (root) {
+          var landed = false;
+          try {
+            root.SetDialogVariable(vinfo.varName, display);
+            if (varWrites) varWrites.set(panel, vinfo);
+            var back = null;
+            try { back = panel.text; } catch (e) { back = null; }
+            landed = back === display;
+          } catch (e) {
+            landed = false;
+          }
+          stats.translated += 1;
+          stats.varWrites = (stats.varWrites || 0) + 1;
+          // k:1 = confirmed (the label already shows it), k:2 = waiting for the
+          // engine to render the variable on the next frame.
+          remember(panel, landed ? 1 : 2, raw, display);
+          if (debugOn()) logWrite(panel, raw, display, landed ? "var" : "var-pending");
+          return;
+        }
+      }
+      if (writeText(panel, display)) {
         stats.translated += 1;
         stats.writes += 1;
         if (debugOn()) logWrite(panel, raw, display, "TM");
@@ -1387,7 +1368,7 @@
     var frag = fragmentTranslate(raw);
     if (frag) {
       frag = present(raw, frag); // "both" mode appends the source text
-      if (applyTranslation(panel, raw, frag, "frag")) {
+      if (writeText(panel, frag)) {
         stats.fragments += 1;
         if (debugOn()) logWrite(panel, raw, frag, "frag");
       }
@@ -1404,7 +1385,7 @@
     if (normalize(raw).length <= TERM_FALLBACK_MAX) {
       mixed = substituteTerms(raw);
       if (mixed) mixed = present(raw, mixed);
-      if (mixed && applyTranslation(panel, raw, mixed, "term")) {
+      if (mixed && writeText(panel, mixed)) {
         stats.fallback += 1;
         stats.writes += 1;
         if (debugOn()) logWrite(panel, raw, mixed, "term");
@@ -1444,7 +1425,16 @@
       // Resolve the label's declared #token once (id/class lookup), then reuse
       // it: identity labels tell us the shown build/item changed, even when the
       // panels we already translated are stuck on an old translation.
-      if (!known && typeof t === "string") resolveToken(p, t);
+      if (!known) {
+        var tk = tokenFor(p);
+        if (tk) tokenOf.set(p, tk);
+      }
+      // Track engine-driven labels so rebindStale can also un-freeze ones a
+      // previous mod version translated (they were never pushed to `written`).
+      var vin = varInfoFor(p);
+      if (vin && vin.tok && varTracked.length < 300 && varTracked.indexOf(p) < 0) {
+        varTracked.push(p);
+      }
       if (typeof t === "string" && t.length >= 2) {
         if (!isTextEntry(p)) translatePanel(p, t);
         else if (!known) remember(p, 0, t, null);
@@ -1593,76 +1583,117 @@
 
 
   // ---------- wiring the toolbar ----------
-  // Relying on onactivate="Name()" means the engine has to resolve `Name` in the
-  // layout's global scope. That is fragile (a script wrapped in an IIFE, a
-  // non-strict/strict difference, a renamed global ...) and it fails silently.
-  // SetPanelEvent binds a JS callback to the panel directly, so the buttons work
-  // no matter how the function is scoped. The XML handlers stay as a fallback and
-  // uiGuard() keeps a double activation from running twice.
+  // onactivate="Name()" makes the engine resolve `Name` in the layout's global
+  // scope. That fails silently when the script is wrapped in an IIFE or the global
+  // is not where the engine looks, which looks exactly like "the button does
+  // nothing". SetPanelEvent binds the callback to the panel itself, so the buttons
+  // work regardless. The XML handlers stay as a fallback; uiGuard() stops the two
+  // paths from running the same action twice.
+  var uiWired = Object.create(null);
+  var uiWiredOnce = false;
   var lastAction = { name: "", at: 0 };
 
   function uiGuard(name) {
-    var now = Date.parse(new Date().toISOString()) || 0;
+    var now = 0;
+    try { now = Date.parse(new Date().toISOString()) || 0; } catch (e) { now = 0; }
     if (lastAction.name === name && now - lastAction.at < 350) return false;
     lastAction.name = name;
     lastAction.at = now;
     return true;
   }
 
-  function onActivate(id, fn, name) {
-    var panel = uiPanel(id);
+  function onActivate(ids, fn, name) {
+    var panel = uiPanel(ids);
     if (!panel) return false;
     try {
       if (typeof panel.SetPanelEvent === "function") {
         panel.SetPanelEvent("onactivate", function () {
-          if (uiGuard(name || id)) fn();
+          if (uiGuard(name)) fn();
         });
-        uiWired[id] = true;
+        uiWired[name] = true;
         return true;
       }
     } catch (e) {}
     return false;
   }
 
-  var uiWired = Object.create(null);
-  var uiWiredOnce = false;
-
   function wireToolbar() {
     if (uiWiredOnce) return;
-    var btn = uiPanel("BBTTranslateButton");
-    var menuBtn = uiPanel("BBTMenuButton");
-    var menu = uiPanel("BBTMenu");
-    if (!btn && !menuBtn) return; // the layout does not carry the toolbar
+    if (!uiPanel(["BBTTranslateButton", "BBTTranslateButton2", "BBTMenuButton", "BBTMenuButton2"])) return;
     uiWiredOnce = true;
-    onActivate("BBTTranslateButton", function () { G.BBTTranslatePage(); }, "translate");
-    onActivate("BBTMenuButton", function () { G.BBTToggleMenu(); }, "menu");
-    var ids = [
-      ["BBTMenuZh", "zh"], ["BBTMenuOrig", "orig"], ["BBTMenuBoth", "both"],
-    ];
-    for (var i = 0; i < ids.length; i += 1) {
-      (function (id, modeName) {
-        onActivate(id, function () { G.BBTSetLanguageMode(modeName); }, "mode-" + modeName);
-      })(ids[i][0], ids[i][1]);
-    }
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { G.BBTTranslatePage(); }, "translate");
+    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { G.BBTToggleMenu(); }, "menu");
+    var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
+    wireMenuItems(modes, "BBTSetLanguageMode", "mode-");
     var langs = [
-      ["BBTLangZhHans", "zh-Hans"], ["BBTLangZhHant", "zh-Hant"], ["BBTLangJa", "ja"],
-      ["BBTLangKo", "ko"], ["BBTLangEn", "en"],
+      ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["ja", "日本語"],
+      ["ko", "한국어"], ["en", "English"],
     ];
-    for (var j = 0; j < langs.length; j += 1) {
-      (function (id, lang) {
-        onActivate(id, function () { G.BBTSetTargetLang(lang); }, "lang-" + lang);
-      })(langs[j][0], langs[j][1]);
-    }
-    onActivate("BBTMenuSave", function () { G.BBTSavePageToTable(); }, "save");
-    onActivate("BBTMenuStats", function () { G.BBTShowTableStats(); }, "stats");
+    wireMenuItems(langs, "BBTSetTargetLang", "lang-");
+    wireMenuItems([["save", "把新译文存入本地库"], ["stats", "查看本地库统计"]], null, "misc-");
     $.Msg("[BBT] toolbar wired: " + Object.keys(uiWired).length + " control(s)");
-    void menu;
+  }
+
+  // Menu buttons have no ids (they are generated from the layout), so they are
+  // located by their label text. That also covers the second toolbar.
+  function wireMenuItems(items, mode, prefix) {
+    var menuPanels = [uiPanel("BBTMenu"), uiPanel("BBTMenu2")];
+    for (var m = 0; m < menuPanels.length; m += 1) {
+      var menu = menuPanels[m];
+      if (!menu) continue;
+      var n = 0;
+      try { n = menu.GetChildCount ? menu.GetChildCount() : 0; } catch (e) { n = 0; }
+      for (var i = 0; i < n; i += 1) {
+        var child = null;
+        try { child = menu.GetChild(i); } catch (e) { child = null; }
+        if (!child) continue;
+        var text = "";
+        try {
+          var lbl = child.GetChild && child.GetChild(0);
+          text = lbl && typeof lbl.text === "string" ? lbl.text : "";
+        } catch (e) {
+          text = "";
+        }
+        if (!text) continue;
+        for (var k = 0; k < items.length; k += 1) {
+          if (text.indexOf(items[k][1]) < 0) continue;
+          var key = prefix + items[k][0];
+          var value = items[k][0];
+          if (!mode) {
+            onActivateChild(child, function () {
+              if (value === "save") G.BBTSavePageToTable();
+              else G.BBTShowTableStats();
+            }, key + m);
+          } else {
+            onActivateChild(child, (function (v, setter) {
+              return function () {
+                if (setter === "BBTSetLanguageMode") G.BBTSetLanguageMode(v);
+                else G.BBTSetTargetLang(v);
+              };
+            })(value, mode), key + m);
+          }
+        }
+      }
+    }
+  }
+
+  function onActivateChild(panel, fn, name) {
+    try {
+      if (typeof panel.SetPanelEvent === "function") {
+        panel.SetPanelEvent("onactivate", function () {
+          if (uiGuard(name)) fn();
+        });
+        uiWired[name] = true;
+        return true;
+      }
+    } catch (e) {}
+    return false;
   }
 
   // ---------- global UI handlers (referenced from the layout) ----------
 
   function uiMenuPanel() {
-    return uiPanel("BBTMenu");
+    return uiPanel(["BBTMenu", "BBTMenu2"]);
   }
 
   // Small introspection helper (console: BBT_LIVE_STATE()) - handy when a user
@@ -1715,7 +1746,7 @@
       var p = stack.pop();
       if (!p) continue;
       var rec = memo.get(p);
-      if (rec && rec.k === 1 && rec.in) {
+      if (rec && rec.k >= 1 && rec.in) {
         // Put the source text back so the next scan re-evaluates it under the new
         // mode. Token-bound labels get their #token back (the engine re-resolves).
         var cur = null;
@@ -1723,7 +1754,13 @@
         if (cur !== null && cur !== rec.in) {
           // Always restore the source text we translated: that is what "original"
           // means, and the token table is only a heuristic for engine labels.
-          try { p.text = rec.in; } catch (e) {}
+          var vw2 = varWrites ? varWrites.get(p) : null;
+          var root2 = layoutRoot();
+          if (vw2 && root2) {
+            try { root2.SetDialogVariable(vw2.varName, rec.in); } catch (e) {}
+          } else {
+            try { p.text = rec.in; } catch (e) {}
+          }
         }
       }
       memo.delete(p);
@@ -1748,8 +1785,16 @@
       return;
     }
     if (live.state !== "on") {
-      uiSetLabel("未连接翻译桥(bridge)");
-      $.Schedule(2.5, function () { uiSetLabel("翻译本页"); });
+      // Offline: re-run the memory/glossary pass over the whole page so the
+      // button visibly does something even without the bridge.
+      var before = stats.translated + stats.fallback;
+      try { resetMemos($.GetContextPanel()); } catch (e) {}
+      uiSetLabel("重新翻译中…");
+      $.Schedule(0.5, function () {
+        var done = stats.translated + stats.fallback - before;
+        uiSetLabel("离线已重译 " + (done > 0 ? done + " 条" : "整页文本"));
+      });
+      $.Schedule(3.5, function () { uiSetLabel("翻译本页"); });
       return;
     }
     ui.busy = true;
@@ -1871,9 +1916,27 @@
     // the UI for tens of milliseconds on every layout instance.
     var tmCount = G.BBA_TM_COUNT || 0;
     var layoutTag = "";
+    var ctx = null;
     try {
-      var ctx = $.GetContextPanel();
+      ctx = $.GetContextPanel();
       if (ctx && ctx.tag) layoutTag = String(ctx.tag);
+    } catch (e) {}
+    // In the build browser the selector already has its own toolbar: a details
+    // panel rendered inside it must not show a second one.
+    try {
+      var up = ctx;
+      while (up) {
+        var pt = null;
+        try { pt = up.paneltype; } catch (e) { pt = null; }
+        if (pt === "CitadelHeroBuildsSelector") {
+          var c2 = uiPanel("BBTControls2");
+          if (c2) { try { c2.style.visibility = "collapse"; } catch (e) {} }
+          var m2 = uiPanel("BBTMenu2");
+          if (m2) { try { m2.style.visibility = "collapse"; } catch (e) {} }
+          break;
+        }
+        try { up = up.GetParent ? up.GetParent() : null; } catch (e) { break; }
+      }
     } catch (e) {}
     // The tag tells you WHICH layout actually carries the scanner; use it with
     // -condebug to check that every layout surface that shows player text is
@@ -1882,13 +1945,13 @@
     $.Schedule(0.05, tick);
     // Probe the optional bridge a moment later so it never delays first paint.
     if (liveMode() !== "off") $.Schedule(1.2, liveProbe);
-    // The toolbar exists only in the build-browser layout; retry a few times while
-    // the engine finishes creating the panels.
-    var tries = 0;
+    // The toolbar lives in the browser/details layouts; retry while the engine is
+    // still creating panels.
+    var wireTries = 0;
     (function wire() {
       try { wireToolbar(); } catch (e) {}
-      tries += 1;
-      if (!uiWiredOnce && tries < 12) $.Schedule(0.5, wire);
+      wireTries += 1;
+      if (!uiWiredOnce && wireTries < 12) $.Schedule(0.5, wire);
     })();
   }
 

@@ -136,7 +136,8 @@ $required = @(
   "bba_translate.vjs_c",
   "bba_tm.vjs_c",
   "bba_glossary.vjs_c",
-  "bba_layout_tokens.vjs_c"
+  "bba_layout_tokens.vjs_c",
+  "bba.css"
 )
 foreach ($r in $required) {
   if (-not ($listing -match [regex]::Escape($r))) { Fail "missing asset in VPK: $r" }
