@@ -2,10 +2,10 @@
    Panorama's <styles> section only accepts <include /> elements, so the rules
    live here and are referenced with s2r://panorama/styles/bba.css. */
 
-/* 1px probe copy of an engine-owned label. It has to be *rendered* (a collapsed
-   label never resolves its {s:var} template), so it is simply made tiny and
-   almost transparent instead of hidden. Nothing ever writes to it. */
-.BBTProbe { width: 1px; height: 1px; opacity: 0.01; overflow: clip; margin: 0px; padding: 0px; }
+/* Engine-owned label: keeps the #token (so the game keeps updating it) but takes
+   no visual space. It must stay *rendered* - a collapsed label resolves nothing
+   and a duplicate copy never receives the engine's updates (both seen in game). */
+.BBTSrc { width: 0px; height: 0px; max-width: 0px; max-height: 0px; min-width: 0px; min-height: 0px; opacity: 0.01; overflow: clip; margin: 0px; padding: 0px; }
 
 /* Toolbar: sits in the details header next to 出装选项 and uses the game's own
    TextButton classes, so it looks like 快速购买 / 出装浏览器. */

@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.8.2";
+  var VERSION = "1.9.0";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -370,9 +370,9 @@
       var p = stack.pop();
       if (!p) continue;
       if (!panelVisible(p)) continue;
-      // Never send our own hidden probe copies to the bridge: they are the
-      // engine's source text and must keep their template intact.
-      if (isProbe(p)) continue;
+      // Never send our own hidden engine-label copies to the bridge: they must
+      // keep their template intact.
+      if (isSrcLabel(p)) continue;
       var t = null;
       try { t = p.text; } catch (e) { t = null; }
       if (typeof t === "string" && t.length >= 3 && t.length <= LIVE_TEXT_MAX) {
@@ -1002,7 +1002,7 @@
     var n = 0;
     for (var i = 0; i < written.length; i += 1) {
       var p = written[i];
-      if (isProbePartner(p)) continue; // driven by its probe, nothing to rebind
+      if (isSrcLabel(p)) continue; // engine label: never written, nothing to rebind
       var tok = tokenFor(p);
       if (!tok) continue; // unknown declaration: leave the label alone
       var cur;
@@ -1090,8 +1090,8 @@
     try {
       var c = panel.class;
       if (typeof c === "string") {
-        // Our own probe/partner labels are never token-bound for our purposes.
-        if (c.indexOf("BBTProbe") >= 0 || c.indexOf("BBTSrc") >= 0) return null;
+        // Our own source/mirror labels are never token-bound for our purposes.
+        if (c.indexOf("BBTSrc") >= 0 || c.indexOf("BBTDst") >= 0) return null;
         var parts = c.split(/\s+/);
         for (var i = 0; i < parts.length; i += 1) {
           var cls = parts[i];
@@ -1110,23 +1110,20 @@
     return null;
   }
 
-  // ---------- probe labels ----------
+  // ---------- engine label + visible mirror ----------
   // A label whose localized template contains {s:var} is owned by the engine:
   // writing `.text` destroys the template (the label then shows the first
-  // translation forever) and writing the dialog variable on a shared root leaks
-  // the value into every sibling that inherits it (all list rows showed the same
-  // build name). A collapsed label does not resolve its template either, so the
-  // pair that works is:
+  // translation forever). The engine updates only the label it finds, so the pair
+  // that works is:
   //
   //   <Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription"/>
-  //   <Label class="BBTProbe BuildDescription" text="#Citadel_HeroBuilds_BuildDescription"/>
+  //   <Label class="BBTDst BuildDescription" />
   //
-  // BBTSrc is the visible label we translate (we own its text from now on);
-  // BBTProbe is a 1px, near-transparent copy of the same token: it is rendered,
-  // so the engine resolves the current English there on every build switch, and
-  // nothing ever writes to it. Each tick we read the probe and mirror the
-  // translation into its partner. If a probe cannot be resolved (layout change,
-  // game update) the partner simply keeps the engine's own English.
+  // BBTSrc keeps the token and is never written; it is styled to 0x0 so it takes
+  // no visual space but is still a *rendered* panel (a collapsed one resolves
+  // nothing and a hidden copy is never updated - both were verified in game).
+  // BBTDst is ours: every tick we read the source text and write its translation
+  // there. BBTDst carries the same visual class, so it occupies the source slot.
   function classListOf(panel) {
     try {
       var c = panel.class;
@@ -1135,28 +1132,28 @@
     return "";
   }
 
-  function isProbe(panel) {
-    return classListOf(panel).indexOf("BBTProbe") >= 0;
-  }
-
-  function isProbePartner(panel) {
+  function isSrcLabel(panel) {
     return classListOf(panel).indexOf("BBTSrc") >= 0;
   }
 
-  // The partner is the nearest preceding sibling marked BBTSrc. Nearest (not
-  // "first") matters on the category header, which has two pairs in a row.
-  var probePair = new WeakMap();
+  function isDstLabel(panel) {
+    return classListOf(panel).indexOf("BBTDst") >= 0;
+  }
 
-  function probePartner(probe) {
-    var cached = probePair.get(probe);
+  // The mirror is the nearest following sibling marked BBTDst. Nearest (not
+  // "first") matters on the category header, which has two pairs in a row.
+  var pairMap = new WeakMap();
+
+  function mirrorFor(src) {
+    var cached = pairMap.get(src);
     if (cached) {
       try {
         if (!cached.IsValid || cached.IsValid()) return cached;
       } catch (e) {}
-      probePair.delete(probe);
+      pairMap.delete(src);
     }
     var parent = null;
-    try { parent = probe.GetParent ? probe.GetParent() : null; } catch (e) {}
+    try { parent = src.GetParent ? src.GetParent() : null; } catch (e) {}
     if (!parent) return null;
     var n = 0;
     try { n = parent.GetChildCount ? parent.GetChildCount() : 0; } catch (e) { n = 0; }
@@ -1165,29 +1162,29 @@
       var c = null;
       try { c = parent.GetChild(i); } catch (e) { c = null; }
       if (!c) continue;
-      if (c === probe) { at = i; break; }
+      if (c === src) { at = i; break; }
     }
     if (at < 0) return null;
-    for (var j = at - 1; j >= 0; j -= 1) {
+    for (var j = at + 1; j < n; j += 1) {
       var s = null;
       try { s = parent.GetChild(j); } catch (e) { s = null; }
-      if (s && isProbePartner(s)) {
-        probePair.set(probe, s);
+      if (s && isDstLabel(s)) {
+        pairMap.set(src, s);
         return s;
       }
     }
     return null;
   }
 
-  // Translate what the probe currently shows into the visible partner label.
-  function translateFromProbe(probe) {
-    var dst = probePartner(probe);
+  // Read the engine label and mirror its translation into the visible one.
+  function translateFromSource(src) {
+    var dst = mirrorFor(src);
     if (!dst) return;
     var raw = null;
-    try { raw = probe.text; } catch (e) { return; }
+    try { raw = src.text; } catch (e) { return; }
     if (typeof raw !== "string") return;
     var pt = "";
-    try { pt = String(probe.paneltype || ""); } catch (e) { pt = ""; }
+    try { pt = String(src.paneltype || ""); } catch (e) { pt = ""; }
     if (raw === pt) return; // .text mirrors the panel type: no content yet
     if (raw.indexOf("#") === 0) return; // template not resolved: keep the engine text
 
@@ -1207,19 +1204,19 @@
     if (mode === "orig") {
       if (shown !== raw) {
         try { dst.text = raw; } catch (e) {}
-        stats.probes = (stats.probes || 0) + 1;
+        stats.pairs = (stats.pairs || 0) + 1;
       }
       remember(dst, 0, raw, raw);
       return;
     }
-    // The probe text is the cache key: while it is unchanged we only have to
-    // make sure the partner still shows what we wrote for it.
+    // The source text is the cache key: while it is unchanged we only have to
+    // make sure the mirror still shows what we wrote for it.
     if (seen && seen.in === raw && shown === seen.out) return;
     if (seen && seen.in !== raw) {
       // A different build/item is behind the same label: log the follow so a
-      // console.log captured with -condebug shows whether the probe really moved.
-      stats.probeFollows = (stats.probeFollows || 0) + 1;
-      $.Msg("[BBT] probe-follow ." + classOf(dst) + " " +
+      // console.log captured with -condebug shows whether the source moved.
+      stats.follows = (stats.follows || 0) + 1;
+      $.Msg("[BBT] follow ." + classOf(dst) + " " +
         JSON.stringify(String(seen.in).slice(0, 30)) + " -> " + JSON.stringify(raw.slice(0, 30)));
     }
     if (HAS_CJK.test(raw)) {
@@ -1251,8 +1248,8 @@
     out = present(raw, out);
     if (writeText(dst, out)) {
       stats.translated += 1;
-      stats.probes = (stats.probes || 0) + 1;
-      if (debugOn()) logWrite(dst, raw, out, "probe");
+      stats.pairs = (stats.pairs || 0) + 1;
+      if (debugOn()) logWrite(dst, raw, out, "pair");
     }
     remember(dst, 1, raw, out);
   }
@@ -1460,16 +1457,16 @@
   }
 
   var lastVisited = 0;
-  // Probe labels (see translateFromProbe). Registered on first sight, then
-  // driven from tick() so the scan never writes into them or their partners.
-  var probes = [];
-  var probeSet = new WeakSet();
-  var partnerSet = new WeakSet();
+  // Engine labels (see translateFromSource). Registered on first sight, then
+  // driven from tick() so the scan never writes into them or their mirrors.
+  var sources = [];
+  var srcSet = new WeakSet();
+  var mirrorSet = new WeakSet();
 
-  function translateProbes() {
+  function translatePairs() {
     var live = [];
-    for (var i = 0; i < probes.length; i += 1) {
-      var p = probes[i];
+    for (var i = 0; i < sources.length; i += 1) {
+      var p = sources[i];
       var ok = true;
       try {
         if (p.IsValid && !p.IsValid()) ok = false;
@@ -1478,9 +1475,9 @@
       }
       if (!ok) continue; // the layout was rebuilt: drop it
       live.push(p);
-      try { translateFromProbe(p); } catch (e) {}
+      try { translateFromSource(p); } catch (e) {}
     }
-    if (live.length !== probes.length) probes = live;
+    if (live.length !== sources.length) sources = live;
   }
 
   function scan(root) {
@@ -1498,14 +1495,14 @@
         continue;
       }
       var known = memo.has(p);
-      // Probes and their partners are handled in tick() (probe -> partner);
-      // letting the generic pass touch them would clobber the probe template.
-      if (probeSet.has(p) || partnerSet.has(p)) continue;
-      if (!known && isProbe(p)) {
-        probeSet.add(p);
-        if (probes.length < 600) probes.push(p);
-        var pn = probePartner(p);
-        if (pn) partnerSet.add(pn);
+      // Sources and mirrors are handled in tick() (source -> mirror); letting
+      // the generic pass touch them would clobber the source template.
+      if (srcSet.has(p) || mirrorSet.has(p)) continue;
+      if (!known && isSrcLabel(p)) {
+        srcSet.add(p);
+        if (sources.length < 600) sources.push(p);
+        var m = mirrorFor(p);
+        if (m) mirrorSet.add(m);
         continue;
       }
       if (!known) fresh += 1;
@@ -1640,9 +1637,9 @@
       } catch (e) {}
     }
     ticksSinceRebind += 1;
-    // Probe labels: read the engine-resolved English from the 1px copy and
-    // mirror its translation into the visible partner label.
-    try { translateProbes(); } catch (e) {}
+    // Engine labels: read what the game resolved (English) and mirror the
+    // translation into the visible label.
+    try { translatePairs(); } catch (e) {}
     try { liveDrainQueue(); } catch (e) {}
     try { liveDrainUpgrades(); } catch (e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
@@ -1713,6 +1710,7 @@
     // standalone details view has another; a nested details panel hides its own
     // copy, but the binding is harmless and keeps the code simple).
     onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { G.BBTTranslatePage(); }, "translate");
+    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { G.BBTRefreshPage(); }, "refresh");
     onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { G.BBTToggleMenu(); }, "menu");
     var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
     wireMenuItems(modes, "BBTSetLanguageMode", "mode-");
@@ -1869,6 +1867,23 @@
       }
     }
   }
+
+  // Manual refresh: re-arm every label on the page and re-read the engine
+  // labels. Useful when a panel was left showing an older translation.
+  G.BBTRefreshPage = function () {
+    var root = pageRoot();
+    var dump = [];
+    for (var i = 0; i < sources.length && i < 6; i += 1) {
+      var s = sources[i];
+      var t = null;
+      try { t = s.text; } catch (e) { t = null; }
+      dump.push("." + classOf(s) + "=" + JSON.stringify(String(t == null ? "" : t).slice(0, 24)));
+    }
+    $.Msg("[BBT] refresh: " + sources.length + " engine label(s) " + dump.join(" | "));
+    try { if (root) resetMemos(root); } catch (e) {}
+    uiSetLabel("刷新中…");
+    $.Schedule(1.0, function () { uiSetLabel("翻译本页"); });
+  };
 
   // The main button: "translate everything on this page that we do not know yet".
   G.BBTTranslatePage = function () {

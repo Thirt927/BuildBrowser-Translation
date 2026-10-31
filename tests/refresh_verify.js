@@ -1,4 +1,4 @@
-// Regression test: the translation must follow the shown build / hovered item.
+﻿// Regression test: the translation must follow the shown build / hovered item.
 //
 // Panorama gives a Label two ways to get its text:
 //   A. the game JS assigns `label.text` directly  -> the scanned text changes
@@ -125,14 +125,14 @@ function makeVarRoot() {
   return root;
 }
 
-// A BBTSrc label (visible, translated in place) plus its 1px BBTProbe copy of
-// the same token (never written, always re-resolved by the engine).
+// An engine-owned BBTSrc label (keeps its token, never written) plus the BBTDst
+// mirror the mod fills with the translation.
 function pair(root, token, value, cls) {
   const holder = makePanel({});
   const src = root.track(makeVarPanel(token, value, "BBTSrc " + cls));
-  const probe = root.track(makeVarPanel(token, value, "BBTProbe " + cls));
-  attach(holder, src, probe);
-  return { holder, src, probe };
+  const dst = makePanel({ cls: "BBTDst " + cls });
+  attach(holder, src, dst);
+  return { holder, src, dst };
 }
 
 function boot(root) {
@@ -209,25 +209,25 @@ function check(name, cond, detail) {
   attach(root, idP, name.holder, desc.holder);
   const { sandbox, queue } = boot(root);
   run(queue, 3);
-  check("[B] visible label shows the translation", name.src.text === "构建一" && desc.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify([name.src.text, desc.src.text]));
-  check("[B] probe keeps the engine's English", name.probe.text === "Build One" && desc.probe.text === "Rend > Heal > Repeat.", JSON.stringify([name.probe.text, desc.probe.text]));
-  check("[B] probe keeps its binding", name.probe.bound() && desc.probe.bound());
+  check("[B] visible label shows the translation", name.dst.text === "构建一" && desc.dst.text === "撕裂 > 治疗 > 重复。", JSON.stringify([name.src.text, desc.src.text]));
+  check("[B] source keeps the engine's English", name.src.text === "Build One" && desc.src.text === "Rend > Heal > Repeat.", JSON.stringify([name.src.text, desc.src.text]));
+  check("[B] source keeps its binding", name.src.bound() && desc.src.bound());
   check("[B] no dialog-variable writes at all", (sandbox.BBT_STATS.varWrites || 0) === 0, String(sandbox.BBT_STATS.varWrites));
 
   // the game selects another build: it re-fills the same variables
   root.SetDialogVariable("selected_hero_build_name", "Build Two");
   root.SetDialogVariable("selected_hero_build_description", "Key item for Drifter early game.");
   run(queue, 2);
-  check("[B] name follows the new build", name.src.text === "构建二", JSON.stringify(name.src.text));
-  check("[B] description follows the new build", desc.src.text === "孤猎前期的重要装备。", JSON.stringify(desc.src.text));
-  check("[B] probe still bound after the switch", name.probe.bound() && desc.probe.bound());
+  check("[B] name follows the new build", name.dst.text === "构建二", JSON.stringify(name.src.text));
+  check("[B] description follows the new build", desc.dst.text === "孤猎前期的重要装备。", JSON.stringify(desc.src.text));
+  check("[B] source still bound after the switch", name.src.bound() && desc.src.bound());
 
   root.SetDialogVariable("selected_hero_build_name", "Build Three");
   root.SetDialogVariable("selected_hero_build_description", "Buy this before the team fight.");
   run(queue, 2);
-  check("[B] third build follows", name.src.text === "构建三" && desc.src.text === "团战前先买这个。", JSON.stringify([name.src.text, desc.src.text]));
+  check("[B] third build follows", name.dst.text === "构建三" && desc.dst.text === "团战前先买这个。", JSON.stringify([name.src.text, desc.src.text]));
   check("[B] no rebinds were needed", sandbox.BBT_STATS.rebinds === 0, String(sandbox.BBT_STATS.rebinds));
-  check("[B] probe writes counted", (sandbox.BBT_STATS.probes || 0) >= 3, String(sandbox.BBT_STATS.probes));
+  check("[B] mirror writes counted", (sandbox.BBT_STATS.pairs || 0) >= 3, String(sandbox.BBT_STATS.pairs));
 }
 
 // =====================================================================
@@ -240,19 +240,19 @@ function check(name, cond, detail) {
   attach(root, modName, ann.holder);
   const { sandbox, queue } = boot(root);
   run(queue, 3);
-  check("[C] tooltip annotation translated", ann.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
-  check("[C] annotation probe keeps its binding", ann.probe.bound(), "the engine can no longer update it");
+  check("[C] tooltip annotation translated", ann.dst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
+  check("[C] annotation source keeps its binding", ann.src.bound(), "the engine can no longer update it");
 
   root.SetDialogVariable("mod_name", "乘胜追击");
   root.SetDialogVariable("mod_annotation", "Key item for Drifter early game.");
   run(queue, 2);
-  check("[C] annotation follows the hovered item", ann.src.text === "孤猎前期的重要装备。", JSON.stringify(ann.src.text));
-  check("[C] still bound after the hover", ann.probe.bound());
+  check("[C] annotation follows the hovered item", ann.dst.text === "孤猎前期的重要装备。", JSON.stringify(ann.src.text));
+  check("[C] still bound after the hover", ann.src.bound());
 
   root.SetDialogVariable("mod_name", "元灵收割");
   root.SetDialogVariable("mod_annotation", "Rend > Heal > Repeat.");
   run(queue, 2);
-  check("[C] annotation follows back", ann.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
+  check("[C] annotation follows back", ann.dst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(ann.src.text));
   check("[C] no rebind needed", sandbox.BBT_STATS.rebinds === 0, String(sandbox.BBT_STATS.rebinds));
 }
 
@@ -272,7 +272,7 @@ function check(name, cond, detail) {
     run(queue, 3);
   }
   check("[D] no runaway rewrites from a ticking label", sandbox.BBT_STATS.writes - writesAfterFirst === 0, String(sandbox.BBT_STATS.writes - writesAfterFirst));
-  check("[D] description still translated", desc.src.text === "撕裂 > 治疗 > 重复。", JSON.stringify(desc.src.text));
+  check("[D] description still translated", desc.dst.text === "撕裂 > 治疗 > 重复。", JSON.stringify(desc.src.text));
 }
 
 // =====================================================================

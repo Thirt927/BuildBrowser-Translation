@@ -33,6 +33,7 @@ const selectorFile = "citadel_ui_build_selector.xml";
   const xml = fs.readFileSync(full, "utf8");
 
   check(detailsFile + ": translate button", xml.indexOf('id="BBTTranslateButton2"') >= 0);
+  check(detailsFile + ": manual refresh button", xml.indexOf('id="BBTRefreshButton2"') >= 0);
   check(detailsFile + ": dropdown trigger", xml.indexOf('id="BBTMenuButton2"') >= 0);
   check(detailsFile + ": dropdown panel", xml.indexOf('id="BBTMenu2"') >= 0);
   // native look: the game's own TextButton style, same as 出装选项 / 出装浏览器
@@ -73,12 +74,13 @@ const selectorFile = "citadel_ui_build_selector.xml";
   // the tabs and produced a dead button.
   const xml = fs.readFileSync(path.join(LAYOUT, selectorFile), "utf8");
   check(selectorFile + ": no duplicate toolbar", xml.indexOf('id="BBTControls"') < 0 && xml.indexOf('id="BBTMenu"') < 0);
-  check(selectorFile + ": build list rows use the probe pair", /class="BBTSrc BuildName"/.test(xml) && /class="BBTProbe BuildName"/.test(xml));
+  check(selectorFile + ": build list rows use the source+mirror pair", /class="BBTSrc BuildName"/.test(xml) && /class="BBTDst BuildName"/.test(xml));
 }
 
 // the script must know how to drive this toolbar
 const js = fs.readFileSync(path.join(__dirname, "..", "mod", "panorama", "scripts", "bba_translate.js"), "utf8");
 check("script wires the toolbar", js.indexOf('"BBTTranslateButton2"') >= 0);
+check("script wires the refresh button", js.indexOf('"BBTRefreshButton2"') >= 0 && js.indexOf("G.BBTRefreshPage") >= 0);
 check("script can update the TextButton caption", js.indexOf('b.text = text') >= 0);
 check("script drives the dropdown", js.indexOf('"BBTMenu2"') >= 0);
 check("dropdown is toggled by inline style, not only by a CSS class", js.indexOf('style.visibility = menuOpen') >= 0);

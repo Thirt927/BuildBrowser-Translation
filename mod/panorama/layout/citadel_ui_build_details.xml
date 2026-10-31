@@ -76,7 +76,7 @@
 				<Panel class="AuthoringInfo">
 					<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_name}) -->
 					<Label class="BBTSrc BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-					<Label class="BBTProbe BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
+					<Label class="BBTDst BuildName" html="true" />
 				</Panel>
 				<Panel id="ControlArea">
 					<Panel class="ExtraInfo">
@@ -98,6 +98,7 @@
 						<!-- BBT toolbar: same TextButton styling as 出装选项 next to it -->
 						<Panel id="BBTControls2" class="BBTControls" hittest="true">
 							<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTTranslatePage()" />
+							<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill" text="刷新" hittest="true" onactivate="BBTRefreshPage()" />
 							<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTToggleMenu()" />
 						</Panel>
 						<Button />
@@ -123,7 +124,7 @@
 					<Panel id="BuildDetails_Overview">
 						<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_description}) -->
 						<Label class="BBTSrc BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
-						<Label class="BBTProbe BuildDescription" text="#Citadel_HeroBuilds_BuildDescription" />
+						<Label class="BBTDst BuildDescription" />
 						<CitadelShopModsBuild id="ShopModsBuild" />
 						<Panel class="ModListContainer">
 							<CitadelModsPurchasedPanel id="mod_universal" class="ModList" mod_category="Universal" read_only="true" />
