@@ -1027,3 +1027,54 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
    - 说明:译文库里没有的文本,离线永远翻不出来——这是设计边界,不是 bug;要即时翻译仍需
      bridge(`tools/bridge/bridge.js` 8793 或 DeadlockLingua 8792)在线。**出新出装后请跑一次
      `scripts\refresh_tm.ps1`**,把新文本并入库再打包。
+
+### v1.9.12 —— 版式回退 + 工具条重做(原生控件行 + 模式循环按钮) + 术语兜底闸
+
+背景(v1.9.9 → v1.9.11 三轮试错,均已实机证伪):把工具条做成覆盖层(#BBTLayer2/#BBTSlot2)
+挂在 layout root 或 .HeroBuildsExtraInfo 里,全部失败——
+  (a) Panorama 只在父面板边界内做命中测试,超出父区域看得到点不到;
+  (b) layout root 是 flow-children:down,挂在 root 上的兄弟节点被排到撑满高度的
+      .HeroBuildsExtraInfo 下面 = 不可见;
+  (c) 往 .HeroBuildsExtraInfo 加 100% 高子面板会挤掉 #BuildInfo 高度 → 概览区压缩/重叠;
+  (d) 下拉菜单 #BBTMenu2 必须超出父面板边界,在任何安全宿主里都被裁/点不到
+      (v1.9.8「下拉从没出现」的根因)。
+=> 结论:覆盖层方案、root 方案、绝对定位方案、下拉菜单全部作废。
+
+三条修复(commit 3f9ceba 工具条 / c6070bd 术语闸 / 66f3427 数据):
+
+1. S1+S2 版式回退 + 工具条重做(commit 3f9ceba)
+   - 布局基线回 v1.9.8(最后一个版式正常版本);删掉 #BBTLayer2/#BBTSlot2/#BBTBar2/#BBTMenu2/
+     #BBTStatusLabel2,不动 #BuildInfo/#BuildDetails/.HeroBuildsExtraInfo 的尺寸/flow/margin。
+   - 工具条改为 3 个原生样式小按钮(class="BBTButton Medium Fill",与 #BuildOptionButton 一致),
+     放进 #ControlArea 内、#BuildControls 之前的 #BBTControls2 包裹面板(flow-children:right,不新增行高):
+       #BBTTranslateButton2  text="翻译" -> BBTActivate('translate', …)
+       #BBTRefreshButton2    text="刷新" -> BBTActivate('refresh', …)
+       #BBTModeButton2       text="中"   -> BBTActivate('mode:next', …)
+   - 下拉菜单改为模式循环按钮:每次点击在 中文→原文→中英对照 循环,按钮文字同步 中/原/双
+     (MODE_LABELS/MODE_ORDER/cycleMode),内部仍走 setLanguageMode + $.PersistentStorage。
+   - 删除随之无关代码:placeToolbar/actualOffset/wireMenuItems/onActivateChild/uiMenuPanel/
+     menuIsOpen/setMenuOpen/toggleMenu 及 .BBTMenu* 样式;dispatch 保留 'mode:'/'lang:'/'save'/
+     'stats' 分支(兼容旧 XML 入口),expose 不再导出 BBTToggleMenu。
+   - 点击可证:clickProbe 的 "[BBT] click <name> on <id>" 改为不受 BBT_DEBUG 门控(每次点击一行,
+     量极小);结果 3 秒内显示在按钮自身(翻译→已译 N 条 / 离线 N 译 / M 缺)。
+
+2. 术语兜底闸(commit c6070bd)
+   - 术语兜底原本可能产出"一句话少数词替换成中文、其余英文"的半成品(实机那条注释即如此)。
+     加闸:TERM_FALLBACK_MIN_RATIO=0.55(中文占比低于 55% 不写)+ TERM_FALLBACK_MAX_EN_WORDS=4
+     (结果含 ≥4 个连续英文单词不写);不达标保持英文原文并计入"缺",按钮报 M 条缺,不再中英混排。
+   - 回归:translate_simtest 新增 Zorbtron 闸门夹具(gateReject / gateAccept 两面板 + 3 断言)。
+
+3. 数据(commit 66f3427)
+   - 跑 collect_new_texts.js + build_tm.js:bba_tm.js 条目 58563 → 58564(console.log 里仅 1 条 MISS,
+     正文是占位垃圾;用户那条 "can buy Healing Rite before this if you suck like me" 不在日志/
+     builds/extra_texts 里,需要带 -condebug 的实机会话才能收到)。
+
+测试同步:toolbar_cover_simtest(断言无 #BBTLayer2/#BBTSlot2/#BBTMenu2,三按钮在引擎控件行内、
+Medium Fill、走 BBTActivate)、wiring_simtest([1]-[7] 菜单用例改模式循环,保留 uiGuard 去重与
+多实例互不干扰)、own_chrome_simtest(BBTNoTranslate 覆盖新按钮,不再查 #BBTBar2)、
+ui_button_simtest(菜单块改单次模式循环)、translate_simtest(术语闸)。全 12 套 + build_layout_tokens 全绿。
+
+待游戏验证:
+  - 浏览器详情页:三按钮可见可点,点后按钮文字有结果;概览区与 v1.9.8 一致(不压缩、不重叠)。
+  - 游戏内页:头部「翻译」可点,按钮上出现"离线 N 译 / M 缺"。
+  - 物品注释/分类说明为中文;仍英文的只应是库中确实没有的句子,且按钮报"缺 M 条"。
