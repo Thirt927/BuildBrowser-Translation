@@ -2246,8 +2246,8 @@
   function refreshPage(root) {
     var scope = root || contextPanel();
     // Feedback lands on the trigger (the only always-visible control), the same
-    // surface translate uses. v1.9.14 wrote onto a dedicated refresh button;
-    // v1.9.15 moved that button into the dropdown, and a hidden menu item would
+    // surface translate uses. The previous release wrote onto a dedicated refresh
+    // button; the dropdown now holds that action, and a hidden menu item would
     // swallow the feedback.
     uiSetRefreshText("刷新中…", scope);
     var n = 0;
