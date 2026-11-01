@@ -1078,3 +1078,60 @@ ui_button_simtest(菜单块改单次模式循环)、translate_simtest(术语闸)
   - 浏览器详情页:三按钮可见可点,点后按钮文字有结果;概览区与 v1.9.8 一致(不压缩、不重叠)。
   - 游戏内页:头部「翻译」可点,按钮上出现"离线 N 译 / M 缺"。
   - 物品注释/分类说明为中文;仍英文的只应是库中确实没有的句子,且按钮报"缺 M 条"。
+
+### v1.9.13 —— 根解析改 tag + 页面动作日志 + 物品 tooltip 扫描 + 按钮原生外观 + 数据补库
+
+背景(2026-11-01 下午,v1.9.12 部署后用户实机三张截图):
+  (a) 物品注释仍英文,"Radiant Daggers"/"Extra range" 注释在日志里完全无动作(没 MISS 也没译文);
+  (b) 浏览器"概览"按钮点了无反应 + 按钮无原生皮肤;
+  (c) 概览刷新不更新。
+console.log(14:47–14:56,700 行 [BBT])取证:87 行 click 证明点击其实到了(刷新重解析 13 个标签、
+模式切到 orig/both/zh);但 `click translate on CitadelHudRoot` ×5 证明游戏内头部按钮把 root 解析成
+HUD 根;`CitadelTooltipModDetails root=CitadelHudRoot` 只载入一次,注释文本从未被扫描;283 行 MISS
+是数据缺口(概览/分类名/分类说明都在)。
+
+五个修复(每个 bug 一个 conventional commit):
+
+1. S1 根解析(commit 8de7998)
+   - pageRoot()/layoutRoot() 原来按 panel.paneltype 匹配,而引擎只在部分面板上填 paneltype
+     (boot() 一直按 ctx.tag 打日志且游戏内正常)。新增 panelTag(p)=String(p.tag||p.paneltype||""),
+     layoutRoot/pageRoot/classOf 全部改走它;pageRoot 上溯 14→20。
+   - clickProbe 加一次性不门控 `[BBT] click-chain`(点到的面板往上 20 层 id|tag|paneltype),
+     实机第一下点击就能证明哪个祖先才是真布局。
+
+2. S2 页面动作日志(commit 6ed3e28)
+   - collectMisses(limit,root,counts) 新增 scanned/already 计数;translatePage 每次跑打印一行不门控
+     `[BBT] translate: scanned/wrote/already/miss scope=…`(空/离线/在线三条路径都打)。
+   - 按钮反馈改为"已译 N 条 / 无新译文(M 条缺)",点击永不"看起来没反应"。
+
+3. S3 物品 tooltip 扫描(commit e0f4ef2)
+   - scan() 新增跳过原因计数 + 每个 layout 实例一次性不门控 `[BBT] scan-summary`
+     (visited/skippedToken/skippedHidden/skippedOwn/wrote),实机一眼看出注释没翻是哪个原因。
+   - #token/{s:var} 早退允许重试:不永久 remember(k:0);#token 标签的 repairToken 改为每 1.5s
+     至多一次;{s:var} 模板不再进 noteMiss(不会被机翻成 bba_tm.js 的模板垃圾)。
+
+4. S4 按钮原生外观(commit f00d849)
+   - 去掉 #BBTControls2 包裹层:三个按钮直接作为 #ControlArea 的子节点、在 #BuildControls 之前,
+     class="Medium Fill BBTNoTranslate"(与引擎自身"出装选项"完全一致)。
+   - bba.css 删 .BBTControls/.BBTButton;#BBTModeButton2 加 min-width:40px(单个 中/原/双 字不塌)。
+   - boot() 悬停 tooltip 上下文改为逐个按钮折叠。
+
+5. S5 数据补库(commit 2320856)
+   - collect_new_texts.js(+47 → 297)+ build_tm.js:bba_tm.js 58610 条;以下 9 个此前为 0 的 key
+     现已入库且译文正确:1tajlca-12r3jvw(概览)、g1qb65-17rujlb(Early Core (Always))、
+     2cap2l-ljdyfj、7lakxy-do7mg8、fypetl-mn4qjv、1onawlm-suf1yk、1mpzm1h-n7f4s7、
+     1cqppvj-1itmrdt、142vx7d-1x911h7。
+
+测试同步:wiring_simtest 增 [8] tag 根解析用例(假面板只给 tag、不给 paneltype);
+scene_verify 增 Scene 5(scan-summary 格式 + {s:var} 不进 MISS + 英文本注释 wrote>0);
+toolbar_cover_simtest / own_chrome_simtest 按 S4 新结构改(无包裹层、按钮直接挂 #ControlArea、
+Medium Fill、css 删 .BBTButton/.BBTControls)。全 12 套 + build_layout_tokens --check 全绿。
+
+待游戏验证:
+  - 物品 tooltip 注释:游戏内悬停装备,console.log 应出现该注释的 MISS 或译文动作(二选一都算修好);
+    scan-summary 显示 CitadelTooltipModDetails 实例的 visited/skippedToken 以定位剩余跳过原因。
+  - 浏览器详情页:三个按钮有原生深色底框、与"出装选项"等高;点"翻译/刷新/中"按钮文字有结果。
+  - 游戏内页:头部"翻译"点击后 root 解析正确(日志不应再出现 click translate on CitadelHudRoot),
+    按钮出现"已译 N 条/无新译文(M 条缺)"。
+  - 概览/分类名/分类说明应出中文(数据已入库);"Radiant Daggers 注释"那条要等 S3 把它扫到
+    之后再跑一次 collect_new_texts.js + build_tm.js 入库。
