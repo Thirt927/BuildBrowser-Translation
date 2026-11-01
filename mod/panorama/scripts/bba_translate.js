@@ -42,6 +42,12 @@
   var IDLE_TICKS_BEFORE_BACKOFF = 6;
   var SCAN_BUDGET = 6000; // panels visited per tick
   var TERM_FALLBACK_MAX = 160; // only short labels get glossary substitution
+  // Glossary substitution is only written when it actually produced a Chinese
+  // sentence: below this CJK share (or when a run of English words survives) the
+  // "translation" is a mid-sentence mix that reads worse than the original, so
+  // we keep the English and count it as missing instead.
+  var TERM_FALLBACK_MIN_RATIO = 0.55; // CJK share of the result, must reach this
+  var TERM_FALLBACK_MAX_EN_WORDS = 4; // ...or <= this many consecutive English words
   // Unseen English text is logged as "[BBT] MISS <key> <text>" so
   // tools/collect_new_texts.js can harvest it and grow the translation memory.
   var COLLECT_MISSES = true;
@@ -1084,6 +1090,39 @@
     return count > 0 ? out : null;
   }
 
+  // Glossary substitution only ships when it really produced a Chinese sentence.
+  // A result that keeps most of the text English (or a run of >=4 consecutive
+  // English words) would render as a confusing mid-sentence mix, worse than the
+  // original - so it is rejected and the text stays English + counted missing.
+  function termFallbackAcceptable(_raw, mixed) {
+    if (!mixed) return false;
+    var cjk = 0;
+    var lat = 0;
+    var wordRun = 0;
+    var maxWordRun = 0;
+    var inWord = false;
+    for (var i = 0; i < mixed.length; i += 1) {
+      var c = mixed.charCodeAt(i);
+      var isCJK = c >= 0x4E00 && c <= 0x9FFF;
+      var isLat = (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A);
+      if (isCJK) {
+        cjk += 1;
+        inWord = false;
+        wordRun = 0;
+      } else if (isLat) {
+        lat += 1;
+        if (!inWord) { wordRun += 1; inWord = true; }
+        if (wordRun > maxWordRun) maxWordRun = wordRun;
+      } else {
+        inWord = false;
+      }
+    }
+    var total = cjk + lat;
+    if (total <= 0) return false;
+    if (maxWordRun >= TERM_FALLBACK_MAX_EN_WORDS) return false;
+    return (cjk / total) >= TERM_FALLBACK_MIN_RATIO;
+  }
+
   // ---------- DOM scan ----------
   var stats = {
     translated: 0, fallback: 0, scanned: 0, misses: 0, ms: 0, interval: 0,
@@ -1644,6 +1683,10 @@
     var mixed = null;
     if (normalize(raw).length <= TERM_FALLBACK_MAX) {
       mixed = substituteTerms(raw);
+      // Quality gate: a glossary pass that leaves most of the sentence English
+      // (or a run of >=4 English words) would render a confusing mix. Keep the
+      // original and count it as missing instead.
+      if (mixed && !termFallbackAcceptable(raw, mixed)) mixed = null;
       if (mixed) mixed = present(raw, mixed);
       if (mixed && writeText(panel, mixed)) {
         stats.fallback += 1;

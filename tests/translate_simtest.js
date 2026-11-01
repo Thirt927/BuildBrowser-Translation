@@ -63,6 +63,10 @@ for (const file of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js"]) {
   vm.runInContext(fs.readFileSync(p, "utf8"), sandbox);
 }
 
+// Inject a controlled glossary term so the term-fallback quality gate can be
+// tested deterministically (the real glossary may change between builds).
+sandbox.BBA_GLOSSARY.items["Zorbtron"] = "佐布特龙";
+
 // Known-answer fixture: inject one entry using the same hash scheme as tools/build_tm.js.
 function hash32(s, seed) {
   let h = seed >>> 0;
@@ -91,6 +95,11 @@ vm.runInContext(fs.readFileSync(path.join(ROOT, "mod", "panorama", "scripts", "b
 
 const build = decode(fs.readFileSync(path.join(ROOT, "samples", "sample-build-code.txt"), "utf8"));
 sandbox.__root = buildDom(build);
+
+// Term-fallback gate fixtures ("Zorbtron" is the injected glossary term above).
+const gateReject = makePanel("can buy Zorbtron before this if you suck like me");
+const gateAccept = makePanel("Zorbtron Zorbtron Zorbtron");
+sandbox.__root.children.push(gateReject, gateAccept);
 
 // Drain the schedule queue (boot schedules the first tick, the tick schedules the next).
 for (let i = 0; i < 6 && sandbox.__queue.length; i += 1) {
@@ -133,6 +142,23 @@ panels[2].text = build.description;
 for (let i = 0; i < 4 && sandbox.__queue.length; i += 1) sandbox.__queue.shift()();
 check("fixture re-applied after engine reset", panels[6].text === FIXTURE_CN);
 check("description re-applied after engine reset", /[\u3400-\u9fff]/.test(panels[2].text));
+
+// Term-fallback quality gate: a glossary pass that keeps most of the sentence
+// English (>=4 consecutive English words, CJK share < 55%) must NOT write a
+// confusing mix - the text stays English and is counted as missing. A pass that
+// really produces Chinese IS written.
+check(
+  "term fallback gate keeps a low-CJK mix in English",
+  gateReject.text === "can buy Zorbtron before this if you suck like me"
+);
+check(
+  "term fallback gate counts the rejected mix as missing",
+  sandbox.__log.some((l) => l.indexOf("can buy Zorbtron") >= 0)
+);
+check(
+  "term fallback gate writes a high-CJK gloss",
+  gateAccept.text === "佐布特龙 佐布特龙 佐布特龙"
+);
 
 console.log("translated=" + stats.translated + " glossary=" + stats.fallback + " scanned=" + stats.scanned + " miss=" + stats.misses);
 console.log("log:", sandbox.__log.slice(0, 3).join(" | "));
