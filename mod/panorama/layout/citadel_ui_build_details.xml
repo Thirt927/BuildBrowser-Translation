@@ -60,9 +60,10 @@
 							</Panel>
 						</Panel>
 					</Panel>
-					<!-- BBT toolbar: three native buttons placed directly in the
-					     engine's own control row (#ControlArea, no wrapper panel),
-					     immediately before #BuildControls. No new row, no overlay:
+					<!-- BBT toolbar: three native buttons in a compact wrapper
+					     (#BBTControls2, flow-children:right) inside the engine's own
+					     control row (#ControlArea), immediately before #BuildControls.
+					     No new row, no overlay:
 					     the row already hit-tests, so the buttons are clickable by
 					     construction (v1.9.8 put this row inside #BuildInfo, whose
 					     bounds clipped it; the v1.9.9 root child was laid out under
@@ -78,15 +79,17 @@
 					     tooltip). uiGuard de-duplicates the
 					     onactivate/onmouseactivate pair. #BBTModeButton2 cycles
 					     zh → orig → both via mode:next. -->
-					<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
-					<TextButton id="BBTRefreshButton2" class="Medium Fill BBTNoTranslate" text="刷新" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
-					<TextButton id="BBTModeButton2" class="Medium Fill BBTNoTranslate" text="中" hittest="true" onactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" />
+					<Panel id="BBTControls2" class="BBTControls BBTNoTranslate">
+						<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
+						<TextButton id="BBTRefreshButton2" class="Medium Fill BBTNoTranslate" text="刷新" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
+						<TextButton id="BBTModeButton2" class="Medium Fill BBTNoTranslate" text="中" hittest="true" onactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" />
 					<!-- De-duplication marker (0x0, invisible): both activation
 					     paths of one click write their action name + timestamp
 					     here, so the second path is dropped even across script
 					     contexts/instances. BBTNoTranslate keeps the translator
 					     off it: its text is "act:<action>@<ms>" (no CJK). -->
-					<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
+						<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
+					</Panel>
 					<Panel id="BuildControls">
 						<Button />
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">

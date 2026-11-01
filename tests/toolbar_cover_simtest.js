@@ -1,13 +1,15 @@
 // Structural check for the BBT toolbar.
 //
-// v1.9.13 places the three native buttons directly in the engine's own control
-// row (#ControlArea, immediately before #BuildControls, no wrapper panel), so
-// they are clickable by construction and styled exactly like the engine's own
-// 出装选项 button (class="Medium Fill"). The v1.9.8 row (inside #BuildInfo)
-// was clipped to its parent's bounds, the v1.9.9 root child was laid out under
-// the full-height pane, and the v1.9.10/v1.9.11 overlay squeezed #BuildInfo -
-// all retired. The v1.9.8 dropdown is replaced by a mode-cycle button
-// (#BBTModeButton2).
+// v1.9.14 restores a compact wrapper panel (#BBTControls2,
+// flow-children:right) inside the engine's own control row (#ControlArea,
+// immediately before #BuildControls). The v1.9.13 S4 unwrap put the buttons
+// bare in #ControlArea, where the native "Fill" style inflated each button to
+// full width and pushed the next ones out of view; the wrapper keeps them
+// side-by-side at intrinsic width, inside the parent's hit-test box by
+// construction. The v1.9.8 row (inside #BuildInfo) was clipped, the v1.9.9
+// root child was laid out under the full-height pane, and the v1.9.10/
+// v1.9.11 overlay squeezed #BuildInfo - all retired. The v1.9.8 dropdown is
+// replaced by a mode-cycle button (#BBTModeButton2).
 //
 // Usage: node tests/toolbar_cover_simtest.js
 "use strict";
@@ -72,19 +74,19 @@ function parentOf(xml, targetId) {
       /<TextButton id="BBTModeButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml)
   );
 
-  // No wrapper panel: the three buttons sit directly inside #ControlArea (the
-  // engine's header row), BEFORE #BuildControls (not inside it, a 220px box
-  // without flow).
-  check(detailsFile + ": no toolbar wrapper panel", xml.indexOf('id="BBTControls2"') < 0);
+  // A compact wrapper panel (#BBTControls2, flow-children:right) keeps the
+  // three buttons side by side at intrinsic width inside #ControlArea, BEFORE
+  // #BuildControls (not inside it, a 220px box without flow).
+  check(detailsFile + ": toolbar wrapper panel", xml.indexOf('id="BBTControls2"') >= 0);
   const translateHost = parentOf(xml, "BBTTranslateButton2");
   const refreshHost = parentOf(xml, "BBTRefreshButton2");
   const modeHost = parentOf(xml, "BBTModeButton2");
-  check(detailsFile + ": translate button lives inside #ControlArea", translateHost === "ControlArea", "host=" + translateHost);
-  check(detailsFile + ": refresh button lives inside #ControlArea", refreshHost === "ControlArea", "host=" + refreshHost);
-  check(detailsFile + ": mode button lives inside #ControlArea", modeHost === "ControlArea", "host=" + modeHost);
+  check(detailsFile + ": translate button lives inside #BBTControls2", translateHost === "BBTControls2", "host=" + translateHost);
+  check(detailsFile + ": refresh button lives inside #BBTControls2", refreshHost === "BBTControls2", "host=" + refreshHost);
+  check(detailsFile + ": mode button lives inside #BBTControls2", modeHost === "BBTControls2", "host=" + modeHost);
   check(
-    detailsFile + ": buttons sit before #BuildControls",
-    xml.indexOf('id="BBTTranslateButton2"') < xml.indexOf('id="BuildControls"')
+    detailsFile + ": wrapper sits before #BuildControls",
+    xml.indexOf('id="BBTControls2"') < xml.indexOf('id="BuildControls"')
   );
   // The retired BBTButton/BBTControls styling must be gone.
   check(detailsFile + ": buttons carry no BBTButton class", xml.indexOf("BBTButton ") < 0 && xml.indexOf('class="BBTButton') < 0);
@@ -120,12 +122,13 @@ check("layout handlers carry the clicked panel into the script", detailsXml.inde
 check("no bare global handler name is left in the layout", !/on(?:mouse)?activate="BBT(?!Activate)[A-Za-z]+\(/.test(detailsXml));
 
 // CSS: the mode button gets a fixed minimum width (a single 中/原/双 character
-// would render too narrow under the native Medium style), and the retired
-// BBTButton/BBTControls rules are gone.
+// would render too narrow under the native Medium style), the wrapper panel
+// gets a right flow to keep the buttons side by side, and the retired
+// BBTButton rule is gone.
 const css = fs.readFileSync(path.join(__dirname, "..", "mod", "panorama", "styles", "bba.css"), "utf8");
 check("css gives the mode button a minimum width", /#BBTModeButton2\s*\{[^}]*min-width:\s*40px/.test(css));
 check("css dropped the BBTButton rule", css.indexOf(".BBTButton") < 0);
-check("css dropped the BBTControls rule", css.indexOf(".BBTControls") < 0);
+check("css gives the wrapper a right flow", /\.BBTControls\s*\{[^}]*flow-children:\s*right/.test(css));
 
 console.log("");
 if (failures) {

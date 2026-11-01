@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.13";
+  var VERSION = "1.9.14";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -2482,10 +2482,9 @@
           if (!upc) upc = String(up.class || "");
         } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
-          // Collapse every toolbar button: the hover tooltip reuses this layout
-          // but its buttons can never be clicked (the wrapper panel was removed,
-          // so each button is collapsed directly).
-          var toolbarIds = ["BBTTranslateButton2", "BBTRefreshButton2", "BBTModeButton2", "BBTTranslateButton", "BBTRefreshButton", "BBTModeButton"];
+          // Collapse the toolbar wrapper + every button: the hover tooltip
+          // reuses this layout but its buttons can never be clicked.
+          var toolbarIds = ["BBTControls2", "BBTControls", "BBTTranslateButton2", "BBTRefreshButton2", "BBTModeButton2", "BBTTranslateButton", "BBTRefreshButton", "BBTModeButton"];
           for (var ti = 0; ti < toolbarIds.length; ti += 1) {
             var tb = uiPanelIn(ctx, toolbarIds[ti]);
             if (tb && tb.style) tb.style.visibility = "collapse";

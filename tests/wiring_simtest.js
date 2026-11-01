@@ -720,17 +720,20 @@ console.log("== [7] v1.9.13 toolbar in the engine control row + no token writes 
 // Panorama only hit-tests inside the parent's bounds. v1.9.8 put the toolbar
 // row inside #BuildInfo (clipped), v1.9.9 moved it to the layout root (pushed
 // below the tall .HeroBuildsExtraInfo), and v1.9.10/v1.9.11 tried an overlay
-// that compressed the overview. v1.9.13 drops the wrapper panel entirely: the
-// three buttons are direct children of the engine's own #ControlArea, before
-// #BuildControls: no overlay, no spacer, no measuring.
+// that compressed the overview. v1.9.13 dropped the wrapper entirely and the
+// native "Fill" style inflated each bare button in #ControlArea to full width,
+// pushing the rest out of view; v1.9.14 restores a compact #BBTControls2
+// wrapper (flow-children:right) inside #ControlArea, before #BuildControls:
+// no overlay, no spacer, no measuring, intrinsic-width buttons.
 const g7 = newHarness();
 const G7 = bootTree(g7, {}, true);
 const tBtn = G7.byId.get("BBTTranslateButton2");
 const tParent = tBtn ? tBtn.GetParent() : null;
-check(G7.byId.get("BBTControls2") === undefined, "没有 BBTControls2 包裹层");
-checkEq(tParent && tParent.id, "ControlArea", "翻译按钮直接挂在 #ControlArea 里（引擎自己的控件行，命中范围内）");
-checkEq(G7.byId.get("BBTRefreshButton2").GetParent().id, "ControlArea", "刷新按钮直接挂在 #ControlArea 里");
-checkEq(G7.byId.get("BBTModeButton2").GetParent().id, "ControlArea", "模式按钮直接挂在 #ControlArea 里");
+check(G7.byId.get("BBTControls2") !== undefined, "有 BBTControls2 包裹层");
+checkEq(tParent && tParent.id, "BBTControls2", "翻译按钮挂在 #BBTControls2 包裹层里");
+checkEq(G7.byId.get("BBTControls2").GetParent().id, "ControlArea", "BBTControls2 包裹层挂在 #ControlArea 里");
+checkEq(G7.byId.get("BBTRefreshButton2").GetParent().id, "BBTControls2", "刷新按钮挂在 #BBTControls2 里");
+checkEq(G7.byId.get("BBTModeButton2").GetParent().id, "BBTControls2", "模式按钮挂在 #BBTControls2 里");
 check(G7.byId.get("BBTLayer2") === undefined, "没有 BBTLayer2 覆盖层");
 check(G7.byId.get("BBTBar2") === undefined, "没有 BBTBar2 独立行");
 check(G7.byId.get("BBTSlot2") === undefined, "没有 BBTSlot2 占位");
