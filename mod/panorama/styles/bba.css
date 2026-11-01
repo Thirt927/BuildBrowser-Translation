@@ -7,13 +7,16 @@
    zero-sized label does not resolve its {s:var} template at all, so the text
    simply disappears. See resyncLabel in bba_translate.js. */
 
-/* Compact toolbar: three native buttons living INSIDE the engine's own control
-   row (#ControlArea, before #BuildControls). They are inside the parent's
-   hit-test box by construction, unlike the v1.9.8 row (clipped to #BuildInfo),
-   the v1.9.9 root child (laid out under the full-height pane) or the
-   v1.9.10/v1.9.11 overlay (squeezed #BuildInfo). No new row, no overlay. */
-.BBTControls { align: right center; flow-children: right; margin-right: 4px; }
-.BBTButton { margin-left: 4px; }
+/* Compact toolbar: three native buttons placed directly in the engine's own
+   control row (#ControlArea, before #BuildControls, no wrapper panel). They
+   are inside the parent's hit-test box by construction, unlike the v1.9.8 row
+   (clipped to #BuildInfo), the v1.9.9 root child (laid out under the
+   full-height pane) or the v1.9.10/v1.9.11 overlay (squeezed #BuildInfo). No
+   new row, no overlay. They reuse the engine's own "Medium Fill" style (same
+   as 出装选项), so no BBTButton/BBTControls styling remains. */
+/* The mode button shows a single character (中/原/双); the native Medium style
+   renders it too narrow, so give it a fixed minimum width. */
+#BBTModeButton2 { min-width: 40px; }
 
 /* In-game shop-page header button (citadel_shop_mods_build.xml, first child of
    #ControlButtons). Collapsed by default: the same layout is also embedded in

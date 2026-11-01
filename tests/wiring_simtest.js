@@ -161,12 +161,10 @@ function engineText(raw) {
 let WRITE_LOG = null;
 
 function geometryFor(node) {
-  const id = node.attrs.id || "";
   const cls = node.attrs.class || "";
   if (node.name === "CitadelBuildDetails" || node.name === "CitadelHeroBuildsSelector") {
     return { w: 600, h: 400, x: 0, y: 0 };
   }
-  if (id === "BBTControls2" || cls.indexOf("BBTControls") >= 0) return { w: 420, h: 30, x: 10, y: 10 };
   if (cls.indexOf("HeroBuildsExtraInfo") >= 0) return { w: 600, h: 320, x: 10, y: 10 };
   return { w: 200, h: 20, x: 10, y: 10 };
 }
@@ -717,20 +715,22 @@ checkEq(XA.byId.get("BBTActMark2").text.indexOf("act:mode:next@"), 0, "去重 ma
 /* [7] v1.9.9: toolbar row on the layout root + never write a #token   */
 /* ------------------------------------------------------------------ */
 
-console.log("== [7] v1.9.12 toolbar in the engine control row + no token writes ==");
+console.log("== [7] v1.9.13 toolbar in the engine control row + no token writes ==");
 
 // Panorama only hit-tests inside the parent's bounds. v1.9.8 put the toolbar
 // row inside #BuildInfo (clipped), v1.9.9 moved it to the layout root (pushed
 // below the tall .HeroBuildsExtraInfo), and v1.9.10/v1.9.11 tried an overlay
-// that compressed the overview. v1.9.12 puts the toolbar wrapper inside the
-// engine's own #ControlArea, before #BuildControls: no overlay, no spacer, no
-// measuring.
+// that compressed the overview. v1.9.13 drops the wrapper panel entirely: the
+// three buttons are direct children of the engine's own #ControlArea, before
+// #BuildControls: no overlay, no spacer, no measuring.
 const g7 = newHarness();
 const G7 = bootTree(g7, {}, true);
-const ctl7 = G7.byId.get("BBTControls2");
-const ctl7Parent = ctl7 ? ctl7.GetParent() : null;
-check(ctl7 !== null, "树里存在 BBTControls2");
-checkEq(ctl7Parent && ctl7Parent.id, "ControlArea", "BBTControls2 在 #ControlArea 里（引擎自己的控件行，命中范围内）");
+const tBtn = G7.byId.get("BBTTranslateButton2");
+const tParent = tBtn ? tBtn.GetParent() : null;
+check(G7.byId.get("BBTControls2") === undefined, "没有 BBTControls2 包裹层");
+checkEq(tParent && tParent.id, "ControlArea", "翻译按钮直接挂在 #ControlArea 里（引擎自己的控件行，命中范围内）");
+checkEq(G7.byId.get("BBTRefreshButton2").GetParent().id, "ControlArea", "刷新按钮直接挂在 #ControlArea 里");
+checkEq(G7.byId.get("BBTModeButton2").GetParent().id, "ControlArea", "模式按钮直接挂在 #ControlArea 里");
 check(G7.byId.get("BBTLayer2") === undefined, "没有 BBTLayer2 覆盖层");
 check(G7.byId.get("BBTBar2") === undefined, "没有 BBTBar2 独立行");
 check(G7.byId.get("BBTSlot2") === undefined, "没有 BBTSlot2 占位");

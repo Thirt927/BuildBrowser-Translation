@@ -2482,10 +2482,14 @@
           if (!upc) upc = String(up.class || "");
         } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
-          // Collapse the whole toolbar wrapper: the hover tooltip reuses this
-          // layout but its buttons can never be clicked.
-          var tc = uiPanelIn(ctx, ["BBTControls2", "BBTControls"]);
-          if (tc && tc.style) tc.style.visibility = "collapse";
+          // Collapse every toolbar button: the hover tooltip reuses this layout
+          // but its buttons can never be clicked (the wrapper panel was removed,
+          // so each button is collapsed directly).
+          var toolbarIds = ["BBTTranslateButton2", "BBTRefreshButton2", "BBTModeButton2", "BBTTranslateButton", "BBTRefreshButton", "BBTModeButton"];
+          for (var ti = 0; ti < toolbarIds.length; ti += 1) {
+            var tb = uiPanelIn(ctx, toolbarIds[ti]);
+            if (tb && tb.style) tb.style.visibility = "collapse";
+          }
           // Permanent B1/B5 instrumentation: proves in the morning log that the
           // hover-tooltip surface really gets its toolbar hidden (v1.9.6 never
           // hid it - the class check failed on the wrong API).
@@ -2499,7 +2503,7 @@
     // visibility and first layout sizes so the morning log shows whether the
     // toolbar exists but is clipped/hidden on a given surface.
     if (debugOn()) {
-      var tc2 = uiPanel("BBTControls2");
+      var tc2 = uiPanel("BBTTranslateButton2");
       if (tc2) {
         var gv = "?";
         try { gv = tc2.style ? String(tc2.style.visibility) : "?"; } catch (e) { gv = "?"; }

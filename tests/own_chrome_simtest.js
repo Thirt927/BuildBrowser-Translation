@@ -68,28 +68,27 @@ function isNoTranslate(id) {
 }
 
 // ---- layout half: the chrome carries BBTNoTranslate ----------------------
-check("details.xml has BBTControls2", !!attrsOf("BBTControls2"));
-check("BBTControls2 (toolbar wrapper) is BBTNoTranslate", isNoTranslate("BBTControls2"));
+check("details.xml has no BBTControls2 wrapper", !attrsOf("BBTControls2"));
 check("BBTTranslateButton2 is BBTNoTranslate", isNoTranslate("BBTTranslateButton2"));
 check("BBTRefreshButton2 is BBTNoTranslate", isNoTranslate("BBTRefreshButton2"));
 check("BBTModeButton2 is BBTNoTranslate", isNoTranslate("BBTModeButton2"));
 check("BBTActMark2 (dedupe marker) is BBTNoTranslate", isNoTranslate("BBTActMark2"));
 
-// The three buttons sit inside BBTControls2 (no dropdown), and their captions
-// are our CJK literals, never game #Token text.
-var controlsIdx = xml.indexOf('id="BBTControls2"');
+// The three buttons sit directly in #ControlArea (no wrapper panel), and their
+// captions are our CJK literals, never game #Token text.
+var controlAreaIdx = xml.indexOf('id="ControlArea"');
 check(
-  "the three buttons are inside BBTControls2",
-  controlsIdx >= 0
-    && xml.indexOf('id="BBTTranslateButton2"') > controlsIdx
-    && xml.indexOf('id="BBTRefreshButton2"') > controlsIdx
-    && xml.indexOf('id="BBTModeButton2"') > controlsIdx
+  "the three buttons are inside #ControlArea",
+  controlAreaIdx >= 0
+    && xml.indexOf('id="BBTTranslateButton2"') > controlAreaIdx
+    && xml.indexOf('id="BBTRefreshButton2"') > controlAreaIdx
+    && xml.indexOf('id="BBTModeButton2"') > controlAreaIdx
 );
 check(
   "button captions are our literals (翻译/刷新/中), no #Token",
-  xml.indexOf('text="翻译"') > controlsIdx
-    && xml.indexOf('text="刷新"') > controlsIdx
-    && xml.indexOf('text="中"') > controlsIdx
+  xml.indexOf('text="翻译"') > controlAreaIdx
+    && xml.indexOf('text="刷新"') > controlAreaIdx
+    && xml.indexOf('text="中"') > controlAreaIdx
 );
 
 // ---- script half: the guard exists at every write entry point ------------
@@ -100,7 +99,7 @@ check(
 );
 check(
   "scan() skips own chrome",
-  /if \(isOwnChrome\(p\)\) continue;/.test(js)
+  /if \(isOwnChrome\(p\)\) \{ skippedOwn \+= 1; continue; \}/.test(js)
 );
 check(
   "translatePanel() returns early for own chrome",
@@ -115,10 +114,10 @@ check(
   count(js, "isOwnChrome(") >= 4
 );
 
-// ---- the hover tooltip must hide the whole bar, not just the buttons ------
+// ---- the hover tooltip must hide every toolbar button --------------------
 check(
-  "boot() collapses BBTControls2 in the hover tooltip",
-  /uiPanelIn\(ctx, \["BBTControls2", "BBTControls"\]\)/.test(js)
+  "boot() collapses every toolbar button in the hover tooltip",
+  /var toolbarIds = \["BBTTranslateButton2"/.test(js) && /tb.style.visibility = "collapse"/.test(js)
 );
 
 // ---- harvest pipeline reminder ------------------------------------------
