@@ -354,7 +354,7 @@
     var top = panel;
     for (var i = 0; cur && i < 40; i += 1) {
       var pt = panelTag(cur);
-      if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector") return cur;
+      if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector" || pt === "CitadelShopModsBuild") return cur;
       top = cur;
       var up = null;
       try { up = cur.GetParent ? cur.GetParent() : null; } catch (e) { up = null; }
@@ -2121,7 +2121,12 @@
     }
     try { btn.AddClass("BBTShow"); } catch (e) {}
     try { btn.style.visibility = "visible"; } catch (e) {}
-    bindClick(btn, "translate", function () { translatePage(scope); });
+    // The button toggles the same dropdown as the browser trigger. bindClick
+    // passes the real button to rootOf(), which (since v1.9.15) matches
+    // CitadelShopModsBuild on the way up; the v1.9.13 inline
+    // $.GetContextPanel() returned the HUD root in game and burned the scan
+    // budget on the whole HUD instead of the build page.
+    bindClick(btn, "menu:toggle", function (panel) { toggleMenu(rootOf(panel)); });
     $.Msg("[BBT] header button wired in " + instTag(scope));
     return true;
   }

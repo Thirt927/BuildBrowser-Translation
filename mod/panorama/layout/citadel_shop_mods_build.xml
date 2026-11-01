@@ -41,13 +41,15 @@
 				<Panel id="SelectedBuildOuter" />
 			</Panel>
 			<Panel id="ControlButtons">
-				<!-- BBT: translate button on the in-game build page, immediately left
+				<!-- BBT: dropdown trigger on the in-game build page, immediately left
 				     of the info icon (the slot the player asked for on 2026-11-01).
 				     Collapsed by default: this same layout is embedded in the build
 				     browser, which has its own toolbar; bba_translate.js shows this
-				     button only on the standalone (HUD) instance, where it toggles
-				     the same zh/orig mode as the browser's 翻译本页 button. -->
-				<CitadelButton id="BBTTranslateButton3" class="BuildHeaderButton Medium Dark Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
+				     button only on the standalone (HUD) instance. No inline
+				     onactivate here: wireHeaderButton() binds it via SetPanelEvent,
+				     which resolves the real button (rootOf walks up to
+				     CitadelShopModsBuild, not the HUD root). -->
+				<CitadelButton id="BBTTranslateButton3" class="BuildHeaderButton Medium Dark Fill BBTNoTranslate" text="翻译" hittest="true" />
 				<Panel class="BuildDetails InfoIcon" onmouseover="UIShowCustomLayoutTooltip( BuildDetailsTooltip, file://{resources}/layout/tooltips/citadel_tooltip_build_details.xml )" onmouseout="UIHideCustomLayoutTooltip( BuildDetailsTooltip )" />
 				<CitadelButton id="PasteFromClipboardButton" class="HasImage Medium Fill Dark" imagesrc="s2r://panorama/images/icons/icon_copy_paste.vsvg" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_PasteFromClipboard )" onmouseout="UIHideTextTooltip()" onmouseactivate="CitadelHudHeroBuildsPasteBuildFromClipboard();" />
 				<CitadelButton id="CopyToClipboardButton" class="HasImage Medium Fill Dark" imagesrc="s2r://panorama/images/icons/icon_copy_plus.vsvg" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_CopyToClipboard )" onmouseout="UIHideTextTooltip()" onmouseactivate="CitadelCopySelectedBuildContentsToClipboard(0);" />
@@ -56,6 +58,18 @@
 				<CitadelButton id="BrowseBuildsButton" class="BuildHeaderButton Medium Dark Fill" text="#Citadel_HeroBuilds_BrowseBuilds" />
 				<CitadelButton class="Medium Dark Fill visibleByDefault EditModeButton" text="#Citadel_HeroBuilds_CompactAll" onmouseover="UIShowTextTooltip( #Citadel_HeroBuilds_CompactAllTooltip )" onmouseout="UIHideTextTooltip()" onmouseactivate="CitadelHudHeroBuildsCompactCategory( -1 )" />
 				<CitadelButton class="AddCategoryButton Medium Dark Fill visibleByDefault EditModeButton" text="#Citadel_HeroBuilds_AddCategory" onmouseactivate="CitadelHudHeroBuildsAddNewCategory()" />
+			</Panel>
+			<!-- BBT dropdown: same menu as the browser, anchored to the header row.
+			     Shown while CitadelShopModsBuild carries BBTMenuOpen. Items route
+			     through BBTActivate; the inline $.GetContextPanel() resolves to this
+			     layout root (CitadelShopModsBuild), which rootOf now matches. -->
+			<Panel id="BBTMenu2" class="BBTNoTranslate" hittest="true">
+				<TextButton id="BBTMenuOrig" class="Medium Fill BBTNoTranslate BBTMenuItem" text="原文" hittest="true" onactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());" />
+				<TextButton id="BBTMenuZh" class="Medium Fill BBTNoTranslate BBTMenuItem" text="翻译" hittest="true" onactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" />
+				<TextButton id="BBTMenuBoth" class="Medium Fill BBTNoTranslate BBTMenuItem" text="中英对照" hittest="true" onactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());" />
+				<Panel class="BBTMenuSeparator" />
+				<TextButton id="BBTMenuRefresh" class="Medium Fill BBTNoTranslate BBTMenuItem" text="刷新本页" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
+				<TextButton id="BBTMenuSave" class="Medium Fill BBTNoTranslate BBTMenuItem" text="把新译文存入本地库" hittest="true" onactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());" />
 			</Panel>
 		</Panel>
 		<Panel id="FavoriteBuildList" />
