@@ -9,11 +9,15 @@
      #token so the engine re-resolves the new English (see resyncLabel in
      bba_translate.js), then translates again.
 
-  2. A "翻译本页 / 刷新" toolbar (native TextButton styling) on its own row under
-     the header controls, with the language dropdown dropping from that row.
-     It used to sit inside #BuildControls next to 出装选项, where the engine's
-     right-aligned flow clipped it to a sliver; the dropdown also opened on top
-     of the header and covered the buttons.
+  2. A compact "翻译 / 刷新 / 中" toolbar (three native TextButtons) sits inside
+     the engine's own control row (#ControlArea), immediately before
+     #BuildControls. It adds no new row and no overlay: the buttons live where
+     the engine already hit-tests, so they are clickable by construction.
+     The "中" button cycles 中文 → 原文 → 中英对照 (mode:next), replacing the
+     v1.9.8 dropdown, which had to drop outside its host row's bounds and could
+     therefore never be clicked reliably. (The v1.9.8 #BuildInfo row, the
+     v1.9.9 root child and the v1.9.10/v1.9.11 full-pane overlay are all
+     retired for that same reason.)
 -->
 <root>
 	<styles>
@@ -56,6 +60,33 @@
 							</Panel>
 						</Panel>
 					</Panel>
+					<!-- BBT toolbar: three native buttons inside the engine's own
+					     control row, immediately before #BuildControls. No new row,
+					     no overlay: the row already hit-tests, so the buttons are
+					     clickable by construction (v1.9.8 put this row inside
+					     #BuildInfo, whose bounds clipped it; the v1.9.9 root child
+					     was laid out under the full-height pane; the
+					     v1.9.10/v1.9.11 overlay squeezed #BuildInfo).
+					     BBTNoTranslate: our own chrome, not game text - the
+					     scanner must never harvest or rewrite it.
+					     Every handler passes the clicked panel to
+					     BBTActivate(action, $.GetContextPanel()) so the action
+					     lands in the layout instance the user is looking at (the
+					     browser, the spec page nested in it, or the hover
+					     tooltip). uiGuard de-duplicates the
+					     onactivate/onmouseactivate pair. #BBTModeButton2 cycles
+					     zh → orig → both via mode:next. -->
+					<Panel id="BBTControls2" class="BBTControls BBTNoTranslate" hittest="true">
+						<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
+						<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill BBTNoTranslate" text="刷新" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
+						<TextButton id="BBTModeButton2" class="BBTButton Medium Fill BBTNoTranslate" text="中" hittest="true" onactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:next&apos;, $.GetContextPanel());" />
+						<!-- De-duplication marker (0x0, invisible): both activation
+						     paths of one click write their action name + timestamp
+						     here, so the second path is dropped even across script
+						     contexts/instances. BBTNoTranslate keeps the translator
+						     off it: its text is "act:<action>@<ms>" (no CJK). -->
+						<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
+					</Panel>
 					<Panel id="BuildControls">
 						<Button />
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">
@@ -63,13 +94,6 @@
 						</TextButton>
 					</Panel>
 				</Panel>
-				<!-- BBT: placeholder that keeps the engine's own flow intact. The
-				     toolbar row itself now lives on the layout root (clicks only
-				     reach a panel that is inside its parent's bounds), so this
-				     transparent slot holds the same 36px of vertical space where
-				     the row is painted; without it the root-level row would cover
-				     the first 30px of the overview. -->
-				<Panel id="BBTSlot2" class="BBTSlot" hittest="false" />
 				<Panel id="BuildDetails">
 					<Panel id="DetailsTop">
 						<Panel id="BuildDetailsTabs">
@@ -106,103 +130,6 @@
 					<TextButton id="DeleteBuildButton" class="Medium Fill" text="#Citadel_HeroBuilds_DeleteBuildLabel" onmouseover="UIShowTextTooltipStyled( #Citadel_HeroBuilds_DeleteBuildTooltip, OptionsTooltip)" onmouseout="UIHideTextTooltip()" html="true" onmouseactivate="$.GetContextPanel().RemoveClass(&apos;ShowBuildControlsContainer&apos;); $.DispatchEvent(&apos;CitadelHudHeroBuildsDeleteSelectedBuildPressed&apos;,true)" />
 					<TextButton id="ValveBuildButton" class="Medium Fill" text="#Citadel_HeroBuilds_ValveBuildLabel" html="true" onmouseactivate="$.GetContextPanel().RemoveClass(&apos;ShowBuildControlsContainer&apos;); $.DispatchEvent(&apos;CitadelHudHeroBuildsAddToValveAuthoredBuilds&apos;)" />
 				</Panel>
-			</Panel>
-			<!-- BBT overlay layer: the LAST child of .HeroBuildsExtraInfo, whose other
-			     children (#Background, #BuildInfo, #BuildControlsContainer) all overlap at
-			     the same origin. The layer therefore covers the whole details pane and
-			     paints above them by document order. It must NOT be a child of the layout
-			     root: the root is flow-children: down and a root child is laid out under
-			     the full-height pane (v1.9.9 the toolbar row disappeared that way, v1.9.8
-			     the dropdown "never appeared"). Whole-pane bounds also mean every button
-			     in here is inside its parent's hit-test box. -->
-			<Panel id="BBTLayer2" class="BBTLayer" hittest="false">
-			<!-- BBT toolbar row: lives in .BBTLayer, so it covers the pane and is
-			     clickable. In v1.9.8 it sat inside #BuildInfo: it painted in the right
-			     place but the row was clipped to its parent's box ("按钮无效无法点击").
-			     placeToolbar() in bba_translate.js positions it from the engine's own
-			     control row (top = #BuildOptionButton bottom edge, right edge = its right
-			     edge).
-			     Wiring (v1.9.8): every handler passes the clicked panel to
-			     BBTActivate(action, panel) instead of calling a bare global name.
-			     The clicked panel is what tells the script which layout instance
-			     the user is looking at (the browser, the spec page nested in it or
-			     the hover tooltip) and therefore which toolbar/menu to act on.
-			     onmouseactivate is a second activation event: Valve's own buttons in
-			     this same file use it, so if this build swallows onactivate for
-			     TextButtons the click still arrives. BBTActivate de-duplicates.
-			     BBTStatusLabel2 is the always-visible state readout: it shows
-			     v1.9.8 接线 N 项, then the last action ("点:刷新"/"菜单已开"), which
-			     answers "did my click arrive?" without opening the console. -->
-			<!-- BBTNoTranslate: this subtree is our own UI, not game text. The
-			     scanner must not "translate" it: the "English"/"한국어" menu
-			     labels would otherwise be harvested as untranslated text and
-			     rewritten, which breaks the label-text matching that binds the
-			     menu items. -->
-			<Panel id="BBTBar2" class="BBTBar BBTNoTranslate" hittest="true" onmouseover="BBTActivate(&apos;hover:bar&apos;, $.GetContextPanel());">
-				<Panel id="BBTControls2" class="BBTControls" hittest="true">
-					<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
-					<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill" text="刷新" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
-					<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTActivate(&apos;menu&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;menu&apos;, $.GetContextPanel());" />
-				</Panel>
-				<Label id="BBTStatusLabel2" class="BBTStatus BBTNoTranslate" hittest="false" />
-				<!-- De-duplication marker (0x0, invisible): both activation paths
-				     of one click write their action name + timestamp here, so the
-				     second path is dropped even when the two paths run in
-				     different script contexts/instances. Without it a toggle
-				     opened and instantly closed the dropdown = "dead ▾".
-				     BBTNoTranslate keeps the translator off it: its text is
-				     "act:menu@<ms>" (no CJK), so without that class the scanner
-				     would log it as an untranslated game string, the harvest
-				     pipeline would machine-translate the marker into bba_tm.js,
-				     and the next session would write Chinese back into it, so the
-				     "name@<ms>" stamp stops parsing and the de-duplication that
-				     makes ▾ work would break again. -->
-				<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
-			</Panel>
-			<!-- BBT dropdown: inside .BBTLayer, so its bounds are the whole details
-			     pane (Panorama hit-tests inside the parent's box only, and the menu
-			     drops over the header, well outside the toolbar row). The script
-			     positions it right under the toolbar (placeToolbar in bba_translate.js). -->
-			<!-- Every menu item calls BBTActivate(action, panel) with the clicked panel,
-			     same contract as the toolbar buttons: no bare global name that could
-			     belong to another layout instance, and a missing export shows up as a
-			     status-line error instead of a dead button. onmouseactivate mirrors
-			     onactivate because Valve's own buttons in this file rely on it. -->
-			<Panel id="BBTMenu2" class="BBTMenu BBTNoTranslate" hittest="true">
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());">
-					<Label text="显示中文"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());">
-					<Label text="显示原文"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());">
-					<Label text="中英对照"  hittest="false"/>
-				</Button>
-				<Panel class="BBTMenuSeparator" />
-				<Label class="BBTMenuGroup" text="目标语言" />
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;lang:zh-Hans&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;lang:zh-Hans&apos;, $.GetContextPanel());">
-					<Label text="简体中文"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;lang:zh-Hant&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;lang:zh-Hant&apos;, $.GetContextPanel());">
-					<Label text="繁體中文"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;lang:ja&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;lang:ja&apos;, $.GetContextPanel());">
-					<Label text="日本語"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;lang:ko&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;lang:ko&apos;, $.GetContextPanel());">
-					<Label text="한국어"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;lang:en&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;lang:en&apos;, $.GetContextPanel());">
-					<Label text="English"  hittest="false"/>
-				</Button>
-				<Panel class="BBTMenuSeparator" />
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());">
-					<Label text="把新译文存入本地库"  hittest="false"/>
-				</Button>
-				<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;stats&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;stats&apos;, $.GetContextPanel());">
-					<Label text="查看本地库统计"  hittest="false"/>
-				</Button>
-			</Panel>
 			</Panel>
 		</Panel>
 	</CitadelBuildDetails>

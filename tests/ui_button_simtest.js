@@ -240,14 +240,19 @@ function check(name, cond, detail) {
   check("mode zh again", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
 }
 
-// ---------------------------------------------------------------- menu toggle
+// ---------------------------------------------------------------- mode cycle via dispatch
 {
-  const ctx = boot([], {});
-  pump(ctx, 4);
-  ctx.sandbox.BBTToggleMenu();
-  check("menu opens", ctx.menu.classList.contains("BBTMenuOpen"), String(ctx.menu.classList.contains("BBTMenuOpen")));
-  ctx.sandbox.BBTToggleMenu();
-  check("menu closes", !ctx.menu.classList.contains("BBTMenuOpen"), String(ctx.menu.classList.contains("BBTMenuOpen")));
+  const ctx = boot(["Rend > Heal > Repeat."], {});
+  pump(ctx, 12);
+  const label = ctx.root.children[3];
+  check("starts in zh", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
+  // One click advances exactly one step (zh -> orig); the full 3-step cycle and
+  // the de-dup are covered in wiring_simtest.js with a fake clock (real Date.now
+  // here would trip uiGuard's 350ms window on rapid successive clicks).
+  ctx.sandbox.BBTActivate("mode:next", ctx.root);
+  pump(ctx, 6);
+  check("BBTActivate('mode:next') cycles zh -> orig", label.text === "Rend > Heal > Repeat.", JSON.stringify(label.text));
+  check("mode:next is persisted", ctx.stored.bbt_language_mode === "orig", JSON.stringify(ctx.stored));
 }
 
 // ---------------------------------------------------------------- overrides + language
@@ -277,7 +282,7 @@ function check(name, cond, detail) {
   const reqs = ctx.urls.slice(before).map((u) => decodeURIComponent(u));
   check("save-to-table calls tm/remember", reqs.some((u) => u.indexOf("/api/v1/tm/remember") > 0), JSON.stringify(reqs));
   check("save-to-table sends the translation it already has", reqs.some((u) => u.indexOf("撕裂 > 治疗 > 重复。") > 0), JSON.stringify(reqs));
-  check("label reports the result", /存入|翻译本页/.test(ctx.label.text), ctx.label.text);
+  check("label reports the result", /存入|^翻译$/.test(ctx.label.text), ctx.label.text);
 }
 
 // ---------------------------------------------------------------- no bridge: button says so

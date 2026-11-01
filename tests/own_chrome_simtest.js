@@ -5,12 +5,13 @@
 // mod/panorama/scripts/bba_tm.js, and long-lived rows are written back into the
 // labels they came from. Our own toolbar chrome is written by bba_translate.js,
 // not by the game, so it must never enter that pipeline:
-//   * "act:menu@<ms>" (the click de-duplication marker) has no CJK, so without
-//     the guard it is harvested, translated, and then written back - the stamp
-//     stops parsing, the two activation paths of one click are no longer
-//     de-duplicated, and the dropdown returns to "opens and instantly closes";
-//   * the menu labels "English"/"한국어" would be harvested and rewritten,
-//     which breaks the label-text matching that binds the menu items;
+//   * "act:mode:next@<ms>" (the click de-duplication marker) has no CJK, so
+//     without the guard it is harvested, translated, and then written back -
+//     the stamp stops parsing, the two activation paths of one click are no
+//     longer de-duplicated, and the mode button advances two steps per click;
+//   * the mode button captions are CJK ("中"/"原"/"双"), already shielded by
+//     the scanner's CJK early-out, but tagging them makes the guarantee
+//     explicit and testable;
 //   * every click would burn one of the 300 MISS slots real build text needs.
 //
 // The fix has two halves that must both stay: layouts tag the chrome with
@@ -67,19 +68,28 @@ function isNoTranslate(id) {
 }
 
 // ---- layout half: the chrome carries BBTNoTranslate ----------------------
-check("details.xml has BBTBar2", !!attrsOf("BBTBar2"));
-check("BBTBar2 is BBTNoTranslate", isNoTranslate("BBTBar2"));
-check("BBTMenu2 is BBTNoTranslate", isNoTranslate("BBTMenu2"));
-check("BBTStatusLabel2 is BBTNoTranslate", isNoTranslate("BBTStatusLabel2"));
+check("details.xml has BBTControls2", !!attrsOf("BBTControls2"));
+check("BBTControls2 (toolbar wrapper) is BBTNoTranslate", isNoTranslate("BBTControls2"));
+check("BBTTranslateButton2 is BBTNoTranslate", isNoTranslate("BBTTranslateButton2"));
+check("BBTRefreshButton2 is BBTNoTranslate", isNoTranslate("BBTRefreshButton2"));
+check("BBTModeButton2 is BBTNoTranslate", isNoTranslate("BBTModeButton2"));
 check("BBTActMark2 (dedupe marker) is BBTNoTranslate", isNoTranslate("BBTActMark2"));
 
-// The menu block must enclose the labels whose text wireMenuItems matches on.
-var menuIdx = xml.indexOf('id="BBTMenu2"');
-var lastItemIdx = xml.lastIndexOf('class="BBTMenuItem"');
-check("BBTMenu2 is declared before the menu items it wraps", menuIdx >= 0 && lastItemIdx > menuIdx);
+// The three buttons sit inside BBTControls2 (no dropdown), and their captions
+// are our CJK literals, never game #Token text.
+var controlsIdx = xml.indexOf('id="BBTControls2"');
 check(
-  "menu items carry no #Token text (they are our literals)",
-  count(xml, 'class="BBTMenuItem"') >= 9 && xml.indexOf('<Label text="显示中文"') > menuIdx
+  "the three buttons are inside BBTControls2",
+  controlsIdx >= 0
+    && xml.indexOf('id="BBTTranslateButton2"') > controlsIdx
+    && xml.indexOf('id="BBTRefreshButton2"') > controlsIdx
+    && xml.indexOf('id="BBTModeButton2"') > controlsIdx
+);
+check(
+  "button captions are our literals (翻译/刷新/中), no #Token",
+  xml.indexOf('text="翻译"') > controlsIdx
+    && xml.indexOf('text="刷新"') > controlsIdx
+    && xml.indexOf('text="中"') > controlsIdx
 );
 
 // ---- script half: the guard exists at every write entry point ------------
@@ -107,12 +117,8 @@ check(
 
 // ---- the hover tooltip must hide the whole bar, not just the buttons ------
 check(
-  "boot() collapses BBTBar2 in the hover tooltip",
-  /uiPanelIn\(ctx, \["BBTBar2", "BBTBar"\]\)/.test(js)
-);
-check(
-  "boot() also collapses the status readout in the hover tooltip",
-  /uiPanelIn\(ctx, \["BBTStatusLabel2", "BBTStatusLabel"\]\)/.test(js)
+  "boot() collapses BBTControls2 in the hover tooltip",
+  /uiPanelIn\(ctx, \["BBTControls2", "BBTControls"\]\)/.test(js)
 );
 
 // ---- harvest pipeline reminder ------------------------------------------

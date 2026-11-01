@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.11";
+  var VERSION = "1.9.12";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -410,6 +410,11 @@
     return uiSetText(["BBTRefreshButton2", "BBTRefreshButton"], text, root);
   }
 
+  // The mode button's caption is the persistent readout (中 / 原 / 双).
+  function uiSetModeText(text, root) {
+    return uiSetText(["BBTModeButton2", "BBTModeButton"], text, root);
+  }
+
   function uiSetLabel(text, root) {
     var scope = root || null;
     var l = uiPanelIn(scope || contextPanel(), ["BBTTranslateLabel", "BBTTranslateLabel2"]);
@@ -430,18 +435,17 @@
     ui.lastResult = text;
   }
 
-  // Restore the caption of whichever translate control this layout has: the
-  // toolbar button says 翻译本页, the compact header button says 翻译.
+  // Restore the translate control's caption. Both the toolbar button and the
+  // in-game header button are captioned "翻译" (the v1.9.8 "翻译本页" caption is
+  // retired with the dropdown).
   function uiResetLabel(root) {
     var scope = root || contextPanel();
-    var toolbarBtn = uiPanelIn(scope, ["BBTTranslateButton2", "BBTTranslateButton"]);
-    if (!toolbarBtn && uiPanelIn(scope, "BBTTranslateButton3")) uiSetLabel("翻译", scope);
-    else uiSetLabel("翻译本页", scope);
+    uiSetLabel("翻译", scope);
   }
 
   // The widest panel the toolbar button should act on. Several layout instances
   // run this script (selector, details, tooltips) and all of them share the same
-  // global handlers; resolving the root from the button itself keeps "翻译本页"
+  // global handlers; resolving the root from the button itself keeps "翻译"
   // pointing at the whole page instead of whichever layout booted last.
   function pageRoot(origin) {
     // A clicked panel (the XML handlers pass one) names its instance directly;
@@ -1492,8 +1496,8 @@
 
   function noteMiss(raw, panel) {
     if (!COLLECT_MISSES || stats.misses >= MISS_CAP) return;
-    // Never harvest our own chrome: "act:menu@<ms>" would be machine translated
-    // into bba_tm.js and then written back into the marker label.
+    // Never harvest our own chrome: "act:mode:next@<ms>" would be machine
+    // translated into bba_tm.js and then written back into the marker label.
     if (panel && isOwnChrome(panel)) return;
     try {
       // Custom panels can expose their type name through .text; never collect that.
@@ -1767,11 +1771,6 @@
   var idleTicks = 0;
   var burstTicks = 0;
   var ticksSinceRebind = 99;
-  // Toolbar placement state (see placeToolbar): retried from tick until the
-  // engine's header has a real size.
-  var toolbarPlaced = false;
-  var placeTries = 0;
-
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
     var before = stats.translated + stats.fallback;
@@ -1812,15 +1811,6 @@
       } catch (e) {}
     }
     ticksSinceRebind += 1;
-    // The toolbar position is measured from the engine's header. A layout that
-    // was not laid out yet reports zero sizes, so keep retrying (bounded) until
-    // it can be placed; afterwards it stays put.
-    if (!toolbarPlaced) {
-      placeTries += 1;
-      if (placeTries < 120) {
-        try { toolbarPlaced = placeToolbar(); } catch (e) {}
-      }
-    }
     try { liveDrainQueue(); } catch (e) {}
     try { liveDrainUpgrades(); } catch (e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
@@ -1914,12 +1904,10 @@
     return name === "menu" ? 600 : 350;
   }
 
-  // Debug-gated instrumentation for the click-report bugs (B1/B2/B5): every
-  // toolbar handler logs what fired and on which instance, guarded actions log
-  // the guard rejection, and the menu toggle logs open/close. The always-on,
-  // one-line status label is what a user without a console can read.
+  // Always-on click log: one line per user click, so the volume is negligible
+  // and it must NOT be gated by BBT_DEBUG. This is the proof a click reached our
+  // handler; the result also lands on the button itself (uiSetLabel).
   function clickProbe(name, panel) {
-    if (!debugOn()) return;
     var tag = "?";
     try {
       if (panel) tag = String(panel.id || (panel.tag ? panel.tag : "panel")) || "?";
@@ -1958,136 +1946,31 @@
     return bindClick(uiPanelIn(root || contextPanel(), ids), name, fn);
   }
 
-  // Panorama only hit-tests inside the parent's bounds, so the dropdown (which
-  // drops over the header, well outside the toolbar's row) lives on the layout
-  // root. Its position is measured from the toolbar itself, not from a hardcoded
-  // offset: the header height depends on the game's locale and build.
-  function actualOffset(panel, ancestor) {
-    var x = 0;
-    var y = 0;
-    var p = panel;
-    var guard = 0;
-    while (p && p !== ancestor && guard < 40) {
-      try {
-        x += Number(p.actualx) || 0;
-        y += Number(p.actualy) || 0;
-      } catch (e) {}
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
-      guard += 1;
-    }
-    if (p !== ancestor) return null;
-    return { x: x, y: y };
-  }
-
-  var placeProbeDone = false;
-  function placeToolbar(root) {
-    var scope = root || contextPanel();
-    var ctl = uiPanelIn(scope, ["BBTControls2", "BBTControls"]);
-    var menu = uiPanelIn(scope, ["BBTMenu2", "BBTMenu"]);
-    var bar = uiPanelIn(scope, ["BBTBar2", "BBTBar"]);
-    if (!ctl || !menu) return false;
-    var base = layoutRoot(scope);
-    if (!base) return false;
-    var cw = 0;
-    var rw = 0;
-    var rh = 0;
-    var mh = 0;
-    var ch = 0;
-    var cw = 0;
-    try { rw = Number(base.actualwidth) || 0; rh = Number(base.actualheight) || 0; } catch (e) {}
-    try { mh = Number(menu.actualheight) || 0; } catch (e) {}
-    // The toolbar row used to be a child of #BuildInfo. Panorama only hit-tests
-    // inside the parent's bounds and #BuildInfo's height is the engine's header
-    // height, so the row rendered below the header but every click fell through
-    // to the panel behind it ("按钮点了没反应", 2026-11-01). The row now lives on
-    // the layout root - the same fix the dropdown needed - and is positioned
-    // from the engine's own control row: top = that row's bottom edge, right
-    // edge = the 出装选项 button's right edge.
-    var anchor = uiPanelIn(scope, ["BuildOptionButton"]);
-    var anchorRow = uiPanelIn(scope, ["ControlArea"]);
-    var ref = anchor || anchorRow;
-    var ro = ref ? actualOffset(ref, base) : null;
-    var refW = 0;
-    var refH = 0;
-    if (ref) {
-      try { refW = Number(ref.actualwidth) || 0; refH = Number(ref.actualheight) || 0; } catch (e) {}
-    }
-    // Before the first layout pass every size is 0; the CSS fallback stays until
-    // the next attempt (the wire loop below retries 12 times).
-    if (!ro || rw <= 0 || refW <= 0) {
-      if (!placeProbeDone && debugOn()) {
-        placeProbeDone = true;
-        $.Msg(
-          "[BBT] toolbar-place css-fallback ctl=" + (ch + "x" + cw) +
-            " root=" + rw + "x" + rh + " off=" + JSON.stringify(ro) +
-            " anchor=" + (ref ? "yes" : "none") + " anchorW=" + refW
-        );
-      }
-      return false;
-    }
-    var barTop = Math.round(ro.y + refH + 6);
-    var right = Math.round(rw - (ro.x + refW)) + 8;
-    if (right < 4) right = 4;
-    var barH = ch > 0 ? ch : 30;
-    if (bar && barTop > 0) {
-      try { bar.style.marginTop = barTop + "px"; } catch (e) {}
-    }
-    try { ctl.style.marginRight = right + "px"; } catch (e) { return false; }
-    var top = Math.round(barTop + barH + 4);
-    // Keep the whole dropdown inside the layout root. A menu whose top is past
-    // the root's bottom edge is drawn outside its hit-test box: invisible AND
-    // unclickable. When there is no room below, open upwards instead.
-    if (rh > 0 && mh > 0 && top + mh > rh - 4) {
-      var above = Math.round(barTop - mh - 4);
-      top = above >= 4 ? above : Math.max(4, rh - mh - 4);
-    }
-    if (!(top > 0)) top = 4;
-    try {
-      menu.style.marginTop = top + "px";
-      menu.style.marginRight = right + "px";
-    } catch (e) { return false; }
-    placeProbeDone = true;
-    return true;
-  }
-
   function wireToolbar(root) {
     var scope = root || contextPanel();
     if (!scope) return false;
-    try { placeToolbar(scope); } catch (e) {}
     try { wireHeaderButton(scope); } catch (e) {}
+    // Reflect the shared display mode on every instance's mode button (the mode
+    // is a persisted, module-level setting; each toolbar copy must show it).
+    uiSetModeText(MODE_LABELS[mode], scope);
     if (uiWiredOnce) return true;
     var translateBtn = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
     var refreshBtn = uiPanelIn(scope, ["BBTRefreshButton", "BBTRefreshButton2"]);
-    var menuBtn = uiPanelIn(scope, ["BBTMenuButton", "BBTMenuButton2"]);
-    if (!translateBtn && !refreshBtn && !menuBtn) return false;
+    var modeBtn = uiPanelIn(scope, ["BBTModeButton", "BBTModeButton2"]);
+    if (!translateBtn && !refreshBtn && !modeBtn) return false;
     // Handlers capture this instance's root (not G.BBT*Page): the global is
     // overwritten by whichever layout booted last, and that instance does not
     // share our memo/written state.
     onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(scope); }, "translate", scope);
     onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { refreshPage(scope); }, "refresh", scope);
-    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { toggleMenu(scope); }, "menu", scope);
-    // The bind names below are the same action strings the layout passes to
-    // BBTActivate ("mode:zh", "lang:ja", "save", ...): both activation paths then
-    // share one uiGuard key, so a click that reaches us twice runs the action once.
-    var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
-    wireMenuItems(modes, setLanguageMode, "mode:", scope);
-    var langs = [
-      ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["ja", "日本語"],
-      ["ko", "한국어"], ["en", "English"],
-    ];
-    wireMenuItems(langs, setTargetLang, "lang:", scope);
-    wireMenuItems(
-      [["save", "把新译文存入本地库"], ["stats", "查看本地库统计"]],
-      function (v) {
-        if (v === "save") savePageToTable(scope);
-        else showTableStats(scope);
-      },
-      "",
-      scope,
-    );
+    // The mode button cycles 中文 → 原文 → 中英对照 (replaces the v1.9.8
+    // dropdown, which dropped outside its host row's bounds and could never be
+    // clicked reliably). The bind name matches the layout's
+    // BBTActivate('mode:next', ...) so both activation paths share one uiGuard
+    // key and a single click runs the action once.
+    onActivate(["BBTModeButton", "BBTModeButton2"], function () { cycleMode(scope); }, "mode:next", scope);
     uiWiredOnce = true;
     var n = Object.keys(uiWired).length;
-    uiSetStatus("v" + VERSION + " 接线 " + n + " 项", scope);
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
     return true;
   }
@@ -2127,110 +2010,6 @@
     return true;
   }
 
-  // Menu buttons have no ids (they are generated from the layout), so they are
-  // located by their label text. `action` is called with the item's value and
-  // runs in this instance, so the mode/language change lands in the layout that
-  // owns the toolbar.
-  function wireMenuItems(items, action, prefix, root) {
-    var scope = root || contextPanel();
-    var menu = uiPanelIn(scope, ["BBTMenu2", "BBTMenu"]);
-    if (!menu) return 0;
-    var bound = 0;
-    var n = 0;
-    try { n = menu.GetChildCount ? menu.GetChildCount() : 0; } catch (e) { n = 0; }
-    for (var i = 0; i < n; i += 1) {
-      var child = null;
-      try { child = menu.GetChild(i); } catch (e) { child = null; }
-      if (!child) continue;
-      var text = "";
-      try {
-        var lbl = child.GetChild && child.GetChild(0);
-        text = lbl && typeof lbl.text === "string" ? lbl.text : "";
-      } catch (e) {
-        text = "";
-      }
-      if (!text) continue;
-      for (var k = 0; k < items.length; k += 1) {
-        if (text.indexOf(items[k][1]) < 0) continue;
-        if (onActivateChild(child, (function (value) {
-          return function () { action(value, scope); };
-        })(items[k][0]), prefix + items[k][0])) bound += 1;
-      }
-    }
-    return bound;
-  }
-
-  function onActivateChild(panel, fn, name) {
-    return bindClick(panel, name, fn);
-  }
-
-  // ---------- global UI handlers (referenced from the layout) ----------
-
-  function uiMenuPanel(root) {
-    return uiPanelIn(root || contextPanel(), ["BBTMenu2", "BBTMenu"]);
-  }
-
-  // Read the menu's own state instead of a module-level flag: two instances (and
-  // the two wiring paths) must not fight over one shared boolean.
-  function menuIsOpen(m) {
-    if (!m) return false;
-    try { if (typeof m.HasClass === "function") return !!m.HasClass("BBTMenuOpen"); } catch (e) {}
-    try {
-      if (m.classList && typeof m.classList.contains === "function") {
-        return !!m.classList.contains("BBTMenuOpen");
-      }
-    } catch (e) {}
-    try {
-      if (m.style && m.style.visibility) return String(m.style.visibility) !== "collapse";
-    } catch (e) {}
-    return menuOpen;
-  }
-
-  // The dropdown is toggled BOTH ways on purpose:
-  //   * the class ("BBTMenuOpen" -> visibility: visible) is what BabelTower, the
-  //     other long-lived Deadlock Panorama mod on this machine, ships and is
-  //     proven clickable in game;
-  //   * the inline style is a hard override for the builds where the class rule
-  //     loses to something in Valve's stylesheet.
-  function setMenuOpen(open, root) {
-    var scope = root || contextPanel();
-    var m = uiMenuPanel(scope);
-    if (!m) {
-      $.Msg("[BBT] menu " + (open ? "open" : "close") + ": no menu panel in " + instTag(scope));
-      return false;
-    }
-    var want = !!open;
-    if (want) {
-      try { placeToolbar(scope); } catch (e) {}
-    }
-    menuOpen = want;
-    try {
-      if (typeof m.SetHasClass === "function") m.SetHasClass("BBTMenuOpen", want);
-      else if (want && m.AddClass) m.AddClass("BBTMenuOpen");
-      else if (!want && m.RemoveClass) m.RemoveClass("BBTMenuOpen");
-    } catch (e) {}
-    var styled = false;
-    try {
-      if (m.style) {
-        m.style.visibility = want ? "visible" : "collapse";
-        styled = true;
-      }
-    } catch (e) {}
-    // Always-on line: the next field report then says whether the toggle ran at
-    // all and in which instance, even with the console closed (the status label
-    // in the toolbar shows the same thing).
-    $.Msg("[BBT] menu " + (want ? "OPEN" : "close") + " " + instTag(m) + (styled ? " style" : " class"));
-    uiSetStatus(want ? "菜单已开" : "菜单已关", scope);
-    return true;
-  }
-
-  function toggleMenu(root) {
-    var scope = root || contextPanel();
-    var next = !menuIsOpen(uiMenuPanel(scope));
-    setMenuOpen(next, scope);
-    return next;
-  }
-
   // Small introspection helper (console: BBT_LIVE_STATE()) - handy when a user
   // reports "the button does nothing".
   G.BBT_LIVE_STATE = function () {
@@ -2247,10 +2026,6 @@
     };
   };
 
-  // Last known menu state, used only when the panel itself exposes neither a
-  // HasClass nor a style (the offline simulator's fake panels).
-  var menuOpen = false;
-
   function setLanguageMode(next, root) {
     if (next !== "zh" && next !== "orig" && next !== "both") return;
     mode = next;
@@ -2260,12 +2035,20 @@
       var ctx = pageRoot(root);
       if (ctx) resetMemos(ctx);
     } catch (e) {}
-    uiSetLabel(
-      mode === "zh" ? "显示:中文" : mode === "orig" ? "显示:原文" : "显示:中英对照",
-      root,
-    );
-    setMenuOpen(false, root);
+    uiSetModeText(MODE_LABELS[mode], root);
     $.Msg("[BBT] language mode -> " + mode + " " + instTag(rootOf(root)));
+  }
+
+  // The mode button cycles 中文 → 原文 → 中英对照; its caption is the readout
+  // (中 / 原 / 双). This replaces the v1.9.8 dropdown.
+  var MODE_LABELS = { zh: "中", orig: "原", both: "双" };
+  var MODE_ORDER = ["zh", "orig", "both"];
+
+  function cycleMode(root) {
+    var i = MODE_ORDER.indexOf(mode);
+    var next = MODE_ORDER[(i + 1) % MODE_ORDER.length];
+    setLanguageMode(next, root);
+    return next;
   }
 
   function resetMemos(root) {
@@ -2381,7 +2164,6 @@
       try { liveFetchOverrides(); } catch (e) {}
     }
     uiSetLabel("语言:" + TARGET_LANG, root);
-    setMenuOpen(false, root);
     $.Msg("[BBT] target language -> " + TARGET_LANG);
   }
 
@@ -2391,7 +2173,7 @@
   function savePageToTable(root) {
     if (live.state !== "on" || !LIVE_TARGET || LIVE_TARGET.tag !== "BBT") {
       uiSetLabel("本地库需要本仓库的 bridge", root);
-      $.Schedule(2.5, function () { uiSetLabel("翻译本页", root); });
+      $.Schedule(2.5, function () { uiSetLabel("翻译", root); });
       return;
     }
     var pairs = [];
@@ -2432,7 +2214,7 @@
     } catch (e) {}
     if (!pairs.length) {
       uiSetLabel("本页没有可存的译文", root);
-      $.Schedule(2.5, function () { uiSetLabel("翻译本页", root); });
+      $.Schedule(2.5, function () { uiSetLabel("翻译", root); });
       return;
     }
     liveSend(
@@ -2446,7 +2228,7 @@
         } else {
           uiSetLabel("存入失败: " + err, root);
         }
-        $.Schedule(3.0, function () { uiSetLabel("翻译本页", root); });
+      $.Schedule(3.0, function () { uiSetLabel("翻译", root); });
       },
       LIVE_TARGET,
     );
@@ -2459,7 +2241,7 @@
         " · 本次实时 " + stats.live + provider,
       root,
     );
-    $.Schedule(4.0, function () { uiSetLabel("翻译本页", root); });
+    $.Schedule(4.0, function () { uiSetLabel("翻译", root); });
   }
 
   // ---- handler dispatch ---------------------------------------------------
@@ -2475,7 +2257,7 @@
     try {
       if (action === "translate") translatePage(root);
       else if (action === "refresh") refreshPage(root);
-      else if (action === "menu") toggleMenu(root);
+      else if (action === "mode:next") cycleMode(root);
       else if (action.indexOf("hover") === 0) return; // status only
       else if (action.indexOf("mode:") === 0) setLanguageMode(action.slice(5), root);
       else if (action.indexOf("lang:") === 0) setTargetLang(action.slice(5), root);
@@ -2526,7 +2308,6 @@
   expose("BBTActivate", dispatch);
   expose("BBTTranslatePage", translatePage);
   expose("BBTRefreshPage", refreshPage);
-  expose("BBTToggleMenu", toggleMenu);
   expose("BBTSetLanguageMode", setLanguageMode);
   expose("BBTSetTargetLang", setTargetLang);
   expose("BBTSavePageToTable", savePageToTable);
@@ -2570,16 +2351,10 @@
           if (!upc) upc = String(up.class || "");
         } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
-          // Collapse the WHOLE toolbar row: hiding only the three buttons left the
-          // 30px bar plus the status readout floating over the hover card.
-          var tb = uiPanelIn(ctx, ["BBTBar2", "BBTBar"]);
-          if (tb && tb.style) tb.style.visibility = "collapse";
+          // Collapse the whole toolbar wrapper: the hover tooltip reuses this
+          // layout but its buttons can never be clicked.
           var tc = uiPanelIn(ctx, ["BBTControls2", "BBTControls"]);
           if (tc && tc.style) tc.style.visibility = "collapse";
-          var tm = uiPanelIn(ctx, ["BBTMenu2", "BBTMenu"]);
-          if (tm && tm.style) tm.style.visibility = "collapse";
-          var ts = uiPanelIn(ctx, ["BBTStatusLabel2", "BBTStatusLabel"]);
-          if (ts && ts.style) ts.style.visibility = "collapse";
           // Permanent B1/B5 instrumentation: proves in the morning log that the
           // hover-tooltip surface really gets its toolbar hidden (v1.9.6 never
           // hid it - the class check failed on the wrong API).
@@ -2631,13 +2406,11 @@
     // Probe the optional bridge a moment later so it never delays first paint.
     if (liveMode() !== "off") $.Schedule(1.2, liveProbe);
     // The toolbar lives in the details layout; retry while the engine is still
-    // creating panels. Placement is measured from the button row, so it needs a
-    // few attempts until the header has been laid out (sizes are 0 before the
-    // first layout pass).
+    // creating panels (a freshly created layout may not expose its buttons until
+    // the first layout pass).
     var wireTries = 0;
     (function wire() {
       try { wireToolbar(bootRoot); } catch (e) { $.Msg("[BBT] wire threw: " + e); }
-      try { placeToolbar(bootRoot); } catch (e) {}
       wireTries += 1;
       if (wireTries < 12 && (!uiWiredOnce || wireTries < 8)) $.Schedule(0.5, wire);
     })();
