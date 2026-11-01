@@ -1,15 +1,16 @@
 // Structural check for the BBT toolbar.
 //
-// v1.9.14 restores a compact wrapper panel (#BBTControls2,
-// flow-children:right) inside the engine's own control row (#ControlArea,
-// immediately before #BuildControls). The v1.9.13 S4 unwrap put the buttons
-// bare in #ControlArea, where the native "Fill" style inflated each button to
-// full width and pushed the next ones out of view; the wrapper keeps them
-// side-by-side at intrinsic width, inside the parent's hit-test box by
-// construction. The v1.9.8 row (inside #BuildInfo) was clipped, the v1.9.9
-// root child was laid out under the full-height pane, and the v1.9.10/
-// v1.9.11 overlay squeezed #BuildInfo - all retired. The v1.9.8 dropdown is
-// replaced by a mode-cycle button (#BBTModeButton2).
+// v1.9.15 replaces the three control buttons with a single dropdown trigger
+// (#BBTTranslateButton2, a native Medium Fill + DropdownArrow button that
+// mirrors the engine's own 出装选项 BuildOptionButton). It toggles the
+// BBTMenuOpen class on the layout root, which shows #BBTMenu2 - a sibling of
+// the engine's own BuildControlsContainer, the only dropdown mechanism proven
+// to survive Panorama's hit-testing/clipping. The menu holds the three display
+// modes (原文/翻译/中英对照) plus 刷新本页 / 把新译文存入本地库. This retires
+// the v1.9.14 mode-cycle button (#BBTModeButton2) and refresh button
+// (#BBTRefreshButton2), the v1.9.13 bare-button unwrap, the v1.9.8 dropdown
+// (BBTMenuButton2/BBTMenu2 inside BuildInfo), and the retired overlay
+// (BBTLayer2/BBTBar2/BBTSlot2).
 //
 // Usage: node tests/toolbar_cover_simtest.js
 "use strict";
@@ -27,6 +28,7 @@ function check(name, cond, detail) {
 
 const detailsFile = "citadel_ui_build_details.xml";
 const selectorFile = "citadel_ui_build_selector.xml";
+const inGameFile = "citadel_shop_mods_build.xml";
 
 // Return the id of the panel that directly contains the given panel id ("" if
 // absent). Only Panel/Button/Label/HTML/TextButton tags are tracked; the
@@ -38,13 +40,14 @@ function parentOf(xml, targetId) {
     const closing = m[1] === "/";
     const self = /\/\s*$/.test(m[3] || "");
     const idMatch = /id="([^"]+)"/.exec(m[3] || "");
-    const id = idMatch ? idMatch[1] : "";
+    const classMatch = /class="([^"]+)"/.exec(m[3] || "");
+    const name = idMatch ? idMatch[1] : (classMatch ? classMatch[1] : "");
     if (closing) {
       stack.pop();
       continue;
     }
-    if (id === targetId) return stack[stack.length - 1] || "";
-    if (!self) stack.push(id);
+    if (idMatch && idMatch[1] === targetId) return stack[stack.length - 1] || "";
+    if (!self) stack.push(name);
   }
   return "";
 }
@@ -54,47 +57,55 @@ function parentOf(xml, targetId) {
   check(detailsFile + " exists", fs.existsSync(full));
   const xml = fs.readFileSync(full, "utf8");
 
-  // The three controls.
-  check(detailsFile + ": translate button", xml.indexOf('id="BBTTranslateButton2"') >= 0);
-  check(detailsFile + ": manual refresh button", xml.indexOf('id="BBTRefreshButton2"') >= 0);
-  check(detailsFile + ": mode cycle button", xml.indexOf('id="BBTModeButton2"') >= 0);
+  // The single trigger; the two retired buttons are gone.
+  check(detailsFile + ": dropdown trigger", xml.indexOf('id="BBTTranslateButton2"') >= 0);
+  check(detailsFile + ": no manual refresh button", xml.indexOf('id="BBTRefreshButton2"') < 0);
+  check(detailsFile + ": no mode cycle button", xml.indexOf('id="BBTModeButton2"') < 0);
 
-  // None of the retired overlay/menu machinery may remain.
-  check(detailsFile + ": no dropdown trigger", xml.indexOf('id="BBTMenuButton2"') < 0);
-  check(detailsFile + ": no dropdown panel", xml.indexOf('id="BBTMenu2"') < 0);
+  // The dropdown panel is back (sibling of BuildControlsContainer); the retired
+  // v1.9.8 dropdown and overlay machinery must remain gone.
+  check(detailsFile + ": dropdown panel", xml.indexOf('id="BBTMenu2"') >= 0);
+  check(detailsFile + ": no legacy dropdown trigger", xml.indexOf('id="BBTMenuButton2"') < 0);
   check(detailsFile + ": no toolbar row", xml.indexOf('id="BBTBar2"') < 0);
   check(detailsFile + ": no overlay layer", xml.indexOf('id="BBTLayer2"') < 0);
   check(detailsFile + ": no spacer slot", xml.indexOf('id="BBTSlot2"') < 0);
+  check(detailsFile + ": no wrapper panel", xml.indexOf('id="BBTControls2"') < 0);
 
-  // native look: the game's own TextButton style, same as 出装选项
+  // Native look: same TextButton style + DropdownArrow as 出装选项.
   check(
-    detailsFile + ": buttons use the native Medium Fill style",
-    /<TextButton id="BBTTranslateButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml) &&
-      /<TextButton id="BBTRefreshButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml) &&
-      /<TextButton id="BBTModeButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml)
+    detailsFile + ": trigger uses the native Medium Fill style",
+    /<TextButton id="BBTTranslateButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml)
+  );
+  const triggerOpen = xml.indexOf('id="BBTTranslateButton2"');
+  const triggerClose = xml.indexOf("</TextButton>", triggerOpen);
+  const triggerBody = xml.slice(triggerOpen, triggerClose);
+  check(detailsFile + ": trigger carries a DropdownArrow child", triggerBody.indexOf('class="DropdownArrow"') >= 0);
+
+  // The trigger lives inside the engine's own #BuildControls row, right after
+  // #BuildOptionButton (not in the old 220px #BuildControls panel confusion).
+  const triggerHost = parentOf(xml, "BBTTranslateButton2");
+  check(detailsFile + ": trigger lives inside #BuildControls", triggerHost === "BuildControls", "host=" + triggerHost);
+  check(
+    detailsFile + ": trigger sits after #BuildOptionButton",
+    xml.indexOf('id="BuildOptionButton"') < xml.indexOf('id="BBTTranslateButton2"') &&
+      xml.indexOf('id="BBTTranslateButton2"') < xml.indexOf('id="BuildControlsContainer"')
   );
 
-  // A compact wrapper panel (#BBTControls2, flow-children:right) keeps the
-  // three buttons side by side at intrinsic width inside #ControlArea, BEFORE
-  // #BuildControls (not inside it, a 220px box without flow).
-  check(detailsFile + ": toolbar wrapper panel", xml.indexOf('id="BBTControls2"') >= 0);
-  const translateHost = parentOf(xml, "BBTTranslateButton2");
-  const refreshHost = parentOf(xml, "BBTRefreshButton2");
-  const modeHost = parentOf(xml, "BBTModeButton2");
-  check(detailsFile + ": translate button lives inside #BBTControls2", translateHost === "BBTControls2", "host=" + translateHost);
-  check(detailsFile + ": refresh button lives inside #BBTControls2", refreshHost === "BBTControls2", "host=" + refreshHost);
-  check(detailsFile + ": mode button lives inside #BBTControls2", modeHost === "BBTControls2", "host=" + modeHost);
-  check(
-    detailsFile + ": wrapper sits before #BuildControls",
-    xml.indexOf('id="BBTControls2"') < xml.indexOf('id="BuildControls"')
-  );
-  // The retired BBTButton/BBTControls styling must be gone.
-  check(detailsFile + ": buttons carry no BBTButton class", xml.indexOf("BBTButton ") < 0 && xml.indexOf('class="BBTButton') < 0);
+  // #BBTMenu2 must be a sibling of the engine's own #BuildControlsContainer
+  // (same parent, so it inherits the same dropdown anchoring).
+  const menuHost = parentOf(xml, "BBTMenu2");
+  const engineHost = parentOf(xml, "BuildControlsContainer");
+  check(detailsFile + ": dropdown shares BuildControlsContainer's parent", menuHost !== "" && menuHost === engineHost, "menu=" + menuHost + " engine=" + engineHost);
 
-  // Each button routes through BBTActivate(action, $.GetContextPanel()).
-  check(detailsFile + ": translate routes through BBTActivate", xml.indexOf("BBTActivate(&apos;translate&apos;, $.GetContextPanel())") >= 0);
-  check(detailsFile + ": refresh routes through BBTActivate", xml.indexOf("BBTActivate(&apos;refresh&apos;, $.GetContextPanel())") >= 0);
-  check(detailsFile + ": mode routes through BBTActivate", xml.indexOf("BBTActivate(&apos;mode:next&apos;, $.GetContextPanel())") >= 0);
+  // No retired BBTButton/BBTControls styling.
+  check(detailsFile + ": no BBTButton class left", xml.indexOf("BBTButton ") < 0 && xml.indexOf('class="BBTButton') < 0);
+
+  // Trigger + menu items route through BBTActivate.
+  check(detailsFile + ": trigger routes through BBTActivate", xml.indexOf("BBTActivate(&apos;menu:toggle&apos;, $.GetContextPanel())") >= 0);
+  check(detailsFile + ": 原文 item routes mode:orig", xml.indexOf("BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel())") >= 0);
+  check(detailsFile + ": 翻译 item routes mode:zh", xml.indexOf("BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel())") >= 0);
+  check(detailsFile + ": 中英对照 item routes mode:both", xml.indexOf("BBTActivate(&apos;mode:both&apos;, $.GetContextPanel())") >= 0);
+  check(detailsFile + ": 刷新本页 item routes refresh", xml.indexOf("BBTActivate(&apos;refresh&apos;, $.GetContextPanel())") >= 0);
 }
 
 {
@@ -105,30 +116,49 @@ function parentOf(xml, targetId) {
   check(selectorFile + ": build list rows keep the engine build-name label", /<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName"/.test(xml));
 }
 
-// the script must know how to drive this toolbar
+{
+  // The in-game build page carries the same dropdown, but its header trigger
+  // (#BBTTranslateButton3) has NO inline handler - wireHeaderButton binds it
+  // via SetPanelEvent so rootOf resolves the real button (CitadelShopModsBuild,
+  // not the HUD root).
+  const xml = fs.readFileSync(path.join(LAYOUT, inGameFile), "utf8");
+  check(inGameFile + ": in-game dropdown panel", xml.indexOf('id="BBTMenu2"') >= 0);
+  const btnOpen = xml.indexOf('id="BBTTranslateButton3"');
+  const btnClose = xml.indexOf("/>", btnOpen);
+  const btnTag = xml.slice(btnOpen, btnClose);
+  check(inGameFile + ": header trigger has no inline handler", btnTag.indexOf("onactivate=") < 0 && btnTag.indexOf("onmouseactivate=") < 0);
+  check(inGameFile + ": header trigger routes via BBTMenu2", xml.indexOf('id="BBTMenu2"') > btnOpen);
+}
+
+// the script must know how to drive this dropdown
 const js = fs.readFileSync(path.join(__dirname, "..", "mod", "panorama", "scripts", "bba_translate.js"), "utf8");
-check("script wires the toolbar", js.indexOf('"BBTTranslateButton2"') >= 0);
-check("script wires the mode cycle button", js.indexOf('"BBTModeButton2"') >= 0);
-check("script exports the refresh handler to the engine's scope", js.indexOf('expose("BBTRefreshPage"') >= 0 && js.indexOf('"BBTRefreshButton2"') >= 0);
-check("script writes the refresh result onto the refresh button itself", js.indexOf("function uiSetRefreshText") >= 0);
-check("script writes the mode readout onto the mode button", js.indexOf("function uiSetModeText") >= 0);
-check("script cycles the display mode", js.indexOf("function cycleMode") >= 0 && js.indexOf("mode:next") >= 0);
+check("script wires the trigger", js.indexOf('"BBTTranslateButton2"') >= 0);
+check("script toggles the dropdown", js.indexOf("function toggleMenu") >= 0 && js.indexOf("function closeMenu") >= 0);
+check("script has the dropdown drive", js.indexOf('"BBTMenu2"') >= 0 && js.indexOf('"BBTMenuOpen"') >= 0);
+check("script exports the refresh handler to the engine's scope", js.indexOf('expose("BBTRefreshPage"') >= 0);
+check("script writes the mode readout onto the trigger", js.indexOf("function uiSetModeText") >= 0 && js.indexOf('"BBTTranslateButton3"') >= 0);
+check("script still cycles the display mode (programmatic)", js.indexOf("function cycleMode") >= 0 && js.indexOf("mode:next") >= 0);
+check("script highlights the current mode item", js.indexOf("function refreshMenuSelected") >= 0 && js.indexOf("BBTMenuSelected") >= 0);
 check("script can update the TextButton caption", js.indexOf("b.text = text") >= 0);
-check("script has no dropdown drive left", js.indexOf('"BBTMenu2"') < 0 && js.indexOf('"BBTMenuOpen"') < 0);
 check("script has no toolbar-position measuring left", js.indexOf("function placeToolbar") < 0 && js.indexOf("function actualOffset") < 0);
 check("script resolves panels inside a given instance root", js.indexOf("function uiPanelIn") >= 0 && js.indexOf("function layoutRoot") >= 0);
+check("script matches the in-game layout root", js.indexOf("CitadelShopModsBuild") >= 0);
 const detailsXml = fs.readFileSync(path.join(LAYOUT, detailsFile), "utf8");
-check("layout handlers carry the clicked panel into the script", detailsXml.indexOf("BBTActivate(&apos;refresh&apos;, $.GetContextPanel())") >= 0);
+check("layout handlers carry the clicked panel into the script", detailsXml.indexOf("BBTActivate(&apos;menu:toggle&apos;, $.GetContextPanel())") >= 0);
 check("no bare global handler name is left in the layout", !/on(?:mouse)?activate="BBT(?!Activate)[A-Za-z]+\(/.test(detailsXml));
 
-// CSS: the mode button gets a fixed minimum width (a single 中/原/双 character
-// would render too narrow under the native Medium style), the wrapper panel
-// gets a right flow to keep the buttons side by side, and the retired
-// BBTButton rule is gone.
+// CSS: the dropdown is collapse by default and visible while the layout root
+// carries BBTMenuOpen (both the browser and in-game instances); the retired
+// BBTButton rule, mode-button width, and wrapper flow are gone.
 const css = fs.readFileSync(path.join(__dirname, "..", "mod", "panorama", "styles", "bba.css"), "utf8");
-check("css gives the mode button a minimum width", /#BBTModeButton2\s*\{[^}]*min-width:\s*40px/.test(css));
+check("css shows the menu on the browser root", css.indexOf("CitadelBuildDetails.BBTMenuOpen #BBTMenu2") >= 0 && /visibility:\s*visible/.test(css));
+check("css shows the menu on the in-game root", css.indexOf("CitadelShopModsBuild.BBTMenuOpen #BBTMenu2") >= 0);
+check("css styles the menu items", css.indexOf(".BBTMenuItem") >= 0);
+check("css highlights the selected item", css.indexOf(".BBTMenuSelected") >= 0);
+check("css separates the menu groups", css.indexOf(".BBTMenuSeparator") >= 0);
 check("css dropped the BBTButton rule", css.indexOf(".BBTButton") < 0);
-check("css gives the wrapper a right flow", /\.BBTControls\s*\{[^}]*flow-children:\s*right/.test(css));
+check("css dropped the mode button width", css.indexOf("#BBTModeButton2") < 0);
+check("css dropped the wrapper flow", css.indexOf(".BBTControls") < 0);
 
 console.log("");
 if (failures) {

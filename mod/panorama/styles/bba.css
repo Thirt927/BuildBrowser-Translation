@@ -7,17 +7,26 @@
    zero-sized label does not resolve its {s:var} template at all, so the text
    simply disappears. See resyncLabel in bba_translate.js. */
 
-/* Compact toolbar: three native buttons in a wrapper panel (#BBTControls2,
-   flow-children:right) placed inside the engine's own control row (#ControlArea,
-   before #BuildControls). The wrapper's right-flow keeps the buttons side by
-   side at intrinsic width (v1.9.13 S4 put them bare in #ControlArea, which
-   let "Fill" inflate each button to full width and pushed the others out of
-   view). They reuse the engine's own "Medium Fill" style (same as 出装选项),
-   so no BBTButton styling remains. */
-.BBTControls { flow-children: right; }
-/* The mode button shows a single character (中/原/双); the native Medium style
-   renders it too narrow, so give it a fixed minimum width. */
-#BBTModeButton2 { min-width: 40px; }
+/* v1.9.15: the three-button toolbar is replaced by one trigger button that
+   looks exactly like the engine's 出装选项 (Medium Fill + DropdownArrow) and
+   opens #BBTMenu2 via the BBTMenuOpen class on the layout root. This mirrors
+   the engine's own dropdown (ShowBuildControlsContainer) - the only dropdown
+   pattern that survives Panorama's hit-testing/clipping (the v1.9.8 JS-positioned
+   menu dropped outside its host row and could never be clicked). */
+#BBTMenu2 {
+  visibility: collapse;
+  flow-children: down;
+  background-color: #1b2838ee;
+  border: 1px solid #3f5876;
+  padding: 4px;
+  width: 160px;
+  z-index: 1000;
+}
+CitadelBuildDetails.BBTMenuOpen #BBTMenu2,
+CitadelShopModsBuild.BBTMenuOpen #BBTMenu2 { visibility: visible; }
+#BBTMenu2 .BBTMenuItem { text-align: left; }
+#BBTMenu2 .BBTMenuSelected { color: #ffcc00; }
+.BBTMenuSeparator { height: 1px; background-color: #3f5876; margin: 4px 0px; }
 
 /* In-game shop-page header button (citadel_shop_mods_build.xml, first child of
    #ControlButtons). Collapsed by default: the same layout is also embedded in

@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.14";
+  var VERSION = "1.9.15";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -419,12 +419,16 @@
   }
 
   function uiSetRefreshText(text, root) {
-    return uiSetText(["BBTRefreshButton2", "BBTRefreshButton"], text, root);
+    // v1.9.15 folded the dedicated refresh button into the dropdown; feedback
+    // lands on the trigger (the only always-visible control) via uiSetLabel.
+    return uiSetText(["BBTTranslateButton2", "BBTTranslateButton"], text, root);
   }
 
-  // The mode button's caption is the persistent readout (中 / 原 / 双).
+  // The trigger's caption is the persistent readout (翻译 / 原文 / 中英对照).
+  // The browser trigger is #BBTTranslateButton2; the in-game header button is
+  // #BBTTranslateButton3 (the only control in that layout).
   function uiSetModeText(text, root) {
-    return uiSetText(["BBTModeButton2", "BBTModeButton"], text, root);
+    return uiSetText(["BBTTranslateButton2", "BBTTranslateButton", "BBTTranslateButton3"], text, root);
   }
 
   function uiSetLabel(text, root) {
@@ -447,12 +451,11 @@
     ui.lastResult = text;
   }
 
-  // Restore the translate control's caption. Both the toolbar button and the
-  // in-game header button are captioned "翻译" (the v1.9.8 "翻译本页" caption is
-  // retired with the dropdown).
+  // Restore the trigger's caption to the current display mode. Progress
+  // feedback ("已译 N 条") overwrites it while an action runs; this puts the
+  // mode readout (翻译 / 原文 / 中英对照) back afterwards.
   function uiResetLabel(root) {
-    var scope = root || contextPanel();
-    uiSetLabel("翻译", scope);
+    uiSetModeText(MODE_LABELS[mode] || "翻译", root);
   }
 
   // The widest panel the toolbar button should act on. Several layout instances
@@ -2003,7 +2006,7 @@
   // pair a wider window than ordinary idempotent actions (translating twice is
   // merely wasteful, opening+closing the menu looks like a dead button).
   function actionWindow(name) {
-    return name === "menu" ? 600 : 350;
+    return name === "menu" || name === "menu:toggle" ? 600 : 350;
   }
 
   // Always-on click log: one line per user click, so the volume is negligible
@@ -2072,25 +2075,16 @@
     var scope = root || contextPanel();
     if (!scope) return false;
     try { wireHeaderButton(scope); } catch (e) {}
-    // Reflect the shared display mode on every instance's mode button (the mode
-    // is a persisted, module-level setting; each toolbar copy must show it).
+    // Reflect the shared display mode on the trigger (the mode is a persisted,
+    // module-level setting; each toolbar copy must show it).
     uiSetModeText(MODE_LABELS[mode], scope);
     if (uiWiredOnce) return true;
-    var translateBtn = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
-    var refreshBtn = uiPanelIn(scope, ["BBTRefreshButton", "BBTRefreshButton2"]);
-    var modeBtn = uiPanelIn(scope, ["BBTModeButton", "BBTModeButton2"]);
-    if (!translateBtn && !refreshBtn && !modeBtn) return false;
-    // Handlers capture this instance's root (not G.BBT*Page): the global is
-    // overwritten by whichever layout booted last, and that instance does not
-    // share our memo/written state.
-    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(scope); }, "translate", scope);
-    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { refreshPage(scope); }, "refresh", scope);
-    // The mode button cycles 中文 → 原文 → 中英对照 (replaces the v1.9.8
-    // dropdown, which dropped outside its host row's bounds and could never be
-    // clicked reliably). The bind name matches the layout's
-    // BBTActivate('mode:next', ...) so both activation paths share one uiGuard
-    // key and a single click runs the action once.
-    onActivate(["BBTModeButton", "BBTModeButton2"], function () { cycleMode(scope); }, "mode:next", scope);
+    var trigger = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
+    if (!trigger) return false;
+    // The single trigger toggles the dropdown (BBTMenuOpen). Its bind name
+    // matches the layout's BBTActivate('menu:toggle', ...) so both activation
+    // paths share one uiGuard key and a single click toggles exactly once.
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { toggleMenu(scope); }, "menu:toggle", scope);
     uiWiredOnce = true;
     var n = Object.keys(uiWired).length;
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
@@ -2158,12 +2152,13 @@
       if (ctx) resetMemos(ctx);
     } catch (e) {}
     uiSetModeText(MODE_LABELS[mode], root);
+    refreshMenuSelected(root);
     $.Msg("[BBT] language mode -> " + mode + " " + instTag(rootOf(root)));
   }
 
-  // The mode button cycles 中文 → 原文 → 中英对照; its caption is the readout
-  // (中 / 原 / 双). This replaces the v1.9.8 dropdown.
-  var MODE_LABELS = { zh: "中", orig: "原", both: "双" };
+  // The trigger reads the current display mode (翻译 / 原文 / 中英对照). The
+  // mode is a persisted, module-level setting; each toolbar copy shows it.
+  var MODE_LABELS = { zh: "翻译", orig: "原文", both: "中英对照" };
   var MODE_ORDER = ["zh", "orig", "both"];
 
   function cycleMode(root) {
@@ -2171,6 +2166,40 @@
     var next = MODE_ORDER[(i + 1) % MODE_ORDER.length];
     setLanguageMode(next, root);
     return next;
+  }
+
+  // ---- dropdown (BBTMenuOpen on the layout root) ----
+  // The trigger toggles the class on the layout root (CitadelBuildDetails or
+  // CitadelShopModsBuild); the CSS shows #BBTMenu2 while it is present. This
+  // mirrors the engine's own 出装选项 dropdown (ShowBuildControlsContainer),
+  // the only dropdown pattern proven to survive Panorama's hit-testing/clipping.
+  function toggleMenu(root) {
+    if (!root) return;
+    try {
+      if (panelHasClass(root, "BBTMenuOpen")) root.RemoveClass("BBTMenuOpen");
+      else { root.AddClass("BBTMenuOpen"); refreshMenuSelected(root); }
+    } catch (e) {}
+  }
+
+  function closeMenu(root) {
+    if (!root) return;
+    try { root.RemoveClass("BBTMenuOpen"); } catch (e) {}
+  }
+
+  // Highlight the item matching the current mode (翻译/原文/中英对照).
+  function refreshMenuSelected(root) {
+    if (!root) return;
+    var sel = { zh: "BBTMenuZh", orig: "BBTMenuOrig", both: "BBTMenuBoth" }[mode];
+    var ids = ["BBTMenuZh", "BBTMenuOrig", "BBTMenuBoth"];
+    for (var i = 0; i < ids.length; i += 1) {
+      var item = null;
+      try { item = uiPanelIn(root, ids[i]); } catch (e) { item = null; }
+      if (!item) continue;
+      try {
+        if (ids[i] === sel) item.AddClass("BBTMenuSelected");
+        else item.RemoveClass("BBTMenuSelected");
+      } catch (e) {}
+    }
   }
 
   function resetMemos(root) {
@@ -2211,18 +2240,18 @@
   // from the previous build's English and the overview never changed.
   function refreshPage(root) {
     var scope = root || contextPanel();
-    // Feedback goes onto the button that was pressed. v1.9.7 wrote every result
-    // onto 翻译本页, so pressing 刷新 changed nothing on the control the user was
-    // looking at - indistinguishable from "the click did nothing".
+    // Feedback lands on the trigger (the only always-visible control), the same
+    // surface translate uses. v1.9.14 wrote onto a dedicated refresh button;
+    // v1.9.15 moved that button into the dropdown, and a hidden menu item would
+    // swallow the feedback.
     uiSetRefreshText("刷新中…", scope);
     var n = 0;
     try { n = resyncAll(80, scope); } catch (e) { n = -1; }
     $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) in " + instTag(scope));
-    uiSetRefreshText(n >= 0 ? "已刷新 " + n : "刷新失败", scope);
+    uiSetRefreshText(n >= 0 ? "已刷新 " + n + " 条" : "刷新失败", scope);
     uiSetStatus("刷新 " + n + " 条", scope);
     $.Schedule(1.6, function () {
-      uiSetRefreshText("刷新", scope);
-      uiSetStatus("v" + VERSION + " 就绪", scope);
+      uiResetLabel(scope);
     });
   }
 
@@ -2386,13 +2415,14 @@
     if (!uiGuard(root, "act:" + action, actionWindow(action))) return;
     reportClick(action, root);
     try {
-      if (action === "translate") translatePage(root);
-      else if (action === "refresh") refreshPage(root);
+      if (action === "menu:toggle") toggleMenu(root);
+      else if (action === "translate") { closeMenu(root); translatePage(root); }
+      else if (action === "refresh") { closeMenu(root); refreshPage(root); }
       else if (action === "mode:next") cycleMode(root);
       else if (action.indexOf("hover") === 0) return; // status only
-      else if (action.indexOf("mode:") === 0) setLanguageMode(action.slice(5), root);
+      else if (action.indexOf("mode:") === 0) { closeMenu(root); setLanguageMode(action.slice(5), root); }
       else if (action.indexOf("lang:") === 0) setTargetLang(action.slice(5), root);
-      else if (action === "save") savePageToTable(root);
+      else if (action === "save") { closeMenu(root); savePageToTable(root); }
       else if (action === "stats") showTableStats(root);
       else $.Msg("[BBT] unknown action " + action);
     } catch (e) {
@@ -2484,7 +2514,7 @@
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
           // Collapse the toolbar wrapper + every button: the hover tooltip
           // reuses this layout but its buttons can never be clicked.
-          var toolbarIds = ["BBTControls2", "BBTControls", "BBTTranslateButton2", "BBTRefreshButton2", "BBTModeButton2", "BBTTranslateButton", "BBTRefreshButton", "BBTModeButton"];
+          var toolbarIds = ["BBTMenu2", "BBTTranslateButton2", "BBTTranslateButton"];
           for (var ti = 0; ti < toolbarIds.length; ti += 1) {
             var tb = uiPanelIn(ctx, toolbarIds[ti]);
             if (tb && tb.style) tb.style.visibility = "collapse";
@@ -2514,6 +2544,26 @@
         );
       } else {
         $.Msg("[BBT] toolbar-geom none in this layout");
+      }
+    }
+    // §6 rect probe (one-shot, BBT_DEBUG-gated): actual geometry of the rows the
+    // dropdown must align to, so the static CSS can be tuned from the morning
+    // log instead of guessed (BuildControlsContainer before/after open, the
+    // trigger row, and the in-game header row).
+    if (debugOn() && !G.__BBT_RECT_DUMPED) {
+      G.__BBT_RECT_DUMPED = true;
+      var rectIds = ["ControlArea", "ExtraInfo", "BuildControls", "BuildOptionButton", "BuildControlsContainer", "ControlButtons", "BuildHeader", "BBTMenu2"];
+      for (var ri = 0; ri < rectIds.length; ri += 1) {
+        var rp = uiPanelIn(ctx, rectIds[ri]);
+        if (rp) {
+          $.Msg(
+            "[BBT] rect " + rectIds[ri] +
+              " x=" + (function () { try { return rp.actualx; } catch (e) { return "?"; } })() +
+              " y=" + (function () { try { return rp.actualy; } catch (e) { return "?"; } })() +
+              " w=" + (function () { try { return rp.actualwidth; } catch (e) { return "?"; } })() +
+              " h=" + (function () { try { return rp.actualheight; } catch (e) { return "?"; } })()
+          );
+        }
       }
     }
     // The tag tells you WHICH layout actually carries the scanner; use it with

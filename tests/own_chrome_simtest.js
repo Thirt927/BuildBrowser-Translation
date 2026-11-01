@@ -5,13 +5,13 @@
 // mod/panorama/scripts/bba_tm.js, and long-lived rows are written back into the
 // labels they came from. Our own toolbar chrome is written by bba_translate.js,
 // not by the game, so it must never enter that pipeline:
-//   * "act:mode:next@<ms>" (the click de-duplication marker) has no CJK, so
+//   * "act:menu:toggle@<ms>" (the click de-duplication marker) has no CJK, so
 //     without the guard it is harvested, translated, and then written back -
 //     the stamp stops parsing, the two activation paths of one click are no
-//     longer de-duplicated, and the mode button advances two steps per click;
-//   * the mode button captions are CJK ("中"/"原"/"双"), already shielded by
-//     the scanner's CJK early-out, but tagging them makes the guarantee
-//     explicit and testable;
+//     longer de-duplicated, and the menu opens twice per click;
+//   * the trigger/menu captions are CJK ("原文"/"翻译"/"中英对照"), already
+//     shielded by the scanner's CJK early-out, but tagging them makes the
+//     guarantee explicit and testable;
 //   * every click would burn one of the 300 MISS slots real build text needs.
 //
 // The fix has two halves that must both stay: layouts tag the chrome with
@@ -68,34 +68,32 @@ function isNoTranslate(id) {
 }
 
 // ---- layout half: the chrome carries BBTNoTranslate ----------------------
-check("details.xml has a BBTControls2 wrapper", !!attrsOf("BBTControls2"));
-check("BBTControls2 wrapper is BBTNoTranslate", isNoTranslate("BBTControls2"));
-check("BBTTranslateButton2 is BBTNoTranslate", isNoTranslate("BBTTranslateButton2"));
-check("BBTRefreshButton2 is BBTNoTranslate", isNoTranslate("BBTRefreshButton2"));
-check("BBTModeButton2 is BBTNoTranslate", isNoTranslate("BBTModeButton2"));
+check("details.xml has the dropdown trigger", !!attrsOf("BBTTranslateButton2"));
+check("BBTTranslateButton2 (trigger) is BBTNoTranslate", isNoTranslate("BBTTranslateButton2"));
+check("BBTMenu2 (dropdown) is BBTNoTranslate", isNoTranslate("BBTMenu2"));
+check("BBTMenuOrig is BBTNoTranslate", isNoTranslate("BBTMenuOrig"));
+check("BBTMenuZh is BBTNoTranslate", isNoTranslate("BBTMenuZh"));
+check("BBTMenuBoth is BBTNoTranslate", isNoTranslate("BBTMenuBoth"));
+check("BBTMenuRefresh is BBTNoTranslate", isNoTranslate("BBTMenuRefresh"));
+check("BBTMenuSave is BBTNoTranslate", isNoTranslate("BBTMenuSave"));
 check("BBTActMark2 (dedupe marker) is BBTNoTranslate", isNoTranslate("BBTActMark2"));
+check("no BBTControls2 wrapper left", !attrsOf("BBTControls2"));
 
-// The three buttons sit inside a #BBTControls2 wrapper (flow-children:right)
-// that lives in #ControlArea, before #BuildControls. Their captions are our
-// CJK literals, never game #Token text.
-var controlAreaIdx = xml.indexOf('id="ControlArea"');
-var controls2Idx = xml.indexOf('id="BBTControls2"');
+// The trigger lives inside the engine's own #BuildControls row (after
+// #BuildOptionButton); the menu captions are our CJK literals, never game
+// #Token text.
+var buildControlsIdx = xml.indexOf('id="BuildControls"');
+var triggerIdx = xml.indexOf('id="BBTTranslateButton2"');
+var menuIdx = xml.indexOf('id="BBTMenu2"');
 check(
-  "BBTControls2 wrapper is inside #ControlArea",
-  controlAreaIdx >= 0 && controls2Idx > controlAreaIdx
+  "trigger is inside #BuildControls",
+  buildControlsIdx >= 0 && triggerIdx > buildControlsIdx && triggerIdx < xml.indexOf('id="BuildControlsContainer"')
 );
 check(
-  "the three buttons are inside BBTControls2",
-  controls2Idx >= 0
-    && xml.indexOf('id="BBTTranslateButton2"') > controls2Idx
-    && xml.indexOf('id="BBTRefreshButton2"') > controls2Idx
-    && xml.indexOf('id="BBTModeButton2"') > controls2Idx
-);
-check(
-  "button captions are our literals (翻译/刷新/中), no #Token",
-  xml.indexOf('text="翻译"') > controls2Idx
-    && xml.indexOf('text="刷新"') > controls2Idx
-    && xml.indexOf('text="中"') > controls2Idx
+  "menu captions are our literals (原文/翻译/中英对照), no #Token",
+  xml.indexOf('text="原文"', menuIdx) > menuIdx
+    && xml.indexOf('text="翻译"', menuIdx) > menuIdx
+    && xml.indexOf('text="中英对照"', menuIdx) > menuIdx
 );
 
 // ---- script half: the guard exists at every write entry point ------------
@@ -123,8 +121,8 @@ check(
 
 // ---- the hover tooltip must hide every toolbar button --------------------
 check(
-  "boot() collapses every toolbar button in the hover tooltip",
-  /var toolbarIds = \["BBTControls2"/.test(js) && /tb.style.visibility = "collapse"/.test(js)
+  "boot() collapses the dropdown in the hover tooltip",
+  /var toolbarIds = \["BBTMenu2"/.test(js) && /tb.style.visibility = "collapse"/.test(js)
 );
 
 // ---- harvest pipeline reminder ------------------------------------------
