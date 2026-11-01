@@ -494,7 +494,7 @@
   // `root` is passed by the toolbar handlers (see pageRoot): the button must act
   // on the whole build browser even when the script instance that happens to own
   // the last global handler belongs to a smaller layout (tooltip).
-  function collectMisses(limit, root) {
+  function collectMisses(limit, root, counts) {
     if (!root) {
       try { root = $.GetContextPanel(); } catch (e) { return []; }
     }
@@ -502,6 +502,7 @@
     var seen = Object.create(null);
     var stack = [root];
     var budget = 3000;
+    var scanned = 0, already = 0;
     while (stack.length && budget > 0) {
       budget -= 1;
       var p = stack.pop();
@@ -510,10 +511,13 @@
       var t = null;
       try { t = p.text; } catch (e) { t = null; }
       if (typeof t === "string" && t.length >= 3 && t.length <= LIVE_TEXT_MAX) {
+        scanned += 1;
         if (t.indexOf("#") !== 0 && !HAS_CJK.test(t) && !seen[t]) {
           var rec = memo.get(p);
           var translatedAlready = rec && rec.k === 1 && rec.in === t;
-          if (!translatedAlready && !lookup(t) && !liveCacheGet(t) && !overrideFor(t)) {
+          if (translatedAlready) {
+            already += 1;
+          } else if (!lookup(t) && !liveCacheGet(t) && !overrideFor(t)) {
             seen[t] = 1;
             out.push(t);
             if (limit && out.length >= limit) break;
@@ -529,6 +533,7 @@
         } catch (e) {}
       }
     }
+    if (counts) { counts.scanned = scanned; counts.already = already; }
     return out;
   }
 
@@ -2176,10 +2181,13 @@
     if (ui.busy) return;
     var scope = root || contextPanel();
     var page = pageRoot(scope);
-    var texts = collectMisses(24, page);
+    var counts = { scanned: 0, already: 0 };
+    var texts = collectMisses(24, page, counts);
+    var miss = texts.length;
     if (!texts.length) {
       uiSetLabel("没有需要翻译的文本", scope);
       uiSetStatus("无可翻译文本", scope);
+      $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=0 already=" + counts.already + " miss=0 scope=" + instTag(scope));
       $.Schedule(2.0, function () { uiResetLabel(scope); });
       return;
     }
@@ -2189,14 +2197,19 @@
       // missing cannot be translated here (the memory shipped inside the VPK is
       // fixed) - say so on the control instead of looking dead.
       var before = stats.translated + stats.fallback;
-      var pending = texts.length;
       try { if (page) resetMemos(page); } catch (e) {}
       uiSetLabel("重新翻译中…", scope);
       uiSetStatus("翻译中", scope);
       $.Schedule(0.5, function () {
         var done = stats.translated + stats.fallback - before;
-        uiSetLabel(pending > 0 ? "离线 " + done + " 译 / " + pending + " 缺" : "离线重译 " + done + " 条", scope);
-        uiSetStatus("离线 " + done + " 条", scope);
+        $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + done + " already=" + counts.already + " miss=" + miss + " scope=" + instTag(scope));
+        if (done > 0) {
+          uiSetLabel("已译 " + done + " 条", scope);
+          uiSetStatus("已译 " + done + " 条", scope);
+        } else {
+          uiSetLabel("无新译文(" + miss + " 条缺)", scope);
+          uiSetStatus("缺 " + miss + " 条", scope);
+        }
       });
       $.Schedule(3.5, function () { uiResetLabel(scope); });
       return;
@@ -2216,6 +2229,7 @@
         // New translations may unlock panels we had memoised as "nothing found".
         try { liveUpgradeWeakWrites(); } catch (e) {}
       }
+      $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + applied + " already=" + counts.already + " miss=" + Math.max(0, texts.length - applied) + " scope=" + instTag(scope));
       $.Schedule(4.0, function () { uiResetLabel(scope); });
     });
   }

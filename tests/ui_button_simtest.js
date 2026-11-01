@@ -293,6 +293,21 @@ function check(name, cond, detail) {
   check("button reports the missing bridge", /重新翻译|未连接|没有需要/.test(ctx.label.text), ctx.label.text);
 }
 
+// ---------------------------------------------------------------- offline translate reports numbers (S2)
+{
+  const ctx = boot(["Rend > Heal > Repeat.", "Some totally unknown sentence here."], { dead: true });
+  pump(ctx, 30);
+  ctx.sandbox.BBTTranslatePage();
+  pump(ctx, 8);
+  const line = ctx.log.find((l) => l.indexOf("translate: scanned=") >= 0);
+  check(
+    "offline translate logs scanned/wrote/already/miss",
+    !!line && /translate: scanned=\d+ wrote=\d+ already=\d+ miss=\d+/.test(line),
+    line || "(no translate line)"
+  );
+  check("offline translate counts the unknown sentence as missing", !!line && /miss=1\b/.test(line), line || "");
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log("");
 if (failures) {
