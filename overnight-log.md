@@ -122,3 +122,41 @@ vpk_list/toolbar_cover;layout_dom_simtest 需 S2V 目录,默认 SKIP 非 FAIL)+
   前置说明。dist 于 2e6f286 后重打(05:13,4,225,943 B),二进制复校:1.9.7=1、1.9.7.1=0、
   Citaled=0、Citadel_ItemModifies=2、Citadel_Item_Build_Annotation=2、BHasClass=5、
   panelHasClass=10、resync-defer=1、resync-localized=1、toolbar-geom=2、clickProbe=6(全中)。
+
+## v1.9.8 —— 工具栏点击链路根治(2026-11-01 上午,人工会话)
+
+**起因**:用户实机反馈 v1.9.7「点翻译本页完全没反应 / 点刷新翻译按钮文字毫无变化 / 点▾下拉完全不出现」,
+且拿不到 `-condebug` 日志。三条同时失效 ⇒ 判定不是单点 bug,而是 XML handler 解析与脚本事件绑定
+两条链路同时不可靠。
+
+**取证**(全程只读,无游戏本体):
+- 历史:同样的"按钮无效 + 无法下拉"在 v1.7.0 用户反馈里就已出现,v1.8.0 又出现一次,两次都没根治;
+  从代码与布局注释可见根因一直是"裸全局名 + 多实例 + 只赌一种绑定方式"。
+- 同机成熟 mod `DeadlockLingua`(BabelTower)提供正面证据:XML 裸名 handler 在 Deadlock 可用,
+  但函数必须逐个 `globalThis[name] = fn` 导出并**独立 try/catch**(它有"一个异常吞掉后续导出、
+  按钮全报 is not defined"的教训注释);下拉用 **CSS 类切换**在实机有效;`panel.style.visibility`
+  与 `SetPanelEvent` 都可用,但它仍保留"没有 SetPanelEvent 就写 onactivate 属性"的双路兜底。
+- 本项目布局事实:详情布局在游戏里有 3 份实例(实测 Category×38 / Details×3 / Selector×2);
+  菜单是布局根的直接子节点;所有 BBT 控件 `hittest="true"`;`.BBTMenu` 初始 `visibility: collapse`。
+
+**改动**(`bba_translate.js` → v1.9.8,`citadel_ui_build_details.xml`,`styles/bba.css`,`tests/`):
+1. 布局 handler 全部 `BBTActivate('action', $.GetContextPanel())`,onactivate + onmouseactivate 双绑;
+   菜单项同样传 action 串。新增 `BBTStatusLabel2` 可见状态行。
+2. 脚本全部 UI 查找改为实例根作用域(`rootOf/layoutRoot/uiPanelIn/pageRootIn`),回调捕获本实例 scope。
+3. 菜单类切换 + 行内样式双写;位置夹在根面板边界内(放不下向上开)。
+4. 刷新/翻译反馈写到被点的按钮;新增状态行文本;所有日志带实例标识 `<id<paneltype<…>`。
+5. handler 导出集中到文件末尾 `expose()`(G 与 $ 双写、逐个 try/catch)+ `missingHandlers()` 自检。
+6. 测试:更新 `toolbar_cover_simtest`;新增 `wiring_simtest`(XML 名字契约 + 两实例隔离)。
+
+**验证(本机)**:`node --check` 通过;13 个既有套件全部 PASS(`layout_dom_simtest` 因缺反编译布局 SKIP);
+新增 `wiring_simtest` PASS。实机验证需用户打包安装后按 README「排查」第 5 条走。
+
+**给用户的判断入口**:工具条左侧状态行。`v1.9.8 接线 N 项` = 已绑上;`点:refresh` = 点击送到脚本;
+`缺少:<name>` = 引擎没拿到 handler;什么都不变 = 引擎没把点击送进来(需查 mod 冲突/安装版本)。
+**收尾(同日,复核暴露的问题)**:`wiring_simtest` 在"一次物理点击同时走 inline handler 与
+SetPanelEvent"的模拟里发现两个 toggle 互相抵消 → 菜单净关闭,即 v1.9.8 首版仍会让 ▾ 看起来没反应。
+根因:两条路径的去重键都在脚本闭包里,而它们可能落在不同实例/不同 JS 上下文。修法:把去重标记写进
+**被点实例自己的面板树**(`<Label id="BBTActMark2" class="BBTActMark"/>`,0x0 不可见,内容
+`"<action>@<ms>"`),全局 `G.__BBT_ACT` 账本作第二道网;菜单窗口 600ms、其余 350ms。同时让
+`缺少:…` 永久黏在状态行上(不再被 `接线 N 项` 覆盖)。`wiring_simtest` 由 95 → 97 checks,
+断言"一次点击只 toggle 一次、菜单保持打开、marker 写在被点实例里";13 个套件再次全 PASS。

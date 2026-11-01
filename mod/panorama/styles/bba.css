@@ -17,6 +17,18 @@
 .BBTButton { margin-left: 4px; }
 .BBTMenuButton { min-width: 26px; }
 
+/* Visible state readout. The player has no console when the mod misbehaves, so
+   the toolbar reports the last thing that happened right here: "v1.9.8 接线 13
+   项" after wiring, then "点:刷新" when a click arrives (uiSetStatus in
+   bba_translate.js). A tooltip's hidden copy of the toolbar never shows it. */
+.BBTStatus { align: left center; margin-left: 8px; font-size: 12px; color: #8fa6c4; }
+
+/* De-duplication marker: carries "<action>@<ms>" as text for uiGuard in
+   bba_translate.js. Both activation paths of one click write it, so the second
+   one is dropped even across script contexts/instances. Must stay out of the
+   layout (a tooltip copy must not inflate the toolbar), so 0x0 + invisible. */
+.BBTActMark { width: 0px; height: 0px; opacity: 0; margin: 0px; padding: 0px; }
+
 /* Dropdown: child of the details root (large bounds = clickable). The script
    places it right under the toolbar; the value below is a first-frame fallback. */
 .BBTMenu {

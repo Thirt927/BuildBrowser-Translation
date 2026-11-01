@@ -242,6 +242,9 @@ node tests\tools_simtest.js
 node tests\scene_verify.js
 node tests\perf_probe.js
 node tests\refresh_verify.js
+node tests\toolbar_cover_simtest.js
+node tests\ui_button_simtest.js
+node tests\wiring_simtest.js
 node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ```
 
@@ -260,6 +263,12 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 - `layout_dom_simtest.js`:用游戏原版反编译布局搭出真实的嵌套面板树(列表 → 详情 →
   出装分类 → 装备注释 / 装备提示),灌入真实出装文本,验证各位置的文本都会被替换。
   需要先用 Source 2 Viewer 反编译 `panorama/layout`(见"排查"第 4 条),缺省时自动 SKIP。
+- `toolbar_cover_simtest.js`:静态契约测试——覆盖布局里有工具栏/刷新按钮/下拉菜单,
+  脚本确实认得这些 id,布局里没有裸名 handler,菜单双写(类 + 行内样式),实例根查找函数存在。
+- `ui_button_simtest.js`:用假面板跑按钮回调,验证按钮会把结果/错误写回按钮文字,而不是静默失败。
+- `wiring_simtest.js`:按钮"点了没反应"的回归测试——解析布局里每个 `on*activate` 表达式,
+  断言调用的 handler 都在脚本导出清单里;再用**两份互不干扰的假布局树**证明点击只作用于
+  *被点的那一份*实例(菜单/状态/按钮文字不会写到另一份),并验证刷新反馈落在刷新按钮上。
 
 ## 已知限制
 
@@ -272,25 +281,45 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
   Linux/macOS 需要自行提供等价工具(见 TODO.md)。
 - 修改的是纯 UI 显示,不读写游戏内存、不与服务器通信、不改动任何游戏数据。
 
-## 界面上的按钮(翻译本页 / 语言切换)
+## 界面上的按钮(翻译本页 / 刷新 / 语言切换)
 
-出装浏览器头部右侧多了一个小工具条:
+出装浏览器头部右侧多了一个小工具条,按钮左边还有一行状态字:
 
 ```
-[ 翻译本页 ] [ ▾ ]
-               ├ 显示中文          (默认)
-               ├ 显示原文          (对照用)
-               ├ 中英对照          (译文 + 空行 + 原文)
-               ├ 把新译文存入本地库
-               └ 查看本地库统计
+[ 翻译本页 ] [ 刷新 ] [ ▾ ]      v1.9.8 接线 13 项 · 点:刷新 · 刷新 23 条
+                            ├ 显示中文          (默认)
+                            ├ 显示原文          (对照用)
+                            ├ 中英对照          (译文 + 空行 + 原文)
+                            ├ 把新译文存入本地库
+                            └ 查看本地库统计
 ```
 
+- **状态行**(按钮左边那行小字)是这个 mod 的自检读条:工具条一接上就显示
+  `v1.9.8 接线 N 项`,之后每次点击会变成 `点:刷新` / `点:translate` / `菜单已开`
+  等,再显示动作结果。**拿不到控制台日志时,先看这一行**:
+  - 一直是 `v1.9.8 启动中` 不变 → 脚本跑起来了但没绑上按钮(见"排查"第 5 条);
+  - 变成 `缺少:BBTRefreshPage` → 引擎没拿到某个 handler(导出失败);
+  - 悬停在工具条上会短暂显示 `点:hover:bar`,说明布局里的 handler 名字能被引擎解析;
+  - 点了没变化 → 引擎根本没把这次点击送到脚本(见"排查"第 5 条)。
 - **翻译本页**:把屏幕上"译文库和本地库都没有"的文本一次性送去翻译(bridge 在线时)。
   按钮上会显示"翻译中… N"、"已翻译 N 条"、"未连接翻译桥"等状态。
   连 DeadlockLingua 的桥时它一次只收一条,连本仓库的 bridge 时一组 8 条打包成 1 个往返。
-- **语言切换**:`zh` / `orig` / `both` 三态,存进 `$.PersistentStorage`,重启游戏后保留。
+- **刷新**:把整页已翻译的内容重新解析一遍(换出装/换装备后用)。结果直接写在
+  **刷新按钮自己**上:"刷新中…" → "已刷新 N" / "刷新失败",1.6 秒后复原。
+- **▾ 语言切换**:`zh` / `orig` / `both` 三态,存进 `$.PersistentStorage`,重启游戏后保留。
   切到"原文"时会把界面还原成原始英文(不是重新翻译),切回"中文"立刻恢复。
+  下拉菜单由脚本在工具条下面就地摆放(不会盖住头部按钮),点击后自动收起。
 - **把新译文存入本地库 / 查看统计**:手动把当前页已翻译的内容写进本地库,并查看条目数。
+
+### 为什么按钮之前会"点了完全没反应"
+
+v1.9.7 及更早:布局里写的是裸名 `onactivate="BBTRefreshPage()"`,引擎按**全局名**解析;
+而同一份详情布局在游戏里会同时存在多份实例(右侧详情、它内嵌的整页、悬停提示里的副本),
+全局名被**最后启动的那份实例**覆盖,于是点击落在别人的面板树上——可见的菜单永远不开,
+刷新也只是在隐藏副本上跑。脚本侧的 `SetPanelEvent` 兜底在没有该 API 的引擎版本上会静默失败。
+v1.9.8 起:布局里的每个 handler 都变成 `BBTActivate('refresh', $.GetContextPanel())`,
+**把被点的面板本身**交给脚本定位实例;`onactivate` 与 `onmouseactivate` 两个事件都绑
+(引擎吞掉哪个都还有另一个);菜单改回"CSS 类切换 + 行内样式"双写;导出集中到文件末尾并逐个自检。
 
 ## 本地翻译库为什么会自动变大,又怎么保证不变太大
 
@@ -419,14 +448,29 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
    的文件树,冲突时把本 mod 改成更小的编号(改 `scripts/build.ps1` 的 `-PakName` 参数)。
 3. 需要看日志时,给 Deadlock 加启动项 `-condebug`,打开一次商城/出装浏览器后,
    在 `game/citadel/console.log` 里搜 `[BBT]`,正常应看到
-   `[BBT] v1.1.0 loaded (tm=..., glossary=1) in layout: <面板类型>`:
+   `[BBT] v1.9.8 loaded (tm=..., glossary=1) in layout: <面板类型> root=<面板 id/类型>`:
    这条日志会告诉你是**哪个布局**真正带上了扫描器(右侧详情应为 `CitadelBuildDetails`,
-   装备提示应为 `CitadelTooltipModDetails`)。同一行之后的 `[BBT] MISS ...` 就是待补译文本。
+   装备提示应为 `CitadelTooltipModDetails`),`root=` 后面是这份实例的标识——多份实例
+   同时打日志时靠它分辨。同一行之后的 `[BBT] MISS ...` 就是待补译文本。
+   工具条会补一行 `[BBT] toolbar wired: N control(s) in <实例标识>`;点击成功会打
+   `[BBT] menu OPEN|close <实例>` / `[BBT] refresh: re-resolved N engine label(s) in <实例>`;
+   如果出现 `[BBT] HANDLER EXPORT FAILED: <名字>` 或 `[BBT] action ... threw: ...`,
+   那就是脚本侧的异常,直接照抄整行反馈即可。
 4. 布局覆盖失效最常见的原因是游戏更新后布局结构变了:重跑一遍
    `Source 2 Viewer` 反编译 + 对比,再按 README 的构建步骤重新打包。
    反编译出的新布局(例如右侧详情布局 `citadel_ui_build_details.xml`)用
    `node tools\inject_scripts.js <反编译文件>` 一条命令生成覆盖,自动落到
    `mod/panorama/layout/`,再重跑 build.ps1。
+5. **工具条按钮"点了没反应"的排查顺序**(v1.9.8 起不需要控制台):
+   1) 看工具条左边的状态行:有 `接线 N 项` 说明脚本已绑上按钮;
+   2) 鼠标移到工具条上,状态行若短暂变成 `点:hover:bar`,说明布局里的 handler 能被引擎解析
+      (悬停也算一次事件);若连悬停都没反应,问题在事件送达/命中测试,不在 handler;
+   3) 点一下页面里 Valve 自己的 `出装选项` 按钮(就在工具条上方):
+      - 它能弹出/收起,说明这块区域的点击是通的 → 我们的按钮也应该能点,把状态行内容反馈给我;
+      - 它也没反应,说明整个头部区域被别的东西盖住了(常见原因:另一个 mod 也覆盖了
+        `citadel_ui_build_details.xml`,或 `addons` 里有多份本 mod 的 pak),
+        先按"排查"第 1、2 条清理,再试;
+   4) 仍然不行就上 `-condebug` 抓 `[BBT]` 行,连同状态行内容一起反馈。
 
 ## 目录结构
 

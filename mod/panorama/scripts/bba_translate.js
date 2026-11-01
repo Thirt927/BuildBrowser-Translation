@@ -1,4 +1,4 @@
-﻿// BuildBrowser Translation (BBT) - in-game Panorama script.
+// BuildBrowser Translation (BBT) - in-game Panorama script.
 // ------------------------------------------------------------------
 // Translates user-authored English text in the Deadlock build browser:
 //   * build list names            (CitadelHeroBuildsSelector)
@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.7";
+  var VERSION = "1.9.8";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -290,11 +290,13 @@
 
   var ui = { busy: false, lastResult: "", batch: [] };
 
-  function uiPanel(id) {
-    var ids = typeof id === "string" ? [id] : id;
-    if (!ids || !ids.length) return null;
-    var root = null;
-    try { root = $.GetContextPanel(); } catch (e) { return null; }
+  // Depth-first scan bounded by `root`. Every lookup in this file goes through
+  // here: the build browser, the spec page nested inside it and the hover tooltip
+  // all run a copy of this script, so "search from whatever panel is handy" can
+  // land in the wrong instance and make a button look dead (v1.9.7 bug).
+  function uiPanelIn(root, ids) {
+    var list = typeof ids === "string" ? [ids] : ids;
+    if (!root || !list || !list.length) return null;
     var stack = [root];
     var budget = 4000;
     while (stack.length && budget > 0) {
@@ -302,8 +304,8 @@
       var p = stack.pop();
       if (!p) continue;
       try {
-        for (var k = 0; k < ids.length; k += 1) {
-          if (p.id === ids[k]) return p;
+        for (var k = 0; k < list.length; k += 1) {
+          if (p.id === list[k]) return p;
         }
       } catch (e) {}
       var n = 0;
@@ -318,14 +320,109 @@
     return null;
   }
 
-  function uiSetLabel(text) {
-    var l = uiPanel(["BBTTranslateLabel", "BBTTranslateLabel2"]);
+  function contextPanel() {
+    try { return $.GetContextPanel() || null; } catch (e) { return null; }
+  }
+
+  function uiPanel(ids) {
+    return uiPanelIn(contextPanel(), ids);
+  }
+
+  // The XML handlers are resolved once, in the global scope, so the panel that
+  // was clicked is the only reliable pointer to "which instance did the user
+  // hit". From it we walk up to that instance's layout root.
+  function layoutRoot(panel) {
+    var cur = panel;
+    var top = panel;
+    for (var i = 0; cur && i < 40; i += 1) {
+      var pt = "";
+      try { pt = String(cur.paneltype || ""); } catch (e) { pt = ""; }
+      if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector") return cur;
+      top = cur;
+      var up = null;
+      try { up = cur.GetParent ? cur.GetParent() : null; } catch (e) { up = null; }
+      if (!up) break;
+      cur = up;
+    }
+    return top;
+  }
+
+  function rootOf(origin) {
+    if (origin && typeof origin.GetChildCount === "function") return layoutRoot(origin);
+    var ctx = contextPanel();
+    return ctx ? layoutRoot(ctx) : null;
+  }
+
+  // Wide enough root for page-wide work: the build browser owns the whole page,
+  // the spec/details instance is nested inside it.
+  function pageRootIn(root) {
+    var p = root;
+    for (var i = 0; p && i < 12; i += 1) {
+      var pt = "";
+      try { pt = String(p.paneltype || ""); } catch (e) { pt = ""; }
+      if (pt === "CitadelHeroBuildsSelector") return p;
+      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+    }
+    return root;
+  }
+
+  // Short, log-safe name of an instance ("browser<CitadelBuildDetails"): one
+  // console line is then enough to tell the visible page from the tooltip copy.
+  function instTag(root) {
+    if (!root) return "?";
+    var bits = [];
+    var p = root;
+    for (var i = 0; p && i < 3; i += 1) {
+      var s = "";
+      try { s = String(p.id || "") || String(p.paneltype || "") || "?"; } catch (e) { s = "?"; }
+      bits.push(s);
+      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+    }
+    return bits.join("<");
+  }
+
+  // Write the status text onto a panel inside `root` (default: our own instance).
+  function uiSetText(ids, text, root) {
+    var scope = root || contextPanel();
+    var p = uiPanelIn(scope, ids);
+    if (!p) return false;
+    try {
+      p.text = text;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Names of layout handlers that failed to export (normally empty). Kept so the
+  // status line can carry the warning forever: a later "接线 13 项" write would
+  // otherwise hide the one message that explains "button is not defined".
+  var handlerMissingNames = [];
+
+  // The one-line, always-visible state readout in the toolbar (see the layout).
+  // The user cannot open the game console, so this is how "did my click arrive?"
+  // gets answered without a log.
+  function uiSetStatus(text, root) {
+    var t = String(text == null ? "" : text);
+    if (handlerMissingNames.length && t.indexOf("缺少:") < 0) {
+      t += " ·缺:" + handlerMissingNames.join(",");
+    }
+    uiSetText(["BBTStatusLabel2", "BBTStatusLabel"], t, root);
+  }
+
+  function uiSetRefreshText(text, root) {
+    return uiSetText(["BBTRefreshButton2", "BBTRefreshButton"], text, root);
+  }
+
+  function uiSetLabel(text, root) {
+    var scope = root || null;
+    var l = uiPanelIn(scope || contextPanel(), ["BBTTranslateLabel", "BBTTranslateLabel2"]);
     if (l) {
       try { l.text = text; } catch (e) {}
     } else {
       // The toolbar uses the game's TextButton (native look), whose text lives on
       // the button itself instead of in a child label.
-      var b = uiPanel(["BBTTranslateButton2", "BBTTranslateButton"]);
+      var b = uiPanelIn(scope || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]);
       if (b) {
         try { b.text = text; } catch (e) {}
       }
@@ -337,7 +434,10 @@
   // run this script (selector, details, tooltips) and all of them share the same
   // global handlers; resolving the root from the button itself keeps "翻译本页"
   // pointing at the whole page instead of whichever layout booted last.
-  function pageRoot() {
+  function pageRoot(origin) {
+    // A clicked panel (the XML handlers pass one) names its instance directly;
+    // that is always more trustworthy than "the first button we can find".
+    if (origin && typeof origin.GetChildCount === "function") return pageRootIn(layoutRoot(origin));
     var p = uiPanel(["BBTTranslateButton2", "BBTTranslateButton", "BBTTranslateLabel2", "BBTTranslateLabel"]);
     var details = null;
     for (var i = 0; p && i < 12; i += 1) {
@@ -1253,13 +1353,11 @@
     return panelHasClass(panel, "BuildName") || panelHasClass(panel, "BuildDescription");
   }
 
-  function resyncAll(limit) {
+  function resyncAll(limit, origin) {
     var max = limit || 40;
     var root = null;
-    try { root = pageRoot(); } catch (e) { root = null; }
-    if (!root) {
-      try { root = $.GetContextPanel(); } catch (e) { root = null; }
-    }
+    try { root = pageRoot(origin); } catch (e) { root = null; }
+    if (!root) root = contextPanel();
     if (!root) return 0;
     var primary = [];
     var secondary = [];
@@ -1666,30 +1764,75 @@
 
 
   // ---------- wiring the toolbar ----------
-  // onactivate="Name()" makes the engine resolve `Name` in the layout's global
-  // scope. That fails silently when the script is wrapped in an IIFE or the global
-  // is not where the engine looks, which looks exactly like "the button does
-  // nothing". SetPanelEvent binds the callback to the panel itself, so the buttons
-  // work regardless. The XML handlers stay as a fallback; uiGuard() stops the two
-  // paths from running the same action twice.
+  // Two independent paths can start a toolbar action, because we cannot see the
+  // engine's panel-event semantics from outside:
+  //   1. the layout's onactivate="..." string, resolved by the engine in the
+  //      global scope (needs the handler exported there), and
+  //   2. SetPanelEvent("onactivate", fn), which attaches to the panel object.
+  // Both funnel through uiGuard() so a single click can never run twice, and both
+  // report a status line so a "nothing happens" report comes back with which path
+  // fired instead of requiring the console.
   var uiWired = Object.create(null);
   var uiWiredOnce = false;
-  var lastAction = { name: "", at: 0 };
 
-  function uiGuard(name) {
-    var now = 0;
-    try { now = Date.parse(new Date().toISOString()) || 0; } catch (e) { now = 0; }
-    if (lastAction.name === name && now - lastAction.at < 350) return false;
-    lastAction.name = name;
-    lastAction.at = now;
+  function nowMs() {
+    try { if (typeof Date.now === "function") return Date.now(); } catch (e) {}
+    return 0;
+  }
+
+  // One physical click can reach us twice: once through the layout's
+  // onactivate/onmouseactivate expression and once through the SetPanelEvent
+  // callback. When the layout is instantiated more than once those two paths can
+  // even run in different script contexts (and different instances), so neither
+  // a per-instance variable nor a global object is a reliable ledger. The marker
+  // therefore lives in the clicked instance's own panel tree
+  // (<Label id="BBTActMark2">), which both paths always touch, and the global
+  // ledger stays as a second net. For a toggle like the dropdown, running the
+  // action twice used to open and immediately close the menu = "dead button".
+  function uiGuard(root, name, windowMs) {
+    var win = windowMs || 350;
+    var now = nowMs();
+    var g = null;
+    try {
+      g = G.__BBT_ACT || (G.__BBT_ACT = {});
+    } catch (e) {
+      g = null;
+    }
+    var gAt = 0;
+    if (g && now > 0) {
+      gAt = Number(g[name]) || 0;
+      if (gAt > 0 && now - gAt < win) return false;
+    }
+    var mark = uiPanelIn(root, ["BBTActMark2", "BBTActMark"]);
+    var prev = "";
+    if (mark) {
+      try { prev = String(mark.text || ""); } catch (e) { prev = ""; }
+    }
+    var cut = prev.lastIndexOf("@");
+    if (cut > 0) {
+      var mAt = prev.slice(0, cut) === name ? (parseInt(prev.slice(cut + 1), 10) || 0) : 0;
+      if (mAt > 0 && now - mAt < win) return false;
+    }
+    if (g && now > 0) {
+      try { g[name] = now; } catch (e) {}
+    }
+    if (mark) {
+      try { mark.text = name + "@" + now; } catch (e) {}
+    }
     return true;
   }
 
-  // Debug-gated, permanent instrumentation for the click-report bugs (B1/B2/B5):
-  // every toolbar handler logs what fired and on which panel, guarded actions
-  // log the guard rejection, and the menu toggle logs open/close. All lines are
-  // [BBT] prefixed and BBT_DEBUG-gated - zero output when debug is off, so no
-  // temporary-log cleanup is ever needed.
+  // A toggle is only correct once per click; give the onmouseactivate/onactivate
+  // pair a wider window than ordinary idempotent actions (translating twice is
+  // merely wasteful, opening+closing the menu looks like a dead button).
+  function actionWindow(name) {
+    return name === "menu" ? 600 : 350;
+  }
+
+  // Debug-gated instrumentation for the click-report bugs (B1/B2/B5): every
+  // toolbar handler logs what fired and on which instance, guarded actions log
+  // the guard rejection, and the menu toggle logs open/close. The always-on,
+  // one-line status label is what a user without a console can read.
   function clickProbe(name, panel) {
     if (!debugOn()) return;
     var tag = "?";
@@ -1699,21 +1842,35 @@
     $.Msg("[BBT] click " + name + " on " + tag);
   }
 
-  function onActivate(ids, fn, name) {
-    var panel = uiPanel(ids);
+  function reportClick(name, root) {
+    clickProbe(name, root);
+    uiSetStatus("点:" + name, root);
+  }
+
+  function bindClick(panel, name, fn) {
     if (!panel) return false;
     try {
-      if (typeof panel.SetPanelEvent === "function") {
-        panel.SetPanelEvent("onactivate", function () {
-          if (!uiGuard(name)) { clickProbe(name + ":guard-skip", panel); return; }
-          clickProbe(name, panel);
-          fn();
-        });
-        uiWired[name] = true;
-        return true;
-      }
-    } catch (e) {}
-    return false;
+      if (typeof panel.SetPanelEvent !== "function") return false;
+      panel.SetPanelEvent("onactivate", function () {
+        var root = rootOf(panel);
+        if (!uiGuard(root, "act:" + name, actionWindow(name))) return;
+        reportClick(name, root);
+        try {
+          fn(panel);
+        } catch (e) {
+          $.Msg("[BBT] handler " + name + " threw: " + e);
+          uiSetStatus("错误:" + name, root);
+        }
+      });
+      uiWired[name] = true;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function onActivate(ids, fn, name, root) {
+    return bindClick(uiPanelIn(root || contextPanel(), ids), name, fn);
   }
 
   // Panorama only hit-tests inside the parent's bounds, so the dropdown (which
@@ -1738,29 +1895,31 @@
   }
 
   var placeProbeDone = false;
-  function placeToolbar() {
-    var ctl = uiPanel("BBTControls2");
-    var menu = uiPanel("BBTMenu2");
+  function placeToolbar(root) {
+    var scope = root || contextPanel();
+    var ctl = uiPanelIn(scope, ["BBTControls2", "BBTControls"]);
+    var menu = uiPanelIn(scope, ["BBTMenu2", "BBTMenu"]);
     if (!ctl || !menu) return false;
-    var root = null;
-    try { root = menu.GetParent(); } catch (e) { root = null; }
-    if (!root) return false;
-    var off = actualOffset(ctl, root);
+    var base = layoutRoot(scope);
+    if (!base) return false;
+    var off = actualOffset(ctl, base);
     if (!off) return false;
     var ch = 0;
     var cw = 0;
     var rw = 0;
+    var rh = 0;
+    var mh = 0;
     try { ch = Number(ctl.actualheight) || 0; cw = Number(ctl.actualwidth) || 0; } catch (e) {}
-    try { rw = Number(root.actualwidth) || 0; } catch (e) {}
+    try { rw = Number(base.actualwidth) || 0; rh = Number(base.actualheight) || 0; } catch (e) {}
+    try { mh = Number(menu.actualheight) || 0; } catch (e) {}
     // Before the first layout pass every size is 0; the CSS fallback stays until
-    // the next attempt. One debug dump explains WHY the measured placement is
-    // unavailable in game (the B1/B2 "dropdown unclickable" report).
-    if (ch <= 0 || cw <= 0 || rw <= 0 || !off) {
+    // the next attempt (the wire loop below retries 12 times).
+    if (ch <= 0 || cw <= 0 || rw <= 0) {
       if (!placeProbeDone && debugOn()) {
         placeProbeDone = true;
         $.Msg(
           "[BBT] toolbar-place css-fallback ctl=" + (ch + "x" + cw) +
-            " root=" + rw + " off=" + JSON.stringify(off) +
+            " root=" + rw + "x" + rh + " off=" + JSON.stringify(off) +
             " actualx=" + (function () { try { return ctl.actualx; } catch (e) { return "?"; } })() +
             " actualy=" + (function () { try { return ctl.actualy; } catch (e) { return "?"; } })()
         );
@@ -1769,99 +1928,166 @@
     }
     var top = Math.round(off.y + ch + 4);
     var right = Math.round(rw - (off.x + cw));
-    if (!(top > 0)) return false;
     if (right < 4) right = 4;
+    // Keep the whole dropdown inside the layout root. A menu whose top is past
+    // the root's bottom edge is drawn outside its hit-test box: invisible AND
+    // unclickable. When there is no room below, open upwards instead.
+    if (rh > 0 && mh > 0 && top + mh > rh - 4) {
+      var above = Math.round(off.y - mh - 4);
+      top = above >= 4 ? above : Math.max(4, rh - mh - 4);
+    }
+    if (!(top > 0)) top = 4;
     try {
       menu.style.marginTop = top + "px";
       menu.style.marginRight = right + "px";
     } catch (e) { return false; }
+    placeProbeDone = true;
     return true;
   }
 
-  function wireToolbar() {
-    try { placeToolbar(); } catch (e) {}
-    if (uiWiredOnce) return;
-    if (!uiPanel(["BBTTranslateButton", "BBTTranslateButton2", "BBTMenuButton", "BBTMenuButton2"])) return;
-    uiWiredOnce = true;
-    // Bind every toolbar present in this layout (the selector has one, the
-    // standalone details view has another; a nested details panel hides its own
-    // copy, but the binding is harmless and keeps the code simple).
-    // The handlers use this instance's functions (not G.BBT*Page): the global is
+  function wireToolbar(root) {
+    var scope = root || contextPanel();
+    if (!scope) return false;
+    try { placeToolbar(scope); } catch (e) {}
+    if (uiWiredOnce) return true;
+    var translateBtn = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
+    var refreshBtn = uiPanelIn(scope, ["BBTRefreshButton", "BBTRefreshButton2"]);
+    var menuBtn = uiPanelIn(scope, ["BBTMenuButton", "BBTMenuButton2"]);
+    if (!translateBtn && !refreshBtn && !menuBtn) return false;
+    // Handlers capture this instance's root (not G.BBT*Page): the global is
     // overwritten by whichever layout booted last, and that instance does not
     // share our memo/written state.
-    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(); }, "translate");
-    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { refreshPage(); }, "refresh");
-    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { toggleMenu(); }, "menu");
+    bindClick(translateBtn, "translate", function () { translatePage(scope); });
+    bindClick(refreshBtn, "refresh", function () { refreshPage(scope); });
+    bindClick(menuBtn, "menu", function () { toggleMenu(scope); });
+    // The bind names below are the same action strings the layout passes to
+    // BBTActivate ("mode:zh", "lang:ja", "save", ...): both activation paths then
+    // share one uiGuard key, so a click that reaches us twice runs the action once.
     var modes = [["zh", "显示中文"], ["orig", "显示原文"], ["both", "中英对照"]];
-    wireMenuItems(modes, setLanguageMode, "mode-");
+    wireMenuItems(modes, setLanguageMode, "mode:", scope);
     var langs = [
       ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"], ["ja", "日本語"],
       ["ko", "한국어"], ["en", "English"],
     ];
-    wireMenuItems(langs, setTargetLang, "lang-");
+    wireMenuItems(langs, setTargetLang, "lang:", scope);
     wireMenuItems(
       [["save", "把新译文存入本地库"], ["stats", "查看本地库统计"]],
       function (v) {
-        if (v === "save") savePageToTable();
-        else showTableStats();
+        if (v === "save") savePageToTable(scope);
+        else showTableStats(scope);
       },
-      "misc-",
+      "",
+      scope,
     );
-    $.Msg("[BBT] toolbar wired: " + Object.keys(uiWired).length + " control(s)");
+    uiWiredOnce = true;
+    var n = Object.keys(uiWired).length;
+    uiSetStatus("v" + VERSION + " 接线 " + n + " 项", scope);
+    $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
+    return true;
   }
 
   // Menu buttons have no ids (they are generated from the layout), so they are
-  // located by their label text. That also covers the second toolbar.
-  // `action` is called with the item's value; it runs in this instance so the
-  // mode/language change lands in the layout that owns the toolbar.
-  function wireMenuItems(items, action, prefix) {
-    var menuPanels = [uiPanel("BBTMenu"), uiPanel("BBTMenu2")];
-    for (var m = 0; m < menuPanels.length; m += 1) {
-      var menu = menuPanels[m];
-      if (!menu) continue;
-      var n = 0;
-      try { n = menu.GetChildCount ? menu.GetChildCount() : 0; } catch (e) { n = 0; }
-      for (var i = 0; i < n; i += 1) {
-        var child = null;
-        try { child = menu.GetChild(i); } catch (e) { child = null; }
-        if (!child) continue;
-        var text = "";
-        try {
-          var lbl = child.GetChild && child.GetChild(0);
-          text = lbl && typeof lbl.text === "string" ? lbl.text : "";
-        } catch (e) {
-          text = "";
-        }
-        if (!text) continue;
-        for (var k = 0; k < items.length; k += 1) {
-          if (text.indexOf(items[k][1]) < 0) continue;
-          onActivateChild(child, (function (value) {
-            return function () { action(value); };
-          })(items[k][0]), prefix + items[k][0] + m);
-        }
+  // located by their label text. `action` is called with the item's value and
+  // runs in this instance, so the mode/language change lands in the layout that
+  // owns the toolbar.
+  function wireMenuItems(items, action, prefix, root) {
+    var scope = root || contextPanel();
+    var menu = uiPanelIn(scope, ["BBTMenu2", "BBTMenu"]);
+    if (!menu) return 0;
+    var bound = 0;
+    var n = 0;
+    try { n = menu.GetChildCount ? menu.GetChildCount() : 0; } catch (e) { n = 0; }
+    for (var i = 0; i < n; i += 1) {
+      var child = null;
+      try { child = menu.GetChild(i); } catch (e) { child = null; }
+      if (!child) continue;
+      var text = "";
+      try {
+        var lbl = child.GetChild && child.GetChild(0);
+        text = lbl && typeof lbl.text === "string" ? lbl.text : "";
+      } catch (e) {
+        text = "";
+      }
+      if (!text) continue;
+      for (var k = 0; k < items.length; k += 1) {
+        if (text.indexOf(items[k][1]) < 0) continue;
+        if (bindClick(child, prefix + items[k][0], (function (value) {
+          return function () { action(value, scope); };
+        })(items[k][0]))) bound += 1;
       }
     }
+    return bound;
   }
 
   function onActivateChild(panel, fn, name) {
-    try {
-      if (typeof panel.SetPanelEvent === "function") {
-        panel.SetPanelEvent("onactivate", function () {
-          if (!uiGuard(name)) { clickProbe(name + ":guard-skip", panel); return; }
-          clickProbe(name, panel);
-          fn();
-        });
-        uiWired[name] = true;
-        return true;
-      }
-    } catch (e) {}
-    return false;
+    return bindClick(panel, name, fn);
   }
 
   // ---------- global UI handlers (referenced from the layout) ----------
 
-  function uiMenuPanel() {
-    return uiPanel(["BBTMenu", "BBTMenu2"]);
+  function uiMenuPanel(root) {
+    return uiPanelIn(root || contextPanel(), ["BBTMenu2", "BBTMenu"]);
+  }
+
+  // Read the menu's own state instead of a module-level flag: two instances (and
+  // the two wiring paths) must not fight over one shared boolean.
+  function menuIsOpen(m) {
+    if (!m) return false;
+    try { if (typeof m.HasClass === "function") return !!m.HasClass("BBTMenuOpen"); } catch (e) {}
+    try {
+      if (m.classList && typeof m.classList.contains === "function") {
+        return !!m.classList.contains("BBTMenuOpen");
+      }
+    } catch (e) {}
+    try {
+      if (m.style && m.style.visibility) return String(m.style.visibility) !== "collapse";
+    } catch (e) {}
+    return menuOpen;
+  }
+
+  // The dropdown is toggled BOTH ways on purpose:
+  //   * the class ("BBTMenuOpen" -> visibility: visible) is what BabelTower, the
+  //     other long-lived Deadlock Panorama mod on this machine, ships and is
+  //     proven clickable in game;
+  //   * the inline style is a hard override for the builds where the class rule
+  //     loses to something in Valve's stylesheet.
+  function setMenuOpen(open, root) {
+    var scope = root || contextPanel();
+    var m = uiMenuPanel(scope);
+    if (!m) {
+      $.Msg("[BBT] menu " + (open ? "open" : "close") + ": no menu panel in " + instTag(scope));
+      return false;
+    }
+    var want = !!open;
+    if (want) {
+      try { placeToolbar(scope); } catch (e) {}
+    }
+    menuOpen = want;
+    try {
+      if (typeof m.SetHasClass === "function") m.SetHasClass("BBTMenuOpen", want);
+      else if (want && m.AddClass) m.AddClass("BBTMenuOpen");
+      else if (!want && m.RemoveClass) m.RemoveClass("BBTMenuOpen");
+    } catch (e) {}
+    var styled = false;
+    try {
+      if (m.style) {
+        m.style.visibility = want ? "visible" : "collapse";
+        styled = true;
+      }
+    } catch (e) {}
+    // Always-on line: the next field report then says whether the toggle ran at
+    // all and in which instance, even with the console closed (the status label
+    // in the toolbar shows the same thing).
+    $.Msg("[BBT] menu " + (want ? "OPEN" : "close") + " " + instTag(m) + (styled ? " style" : " class"));
+    uiSetStatus(want ? "菜单已开" : "菜单已关", scope);
+    return true;
+  }
+
+  function toggleMenu(root) {
+    var scope = root || contextPanel();
+    var next = !menuIsOpen(uiMenuPanel(scope));
+    setMenuOpen(next, scope);
+    return next;
   }
 
   // Small introspection helper (console: BBT_LIVE_STATE()) - handy when a user
@@ -1880,50 +2106,26 @@
     };
   };
 
-  // The dropdown is toggled through its inline style: that always wins, whereas
-  // a `visibility: collapse` rule plus a `.BBTMenuOpen` class depends on the CSS
-  // cascade (which is why the menu never opened in the field).
+  // Last known menu state, used only when the panel itself exposes neither a
+  // HasClass nor a style (the offline simulator's fake panels).
   var menuOpen = false;
-  function setMenuOpen(open) {
-    menuOpen = !!open;
-    // The menu is placed relative to the toolbar, which the engine may have
-    // moved since the last measurement (window resize, header height change).
-    if (menuOpen) {
-      try { placeToolbar(); } catch (e) {}
-    }
-    var m = uiMenuPanel();
-    if (!m) return;
-    try {
-      if (m.style) m.style.visibility = menuOpen ? "visible" : "collapse";
-    } catch (e) {}
-    try {
-      if (typeof m.SetHasClass === "function") m.SetHasClass("BBTMenuOpen", menuOpen);
-      else if (menuOpen && m.AddClass) m.AddClass("BBTMenuOpen");
-      else if (!menuOpen && m.RemoveClass) m.RemoveClass("BBTMenuOpen");
-    } catch (e) {}
-  }
 
-  function toggleMenu() {
-    var next = !menuOpen;
-    setMenuOpen(next);
-    clickProbe("menu->" + (next ? "open" : "close"), uiMenuPanel());
-  }
-  G.BBTToggleMenu = toggleMenu;
-
-  function setLanguageMode(next) {
+  function setLanguageMode(next, root) {
     if (next !== "zh" && next !== "orig" && next !== "both") return;
     mode = next;
     settingsSet(MODE_KEY, mode);
     // Everything on screen has to be re-evaluated in the new mode.
     try {
-      var ctx = pageRoot();
+      var ctx = pageRoot(root);
       if (ctx) resetMemos(ctx);
     } catch (e) {}
-    uiSetLabel(mode === "zh" ? "显示:中文" : mode === "orig" ? "显示:原文" : "显示:中英对照");
-    setMenuOpen(false);
-    $.Msg("[BBT] language mode -> " + mode);
+    uiSetLabel(
+      mode === "zh" ? "显示:中文" : mode === "orig" ? "显示:原文" : "显示:中英对照",
+      root,
+    );
+    setMenuOpen(false, root);
+    $.Msg("[BBT] language mode -> " + mode + " " + instTag(rootOf(root)));
   }
-  G.BBTSetLanguageMode = setLanguageMode;
 
   function resetMemos(root) {
     var stack = [root];
@@ -1961,84 +2163,96 @@
   // It deliberately does NOT reset the memos: that restored the old source text
   // right after the #token had been re-applied, so the label was re-translated
   // from the previous build's English and the overview never changed.
-  function refreshPage() {
+  function refreshPage(root) {
+    var scope = root || contextPanel();
+    // Feedback goes onto the button that was pressed. v1.9.7 wrote every result
+    // onto 翻译本页, so pressing 刷新 changed nothing on the control the user was
+    // looking at - indistinguishable from "the click did nothing".
+    uiSetRefreshText("刷新中…", scope);
     var n = 0;
-    try { n = resyncAll(80); } catch (e) { n = -1; }
-    $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) (see resync-ok/resync-fail)");
-    uiSetLabel("刷新中…");
-    $.Schedule(1.0, function () { uiSetLabel("翻译本页"); });
+    try { n = resyncAll(80, scope); } catch (e) { n = -1; }
+    $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) in " + instTag(scope));
+    uiSetRefreshText(n >= 0 ? "已刷新 " + n : "刷新失败", scope);
+    uiSetStatus("刷新 " + n + " 条", scope);
+    $.Schedule(1.6, function () {
+      uiSetRefreshText("刷新", scope);
+      uiSetStatus("v" + VERSION + " 就绪", scope);
+    });
   }
-  G.BBTRefreshPage = refreshPage;
 
   // The main button: "translate everything on this page that we do not know yet".
-  function translatePage() {
+  function translatePage(root) {
     if (ui.busy) return;
-    var root = pageRoot();
-    var texts = collectMisses(24, root);
+    var scope = root || contextPanel();
+    var page = pageRoot(scope);
+    var texts = collectMisses(24, page);
     if (!texts.length) {
-      uiSetLabel("没有需要翻译的文本");
-      $.Schedule(2.0, function () { uiSetLabel("翻译本页"); });
+      uiSetLabel("没有需要翻译的文本", scope);
+      uiSetStatus("无可翻译文本", scope);
+      $.Schedule(2.0, function () { uiSetLabel("翻译本页", scope); });
       return;
     }
     if (live.state !== "on") {
       // Offline: re-run the memory/glossary pass over the whole page so the
       // button visibly does something even without the bridge.
       var before = stats.translated + stats.fallback;
-      try { if (root) resetMemos(root); } catch (e) {}
-      uiSetLabel("重新翻译中…");
+      try { if (page) resetMemos(page); } catch (e) {}
+      uiSetLabel("重新翻译中…", scope);
+      uiSetStatus("翻译中", scope);
       $.Schedule(0.5, function () {
         var done = stats.translated + stats.fallback - before;
-        uiSetLabel("离线已重译 " + (done > 0 ? done + " 条" : "整页文本"));
+        uiSetLabel("离线已重译 " + (done > 0 ? done + " 条" : "整页文本"), scope);
       });
-      $.Schedule(3.5, function () { uiSetLabel("翻译本页"); });
+      $.Schedule(3.5, function () { uiSetLabel("翻译本页", scope); });
       return;
     }
     ui.busy = true;
-    uiSetLabel("翻译中… " + texts.length);
+    uiSetLabel("翻译中… " + texts.length, scope);
+    uiSetStatus("翻译中 " + texts.length, scope);
     uiRequestBatch(texts, function (results, err) {
       ui.busy = false;
       var applied = results ? uiApplyResults(results) : 0;
       if (err) {
-        uiSetLabel("翻译失败: " + err);
+        uiSetLabel("翻译失败: " + err, scope);
+        uiSetStatus("翻译失败", scope);
       } else {
-        uiSetLabel("已翻译 " + applied + " 条");
+        uiSetLabel("已翻译 " + applied + " 条", scope);
+        uiSetStatus("已翻译 " + applied, scope);
         // New translations may unlock panels we had memoised as "nothing found".
         try { liveUpgradeWeakWrites(); } catch (e) {}
       }
-      $.Schedule(4.0, function () { uiSetLabel("翻译本页"); });
+      $.Schedule(4.0, function () { uiSetLabel("翻译本页", scope); });
     });
   }
-  G.BBTTranslatePage = translatePage;
 
-  function setTargetLang(lang) {
+  function setTargetLang(lang, root) {
     if (!lang || typeof lang !== "string") return;
     TARGET_LANG = lang;
     settingsSet(LANG_KEY, TARGET_LANG);
     overrides = null;
-    try { var r = pageRoot(); if (r) resetMemos(r); } catch (e) {}
+    try { var r = pageRoot(root); if (r) resetMemos(r); } catch (e) {}
     // Non-Chinese targets come from the local table / bridge only.
     if (LIVE_TARGET && LIVE_TARGET.tag === "BBT") {
       try { liveFetchOverrides(); } catch (e) {}
     }
-    uiSetLabel("语言:" + TARGET_LANG);
-    setMenuOpen(false);
+    uiSetLabel("语言:" + TARGET_LANG, root);
+    setMenuOpen(false, root);
     $.Msg("[BBT] target language -> " + TARGET_LANG);
   }
-  G.BBTSetTargetLang = setTargetLang;
 
   // Dropdown: push what is on screen into the local table (NO network call).
   // It sends the pairs it already has, so this works even when the bridge cannot
   // reach a provider.
-  function savePageToTable() {
+  function savePageToTable(root) {
     if (live.state !== "on" || !LIVE_TARGET || LIVE_TARGET.tag !== "BBT") {
-      uiSetLabel("本地库需要本仓库的 bridge");
-      $.Schedule(2.5, function () { uiSetLabel("翻译本页"); });
+      uiSetLabel("本地库需要本仓库的 bridge", root);
+      $.Schedule(2.5, function () { uiSetLabel("翻译本页", root); });
       return;
     }
     var pairs = [];
     try {
-      var ctx = pageRoot();
-      if (!ctx) ctx = $.GetContextPanel();
+      var ctx = pageRoot(root);
+      if (!ctx) ctx = contextPanel();
       var stack = [ctx];
       var budget = 3000;
       while (stack.length && budget > 0) {
@@ -2072,8 +2286,8 @@
       }
     } catch (e) {}
     if (!pairs.length) {
-      uiSetLabel("本页没有可存的译文");
-      $.Schedule(2.5, function () { uiSetLabel("翻译本页"); });
+      uiSetLabel("本页没有可存的译文", root);
+      $.Schedule(2.5, function () { uiSetLabel("翻译本页", root); });
       return;
     }
     liveSend(
@@ -2081,28 +2295,91 @@
       LIVE_REQUEST_TIMEOUT,
       function (ok, err, res) {
         if (ok && res) {
-          uiSetLabel("已存入本地库:新增 " + (res.added || 0) + " 条");
+          uiSetLabel("已存入本地库:新增 " + (res.added || 0) + " 条", root);
           stats.batchAdded += res.added || 0;
           noteTableSize(res.table);
         } else {
-          uiSetLabel("存入失败: " + err);
+          uiSetLabel("存入失败: " + err, root);
         }
-        $.Schedule(3.0, function () { uiSetLabel("翻译本页"); });
+        $.Schedule(3.0, function () { uiSetLabel("翻译本页", root); });
       },
       LIVE_TARGET,
     );
   }
-  G.BBTSavePageToTable = savePageToTable;
 
-  function showTableStats() {
+  function showTableStats(root) {
     var provider = stats.liveProvider ? (" / provider=" + stats.liveProvider) : "";
     uiSetLabel(
       "条目 " + (stats.tableEntries || 0) + " · 别名 " + (stats.tableAliases || 0) +
         " · 本次实时 " + stats.live + provider,
+      root,
     );
-    $.Schedule(4.0, function () { uiSetLabel("翻译本页"); });
+    $.Schedule(4.0, function () { uiSetLabel("翻译本页", root); });
   }
-  G.BBTShowTableStats = showTableStats;
+
+  // ---- handler dispatch ---------------------------------------------------
+  // One entry point for everything the layout declares:
+  //   onactivate="BBTActivate('refresh', $.GetContextPanel());"
+  // The clicked panel is passed in as the instance hint, so the action lands in
+  // the tree the user is looking at even when another layout owns the globals.
+  function dispatch(action, origin) {
+    if (!action) return;
+    var root = rootOf(origin);
+    if (!uiGuard(root, "act:" + action, actionWindow(action))) return;
+    reportClick(action, root);
+    try {
+      if (action === "translate") translatePage(root);
+      else if (action === "refresh") refreshPage(root);
+      else if (action === "menu") toggleMenu(root);
+      else if (action.indexOf("hover") === 0) return; // status only
+      else if (action.indexOf("mode:") === 0) setLanguageMode(action.slice(5), root);
+      else if (action.indexOf("lang:") === 0) setTargetLang(action.slice(5), root);
+      else if (action === "save") savePageToTable(root);
+      else if (action === "stats") showTableStats(root);
+      else $.Msg("[BBT] unknown action " + action);
+    } catch (e) {
+      $.Msg("[BBT] action " + action + " threw: " + e);
+      uiSetStatus("错误:" + action, root);
+    }
+  }
+
+  // Panorama resolves onactivate="Name()" in the layout's global scope, so the
+  // handlers must exist there before the first click. BabelTower (the other long
+  // lived Deadlock Panorama mod here) lost a whole session's buttons to one
+  // exception that skipped its export lines; each export below is isolated and
+  // the result is collected so boot() can report a missing handler instead of
+  // letting the button die silently.
+  var exposedOk = {};
+  function expose(name, fn) {
+    var ok = false;
+    try {
+      G[name] = fn;
+      ok = typeof G[name] === "function";
+    } catch (e) { ok = false; }
+    // Some engine builds resolve XML handlers against the `$` object instead.
+    try {
+      if (typeof $ !== "undefined" && $) $[name] = fn;
+    } catch (e) {}
+    exposedOk[name] = ok;
+    return ok;
+  }
+
+  expose("BBTActivate", dispatch);
+  expose("BBTTranslatePage", translatePage);
+  expose("BBTRefreshPage", refreshPage);
+  expose("BBTToggleMenu", toggleMenu);
+  expose("BBTSetLanguageMode", setLanguageMode);
+  expose("BBTSetTargetLang", setTargetLang);
+  expose("BBTSavePageToTable", savePageToTable);
+  expose("BBTShowTableStats", showTableStats);
+
+  function missingHandlers() {
+    var out = [];
+    for (var k in exposedOk) {
+      if (!exposedOk[k]) out.push(k);
+    }
+    return out;
+  }
 
   function boot() {
     buildTermRegex();
@@ -2168,18 +2445,34 @@
     // The tag tells you WHICH layout actually carries the scanner; use it with
     // -condebug to check that every layout surface that shows player text is
     // really covered (e.g. a game update may spawn a new out-of-tree layout).
-    $.Msg("[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) + ") in layout: " + (layoutTag || "?") + "");
+    var bootRoot = layoutRoot(ctx);
+    var missing = missingHandlers();
+    $.Msg(
+      "[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) +
+        ") in layout: " + (layoutTag || "?") + " root=" + instTag(bootRoot)
+    );
+    if (missing.length) {
+      // This is the "button is not defined" failure: the layout will call a name
+      // that does not exist, and the click dies before any of our code runs.
+      // uiSetStatus appends the warning to every later status write too, so the
+      // wiring pass below cannot hide it behind "接线 N 项".
+      handlerMissingNames = missing;
+      $.Msg("[BBT] HANDLER EXPORT FAILED: " + missing.join(","));
+      uiSetStatus("缺少:" + missing.join(","), bootRoot);
+    } else {
+      uiSetStatus("v" + VERSION + " 启动中", bootRoot);
+    }
     $.Schedule(0.05, tick);
     // Probe the optional bridge a moment later so it never delays first paint.
     if (liveMode() !== "off") $.Schedule(1.2, liveProbe);
-    // The toolbar lives in the browser/details layouts; retry while the engine is
-    // still creating panels. Placement is measured from the 出装选项 button, so it
-    // needs a few attempts until the header has been laid out (sizes are 0 before
-    // the first layout pass).
+    // The toolbar lives in the details layout; retry while the engine is still
+    // creating panels. Placement is measured from the button row, so it needs a
+    // few attempts until the header has been laid out (sizes are 0 before the
+    // first layout pass).
     var wireTries = 0;
     (function wire() {
-      try { wireToolbar(); } catch (e) {}
-      try { placeToolbar(); } catch (e) {}
+      try { wireToolbar(bootRoot); } catch (e) { $.Msg("[BBT] wire threw: " + e); }
+      try { placeToolbar(bootRoot); } catch (e) {}
       wireTries += 1;
       if (wireTries < 12 && (!uiWiredOnce || wireTries < 8)) $.Schedule(0.5, wire);
     })();

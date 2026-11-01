@@ -127,12 +127,17 @@ const selectorFile = "citadel_ui_build_selector.xml";
 // the script must know how to drive this toolbar
 const js = fs.readFileSync(path.join(__dirname, "..", "mod", "panorama", "scripts", "bba_translate.js"), "utf8");
 check("script wires the toolbar", js.indexOf('"BBTTranslateButton2"') >= 0);
-check("script wires the refresh button", js.indexOf('"BBTRefreshButton2"') >= 0 && js.indexOf("G.BBTRefreshPage") >= 0);
+check("script exports the refresh handler to the engine's scope", js.indexOf('expose("BBTRefreshPage"') >= 0 && js.indexOf('"BBTRefreshButton2"') >= 0);
+check("script writes the refresh result onto the refresh button itself", js.indexOf("function uiSetRefreshText") >= 0);
 check("script can update the TextButton caption", js.indexOf('b.text = text') >= 0);
 check("script drives the dropdown", js.indexOf('"BBTMenu2"') >= 0);
-check("dropdown is toggled by inline style, not only by a CSS class", js.indexOf('style.visibility = menuOpen') >= 0);
+check("dropdown opens through the class and an inline style fallback", js.indexOf('"BBTMenuOpen"') >= 0 && js.indexOf("style.visibility") >= 0);
 check("script measures the toolbar position from the header", js.indexOf("function placeToolbar") >= 0 && js.indexOf("actualx") >= 0);
 check("menu items act inside the toolbar's own layout", js.indexOf("wireMenuItems(modes, setLanguageMode") >= 0);
+check("script resolves panels inside a given instance root", js.indexOf("function uiPanelIn") >= 0 && js.indexOf("function layoutRoot") >= 0);
+const detailsXml = fs.readFileSync(path.join(LAYOUT, detailsFile), "utf8");
+check("layout handlers carry the clicked panel into the script", detailsXml.indexOf("BBTActivate(&apos;refresh&apos;, $.GetContextPanel())") >= 0);
+check("no bare global handler name is left in the layout", !/on(?:mouse)?activate="BBT(?!Activate)[A-Za-z]+\(/.test(detailsXml));
 
 console.log("");
 if (failures) {

@@ -16,3 +16,7 @@ config/certs/
 
 # live bridge log
 logs/
+
+# local investigation scratch (session mining dumps, ad-hoc probes)
+tests/_scratch_livefix/
+

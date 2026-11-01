@@ -808,3 +808,71 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
 
 
 
+
+## 十五、v1.9.8 —— "三个按钮全无反应 / 下拉从不出现"根治(2026-11-01)
+
+### 现场反馈(本轮,用户原话)
+- 点「翻译本页」:**完全没反应**;
+- 点「刷新」时「翻译本页」按钮文字:**完全没有变化**;
+- 点「▾」:**下拉菜单完全不出现**;
+- 控制台日志:暂时拿不到。
+→ 不是单个按钮坏,而是**整条点击链路**(XML onactivate 与脚本 SetPanelEvent 两条)都没生效;
+菜单从未出现过。
+
+### 离线取证(为什么两条链路会同时失效)
+1. **XML 侧是裸全局名**:v1.9.6/v1.9.7 布局里是 `onactivate="BBTRefreshPage()"`,引擎按**全局作用域**
+   解析;而详情布局在游戏里同时存在 3 份实例(右侧详情 / 详情里内嵌的整页 / 悬停提示里的副本),
+   `G.BBT*` 被**最后 boot 的实例**覆盖 → 点击在别人的面板树上执行(菜单开到隐藏副本里、刷新作用在
+   隐藏副本上),可见界面零反应。布局注释(bba_translate.js:1789-1791 附近)早就承认这点。
+2. **JS 侧 SetPanelEvent 不是所有引擎版本都有**:旧代码 `typeof panel.SetPanelEvent === "function"`
+   不成立就**静默跳过**,日志只剩 `toolbar wired: 0 control(s)`;而 `uiPanel()` 只从"当前上下文根"
+   做 DFS 找第一个同名 id,并不保证是本实例可见的那一份。
+3. **菜单机制**:v1.8.0 起 `setMenuOpen` 只写 `style.visibility`,失败无兜底;`placeToolbar` 不夹边界,
+   菜单可能被推到根面板可视区外(既看不见也点不到);`.BBTMenuOpen` 复合选择器在实机曾被判定"不生效"
+   (TODO.md:701-703)。
+4. **导出无保护**:`G.BBTxxx = fn` 散落在 IIFE 体内,任何更早的顶层异常都会让后面所有 handler
+   变成 `is not defined`(同机 DeadlockLingua 有同型教训注释:`每个导出必须独立 try/catch`)。
+5. **反馈落点错**:v1.9.7 的刷新反馈只写"翻译本页"按钮,刷新按钮自身永远不变 → 用户看到"完全没有变化"。
+
+### 修法(v1.9.8)
+- **布局**:所有控件统一 `BBTActivate('action', $.GetContextPanel())` —— 把**被点的面板本身**作为实例线索;
+  `onactivate` 与 `onmouseactivate` 双事件(Valve 自己的按钮就用 onmouseactivate,引擎吞哪个都还有另一个);
+  菜单项同样改 `BBTActivate('mode:zh' / 'lang:ja' / 'save' / 'stats', $.GetContextPanel())`。
+- **脚本**:`dispatch(action, origin)` 统一入口;`rootOf / layoutRoot / uiPanelIn / pageRootIn` 全部
+  实例根作用域;`bindClick` 捕获本实例 scope(不再用全局 `G.BBT*Page`);`uiGuard` 改用 `Date.now()`;
+  XML 与 SetPanelEvent 两条路**共用同一 action 字符串做幂等键**,一次点击只执行一次。
+- **菜单**:类切换 + 行内样式**双写**;`menuIsOpen` 读面板自身状态(不靠全局布尔);
+  `placeToolbar` 把菜单夹在根面板边界内,下方放不下就向上开。
+- **反馈**:刷新结果写到**刷新按钮自己**("刷新中…" → "已刷新 N"/"刷新失败" → 1.6s 复原);
+  新增**可见状态行**(布局里 `<Label id="BBTStatusLabel2" class="BBTStatus"/>`,CSS `.BBTStatus`):
+  接线后显示 `v1.9.8 接线 N 项`,点击显示 `点:<action>`,动作结果显示 `刷新 N 条`/`菜单已开`/
+  `缺少:<handler>`。→ 拿不到控制台也能判断"点有没有送到脚本"。
+- **导出集中化**:文件末尾 `expose(name, fn)`(同时写 `G`(globalThis)与 `$`,逐个 try/catch);
+  `missingHandlers()` 自检,boot 时缺 handler 就在状态行显示 `缺少:…` 并打
+  `[BBT] HANDLER EXPORT FAILED: <names>`。
+- **测试**:`toolbar_cover_simtest` 断言更新(导出方式、双写菜单、无裸名 handler、实例根查找);
+  新增 `tests/wiring_simtest.js`(XML→JS 名字契约 + 两实例隔离 + 刷新反馈落点 + 缺失导出可见)。
+
+### 本机限制与交付
+- 本机**没有 Deadlock / CSDK / dist**:`dist/` 不存在,全盘搜不到 `pak13_dir.vpk` / `resourcecompiler.exe`;
+  `dist/` 也在 .gitignore 里,vpk 从不进 git。→ 我只能交付**源码 + 离线测试**,
+  打包与实机验证由用户在同一台装了 CSDK 的机器上做:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Csdk12Root "<Reduced_CSDK_12 根目录>" -Deploy
+  ```
+  (等价于 `dist\pak13_dir.vpk` → `<游戏>\game\citadel\addons\`,然后**完全重启 Steam**。)
+- **重要不确定性**:历史记录里 v1.9.7 的 vpk 是由用户手工复制安装的(agent 红线不碰 addons),
+  且用户没有说过装的是哪一版 → "现在仍存在的问题"可能是在**旧 vpk** 上测的。
+  v1.9.8 状态行会显示版本:装配成功后先看状态行是不是 `v1.9.8 接线 …`。
+### 复核:两条路径各执行一次 → 下拉"开了又关"(v1.9.8 收尾修复)
+- 新增的 `tests/wiring_simtest.js`(97 checks)在"同一次点击同时走 inline XML handler 与脚本
+  SetPanelEvent"的模拟里抓到真实缺陷:两个 toggle 相互抵消,菜单净关闭 = 用户点 ▾ 仍像没反应。
+  根因是两道防线各自的去重键都在**脚本闭包**里,而一次点击的两条路径可能落在不同实例/不同脚本上下文。
+- 修法:去重标记挪进**被点实例自己的面板树**——布局里新增 0x0 不可见的
+  `<Label id="BBTActMark2" class="BBTActMark"/>`,两条路径都往它写 `"<action>@<毫秒>"`,
+  窗口内重复即丢弃(全局 `G.__BBT_ACT` 账本保留作第二道网)。菜单类动作窗口 600ms,其余 350ms。
+- 顺带修掉另一个"静默失败":缺 handler 的 `缺少:…` 原本会被 0.5s 后的 `接线 N 项` 覆盖 →
+  现在 `uiSetStatus` 把缺失列表**黏在每条状态后面**(`接线 13 项 ·缺:BBTActivate`),日志同时有
+  `[BBT] HANDLER EXPORT FAILED:`。
+- 回归:`node --check` OK、XML 解析 OK、13 个套件全 exit 0(`layout_dom_simtest` 缺反编译布局仍 SKIP),
+  其中 `wiring_simtest` 现在断言"一次点击只 toggle 一次、菜单保持打开、marker 写在被点实例里"。
