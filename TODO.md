@@ -1168,3 +1168,44 @@ ControlArea→BBTControls2→按钮)。全 12 套 + build_layout_tokens --check 
   - 浏览器详情页:三个按钮重新可见、有原生深色底框、与“出装选项”等高,点后有结果。
   - 游戏内页:头部“翻译”点击后,之前那 8 条物品注释应出中文(数据已入库),按钮报“已译 N 条”。
   - 仍英文的只应是库中确实没有的新句子;出现新 MISS 就再跑 collect_new_texts.js + build_tm.js。
+
+### v1.9.15 —— 工具条改下拉(原文/翻译/中英对照) + 游戏内头部按钮同款 + 物品注释补库
+
+背景(2026-11-01 夜,v1.9.14 部署后用户反馈,任务书 `F:\agents\pi-1\BUG任务书-v1915.md`):
+“位置可以放到这里,可以仿照旁边的出装按钮做下拉栏。原文、翻译、对照三种模式,原文会被自动
+翻译。物品注释没有被翻译,我点击右上角我们加翻译按钮也不管用,我希望把我们右上角加的按钮也
+做成跟出装浏览器选择页面类似的功能。”
+实机证据(16:52 会话):
+  - 浏览器三按钮 `翻译/刷新/中` 叠在“版本 69/出装ID/已更新”作者信息上(红框①),位置错、互相压字;
+    `click mode:next` 三态循环正常 = 接线本身好,问题只在 UI 外壳。
+  - 游戏内头部按钮 `click translate on CitadelHudRoot`、`click-chain CitadelHudRoot||Panel`
+    (只有一层,无父)= origin 就是 HUD 根:该布局被 HUD 编译进来,内联 `$.GetContextPanel()`
+    在游戏内返回 HUD 根,扫描预算 3000 耗在 HUD 上,出装页没被覆盖 → 点了不管用。
+  - MISS 3 条物品注释:“should be rushed when ahead and cc cancer -” / “when you want antiheal …” /
+    “swap for spirit shielding when mo doorman or cc”(scan-summary skippedToken=0 = 纯数据缺口)。
+
+五个改动(S1–S5):
+1. 浏览器:三个按钮 → 一个下拉触发器(#BBTTranslateButton2,原生 Medium Fill + DropdownArrow,
+   与 #BuildOptionButton 同款),紧贴“出装选项 ▼”右侧(#BuildControls 内)。
+2. 下拉 #BBTMenu2:照抄引擎 #BuildControlsContainer 机制(上下文面板 + 类控制可见性),挂在
+   .HeroBuildsExtraInfo 里、与 #BuildControlsContainer 同级;5 个菜单项:原文/翻译/中英对照/
+   刷新本页/把新译文存入本地库。触发器 `menu:toggle` → 上下文面板 ToggleClass(BBTMenuOpen)。
+3. 三模式语义:复用 mode/setLanguageMode;MODE_LABELS 改为全文案(翻译/原文/中英对照);下拉
+   当前项 .BBTMenuSelected 高亮;触发器文案 = 当前模式;orig 模式只切显示、不清 memo。
+4. 游戏内头部按钮修根因:layoutRoot() 增配 CitadelShopModsBuild;#BBTTranslateButton3 删内联
+   onactivate,改由 wireHeaderButton→bindClick 的 SetPanelEvent 接管(拿到真实按钮,rootOf 命中
+   CitadelShopModsBuild,不再掉进 HUD 根);游戏内布局也加 #BBTMenu2。
+5. 数据补库:collect_new_texts.js(+3)+ build_tm.js:bba_tm.js 58618 → 58621;3 条注释入库。
+
+测试同步:toolbar_cover_simtest(单触发器 + #BBTMenu2 + 菜单项路由)、own_chrome_simtest
+(触发器/下拉/菜单项全 BBTNoTranslate)、wiring_simtest(menu:toggle 开合 + 菜单项点击 +
+多实例隔离 + uiGuard 去重 + 头部按钮无内联 handler)。全 12 套 + build_layout_tokens --check 全绿。
+
+待游戏验证:
+  - 浏览器详情页:“出装选项 ▼”右侧出现“翻译 ▼”,点开三项 原文/翻译/中英对照,切换三态文字正确,
+    不压作者信息/版本行。
+  - 游戏内页:头部“翻译”能开下拉、切三态、显示“已译 N 条”;日志不再出现 `click translate on
+    CitadelHudRoot`(应为 `click menu:toggle on …`)。
+  - 物品注释出中文;console.log 不再有那 3 条 MISS。
+  - §6 rect 探测:开 globalThis.BBT_DEBUG=true 后看 `[BBT] rect …` 行,据此微调 #BBTMenu2 的
+    静态 CSS 对齐(本版未凭空猜像素)。
