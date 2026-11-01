@@ -1135,3 +1135,36 @@ Medium Fill、css 删 .BBTButton/.BBTControls)。全 12 套 + build_layout_token
     按钮出现"已译 N 条/无新译文(M 条缺)"。
   - 概览/分类名/分类说明应出中文(数据已入库);"Radiant Daggers 注释"那条要等 S3 把它扫到
     之后再跑一次 collect_new_texts.js + build_tm.js 入库。
+
+### v1.9.14 —— 工具条包裹层回归(按钮恢复可见) + 物品注释补库
+
+背景(2026-11-01 傍晚,v1.9.13 部署后用户反馈):“概况翻译的还行,但是我要的按钮没了,
+单独出装里面物品有些没有翻译。”
+console.log(16:23–16:28)取证:
+  - 浏览器三按钮 `toolbar wired: 3 control(s)` 接线成功,但用户看不到按钮 = S4 去包裹层回归:
+    按钮裸挂在 #ControlArea 里,原生 “Fill” 样式把每个按钮撑满整行宽,后面的按钮被挤出可视区。
+  - 头部“翻译”可点(`click translate on CitadelHudRoot` ×3),但 `translate: ... wrote=0 ... miss=24`
+    = 物品注释不在库里(数据缺口,非按钮坏)。
+  - MISS 8 条新注释(16:25–16:28):“Active Lover Celeste”/“sigma”/“Radiant Regen is DEAD”/
+    “AKONORI || Celestial Period Blood Clots”/“no order buy whatever is needed” 等。
+
+两个修复:
+1. 工具条包裹层回归(citadel_ui_build_details.xml + bba.css + bba_translate.js)
+   - 三个按钮重新包进 #BBTControls2(flow-children:right),仍挂 #ControlArea 内、#BuildControls 前;
+    按钮 class 保持 “Medium Fill BBTNoTranslate”(原生皮肤不丢)。
+   - bba.css 恢复 `.BBTControls { flow-children: right; }`(只保留右流,不引入 v1.9.12 的
+     align/margin,避免“无原生皮肤”回归);.BBTButton 仍删。
+   - boot() 悬停 tooltip 折叠清单加 #BBTControls2(连包裹层一起折叠);VERSION → 1.9.14。
+2. 数据补库(bba_tm.js)
+   - collect_new_texts.js(+9 → 306)+ build_tm.js:bba_tm.js 58610 → 58618 条;上述 8 条注释
+     均已入库且译文正确(如 “Radiant Regen is DEAD”→“光辉回复已死”、“no order buy whatever
+     is needed”→“无需按顺序购买,买任何需要的东西”)。
+
+测试同步:toolbar_cover_simtest(断言有 #BBTControls2、三按钮挂在包裹层里、css 有
+flow-children:right)、own_chrome_simtest(包裹层 BBTNoTranslate)、wiring_simtest(父链
+ControlArea→BBTControls2→按钮)。全 12 套 + build_layout_tokens --check 全绿。
+
+待游戏验证:
+  - 浏览器详情页:三个按钮重新可见、有原生深色底框、与“出装选项”等高,点后有结果。
+  - 游戏内页:头部“翻译”点击后,之前那 8 条物品注释应出中文(数据已入库),按钮报“已译 N 条”。
+  - 仍英文的只应是库中确实没有的新句子;出现新 MISS 就再跑 collect_new_texts.js + build_tm.js。
