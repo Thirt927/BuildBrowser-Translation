@@ -894,3 +894,34 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
   `hittestchildren="false"` 会杀掉整棵子树的点击(tooltip 布局就是这样,但那是隐藏副本);
   `overflow` 默认 `squish` 会把下拉夹在祖先边界内 → placeToolbar 已把菜单夹在根边界内;
   `opacity:0` 仍会吃输入,所以去重 marker 用 `hittest="false"` + 0x0。
+
+## 十六、翻译覆盖审计(2026-11-01)
+
+完整报告见 `docs/translation-coverage-audit.md`。结论摘要:
+
+- **翻译记忆本身没问题**:58500 条、0 重复、0 排序断点(二分查找安全)、0 条占位符错译;
+  1371 条不含中文的条目抽查后是刻意保留原文的专有名词/梗/外语出装。
+- **真实出装 100% 覆盖**:样本分享码解出 46 条可见文本(name/description/category/annotation)全部命中 TM。
+- **修掉一处自伤**:v1.9.8 的点击去重 marker `BBTActMark2` 文本 `act:menu@<ms>` 无中文,会被当未翻译
+  文本采集(`[BBT] MISS`)→ 机翻进 `bba_tm.js` → 下个会话译文写回 marker,`name@<ms>` 解析失败,
+  去重失效、▾ 又回到「开了立刻关」。修法:布局给自有 UI 加 `class="BBTNoTranslate"`
+  (`#BBTBar2`/`#BBTMenu2`/`BBTStatusLabel2`/`BBTActMark2`),脚本新增 `isOwnChrome()` 并在
+  `scan()`/`translatePanel()`/`noteMiss()` 三处拦截;顺带在悬停提示里隐藏整条工具栏。
+  回归:`tests/own_chrome_simtest.js`(16 checks)。
+- **还没覆盖的文本(结构性,待后续)**:
+  1. 引擎 `#Token` 标签多半是原版英文——两因叠加:①`tools/build_layout_tokens.js` 只收
+     `Label|TextButton|Button|Panel`,漏掉 `CitadelButton`/`SplitLabel`/多 class/无 class 的 `text=`
+     (selector UseBuild/AddTag/Publish、shop 的 Edit/AddToQueue/Browse/CompactAll/AddCategory、
+     tooltip_mod 的 Enhanced/Corrupted 等),这些标签拿不到 token → 变化检测看不见、resync 不管、
+     引擎读回 `#Token` 时直接 return;②TM 里几乎没有 UI 英文行(抽查 43 个常见词条几乎全 miss)。
+  2. placeholder 永不翻译(selector 搜索框/发布弹窗三个输入框):`isTextEntry` 只记 memo,扫描器只读 `.text`。
+  3. `onmouseover` 的 `UIShowTextTooltipStyled` 提示由引擎临时生成,不在布局树里,扫描器遍历不到。
+  4. `{s:}`/`{i:}` 模板英文、`Show mods`/`Hide mods`(Valve 自己的布局)、build browser 弹窗标题未覆盖。
+  5. 运行时 `HAS_CJK` 不含 Hangul/假名,而 `tools/build_tm.js` 的 CJK 判定含 —— 两端不一致。
+- **写入路径风险(未修)**:`BuildName`/`BuildDescription` 被 `scan` 的 TM 写与 `applyResync` 重解析写
+  撞在一起,且 `applyResync` 先落英文再翻译 → 新文本 TM miss 时会停在英文、丢掉上次中文;
+  selector 与 details 两个脚本实例会把这批标签各 resync 一遍;`uiApplyResults` 写回的是
+  `$.GetContextPanel()` 而不是收集时的 root。
+- 建议修法(按性价比):① 扩 token 生成器正则 + 读 `placeholder=` + 多 class 用 id;重新生成 token 表;
+  ② 把常用 UI 英文词条补进 TM(离线也有中文);③ `applyResync` 改「命中才改 text」,selector 实例跳过嵌套 details;
+  ④ `uiApplyResults` 按收集 root 写回;⑤ 统一 CJK 判定。

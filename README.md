@@ -245,6 +245,7 @@ node tests\refresh_verify.js
 node tests\toolbar_cover_simtest.js
 node tests\ui_button_simtest.js
 node tests\wiring_simtest.js
+node tests\own_chrome_simtest.js
 node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 ```
 
@@ -269,11 +270,19 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 - `wiring_simtest.js`:按钮"点了没反应"的回归测试——解析布局里每个 `on*activate` 表达式,
   断言调用的 handler 都在脚本导出清单里;再用**两份互不干扰的假布局树**证明点击只作用于
   *被点的那一份*实例(菜单/状态/按钮文字不会写到另一份),并验证刷新反馈落在刷新按钮上。
+- `own_chrome_simtest.js`:自有 UI 不进翻译管线的回归测试——工具栏/菜单/状态行/去重 marker
+  必须带 `class="BBTNoTranslate"`,脚本必须在 `scan()`/`translatePanel()`/`noteMiss()` 三处拦截。
+  (去重 marker 的文本 `act:menu@<ms>` 无中文,一旦被采集机翻回写,`▾` 会回到"开了立刻关"。)
 
 ## 已知限制
 
 - **只翻译译文库收录过的文本**。新发布的出装、冷门出装可能仍是英文(有术语/整句兜底)。
   想让新出装也变中文,需要重新生成译文库并重打 VPK(见下节"出装更新了怎么办")。
+- **部分原版 UI 文字离线仍是英文**(不是 bug,是结构性缺口,详见
+  [docs/translation-coverage-audit.md](docs/translation-coverage-audit.md)):
+  引擎 `#Token` 标签(出装选项、Use Build、Add Tag、商城那几个按钮等)大多没有进译文库,
+  token 表生成器也漏掉了一部分控件类型;输入框的 `placeholder`、鼠标悬停提示
+  (`UIShowTextTooltipStyled`)不在扫描范围内。这些在实时通道(bridge)在线时可以实时翻。
 - 译文质量来自机器翻译 + 官方术语保护,个别句子可能生硬。
 - 游戏大版本更新后,布局可能变化:需要重新用 Source 2 Viewer 反编译对应 `*.vxml_c`,
   更新 `mod/panorama/layout/` 里的覆盖文件(保持原有结构,只加 `<scripts>`)。
@@ -471,11 +480,18 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
         `citadel_ui_build_details.xml`,或 `addons` 里有多份本 mod 的 pak),
         先按"排查"第 1、2 条清理,再试;
    4) 仍然不行就上 `-condebug` 抓 `[BBT]` 行,连同状态行内容一起反馈。
+6. **某个位置一直是英文**时先看它属于哪一类(完整审计见
+   [docs/translation-coverage-audit.md](docs/translation-coverage-audit.md)):
+   - 引擎自带的 `#Token` 文字(按钮/标题/分类名):`-condebug` 日志里搜 `[BBT] MISS`,
+     把缺的行反馈回来(或让 bridge 在线一会儿;这些文本会实时翻,长期靠重生成译文库固化)。
+   - 输入框里的灰字(占位符)、鼠标悬停的小提示:目前**不在扫描范围**,属于已知缺口。
+   - 右侧详情里的出装名/说明明明有译文却不显示:可能是 `applyResync` 在 TM 未命中时把中文
+     打回了英文(已知竞态,见审计报告"写入路径风险")。
 
 ## 目录结构
 
 ```
-mod/panorama/layout/          覆盖的原版布局(4 个)
+mod/panorama/layout/          覆盖的原版布局(6 个,含 2 个 tooltip 布局)
 mod/panorama/scripts/
   bba_translate.js            游戏内扫描 + 查表 + 替换
   bba_glossary.js             官方术语表(生成)
@@ -489,6 +505,9 @@ tools/
 scripts/build.ps1             编译 + 打包 + 部署
 tests/translate_simtest.js    游戏内脚本离线模拟测试
 tests/tools_simtest.js        工具链离线测试(出装码/术语保护/旧库合并)
+tests/wiring_simtest.js       工具栏点击链路回归(多实例/双激活路径去重)
+tests/own_chrome_simtest.js   自有 UI 不进翻译管线的回归测试
+docs/translation-coverage-audit.md  翻译覆盖审计(哪些覆盖、哪些结构性不覆盖)
 ```
 
 ## 致谢

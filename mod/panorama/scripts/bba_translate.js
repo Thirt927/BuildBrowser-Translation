@@ -1220,6 +1220,26 @@
     return false;
   }
 
+  // ---- our own chrome is not game text ----
+  // The toolbar status line and the click de-duplication marker are written by
+  // this script, not by the game. If the scanner treated them as content:
+  //   * "act:menu@<ms>" has no CJK, so it reached noteMiss() and the
+  //     "[BBT] MISS" harvest (tools/collect_new_texts.js -> build_tm.js ->
+  //     machine translation of a marker string into bba_tm.js);
+  //   * once such an entry exists, a translation would be written BACK into the
+  //     marker label, the "name@<ms>" stamp stops parsing and the second
+  //     activation path of one click is no longer de-duplicated (the v1.9.7
+  //     "dropdown opens and instantly closes" symptom would return);
+  //   * every click also added a junk MISS line, eating the 300-entry harvest
+  //     budget that real untranslated build text needs.
+  // Layouts mark these labels with class="BBTNoTranslate".
+  function isOwnChrome(panel) {
+    try {
+      if (panelHasClass(panel, "BBTNoTranslate")) return true;
+    } catch (e) {}
+    return false;
+  }
+
   // Only classes whose declaration is unambiguous get re-resolved as a single
   // token. ModifiesLabel is the exception: one class name is declared with two
   // different #tokens, so it carries a candidate list and resyncLabel tries
@@ -1445,6 +1465,9 @@
 
   function noteMiss(raw, panel) {
     if (!COLLECT_MISSES || stats.misses >= MISS_CAP) return;
+    // Never harvest our own chrome: "act:menu@<ms>" would be machine translated
+    // into bba_tm.js and then written back into the marker label.
+    if (panel && isOwnChrome(panel)) return;
     try {
       // Custom panels can expose their type name through .text; never collect that.
       if (panel && panel.paneltype && raw === panel.paneltype) return;
@@ -1479,6 +1502,9 @@
   }
 
   function translatePanel(panel, preRead) {
+    // Defence in depth: the scan already skips our own chrome, but every write
+    // entry point funnels through here (resyncAll, refresh, live bridge).
+    if (isOwnChrome(panel)) return;
     var raw;
     try {
       // Scan already read the text; re-reading it here would double the number
@@ -1611,6 +1637,7 @@
       } catch (e) {
         continue;
       }
+      if (isOwnChrome(p)) continue; // own status line / dedupe marker
       var known = memo.has(p);
       if (!known) fresh += 1;
       // Only panels that carry a string need the extra TextEntry probes; every
@@ -2425,10 +2452,16 @@
           if (!upc) upc = String(up.class || "");
         } catch (e) { upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
-          var tc = uiPanel("BBTControls2");
+          // Collapse the WHOLE toolbar row: hiding only the three buttons left the
+          // 30px bar plus the status readout floating over the hover card.
+          var tb = uiPanelIn(ctx, ["BBTBar2", "BBTBar"]);
+          if (tb && tb.style) tb.style.visibility = "collapse";
+          var tc = uiPanelIn(ctx, ["BBTControls2", "BBTControls"]);
           if (tc && tc.style) tc.style.visibility = "collapse";
-          var tm = uiPanel("BBTMenu2");
+          var tm = uiPanelIn(ctx, ["BBTMenu2", "BBTMenu"]);
           if (tm && tm.style) tm.style.visibility = "collapse";
+          var ts = uiPanelIn(ctx, ["BBTStatusLabel2", "BBTStatusLabel"]);
+          if (ts && ts.style) ts.style.visibility = "collapse";
           // Permanent B1/B5 instrumentation: proves in the morning log that the
           // hover-tooltip surface really gets its toolbar hidden (v1.9.6 never
           // hid it - the class check failed on the wrong API).

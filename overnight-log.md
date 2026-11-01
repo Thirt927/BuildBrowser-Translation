@@ -168,3 +168,30 @@ script scope** 求值;非模块脚本的顶层函数会隐式暴露,但 **IIFE �
 这比"全局被最后 boot 的实例覆盖"更直接地解释了"三按钮 + 下拉同时全死"。v1.9.8 的 `expose()`
 因此改为三路导出:脚本全局对象、`$`、以及文档指定的 `$.GetContextObject()`(每路独立 try/catch)。
 `wiring_simtest` 97 checks 仍全绿,13 个套件全 PASS。
+## 翻译覆盖审计(v1.9.8 后续,同日)
+
+用户问「检查有没有翻译覆盖问题」。审计过程:①解析 `bba_tm.js` 的 58500 条(重复/排序/占位符/长度);
+②用 `tools/build_code.js` 解 `samples/sample-build-code.txt`,46 条可见文本逐条查表;
+③6 个覆盖布局逐行核对 `#Token`/硬编码英文/`placeholder`/`onmouseover` 提示;
+④反查 token 表生成器漏收的控件类型;⑤审查同一文本的多条写入路径。
+
+结论:TM 数据本身没问题(0 重复、0 排序断点、二分查找安全);真实样本出装 46/46 = 100%。
+**发现并修掉一处自伤**:v1.9.8 的去重 marker `BBTActMark2` 文本 `act:menu@<ms>` 无中文,
+会被扫描器当待译文本 → `[BBT] MISS` → 机翻进 `bba_tm.js` → 下个会话译文写回 marker,
+`name@<ms>` 戳解析失败、去重失效,▾ 又回到「开了立刻关」;菜单项 `English`/`한국어` 同理会
+被采集改写、破坏 `wireMenuItems` 的文本匹配。修法:布局给自有 UI 打 `class="BBTNoTranslate"`
+(`BBTBar2`/`BBTMenu2`/`BBTStatusLabel2`/`BBTActMark2`),脚本新增 `isOwnChrome()` 并在
+`scan()`/`translatePanel()`/`noteMiss()` 三处拦截;顺带把悬停提示里的**整条工具栏**隐藏
+(原来只藏三个按钮,30px 空条 + 状态行还浮在提示卡上)。新增 `tests/own_chrome_simtest.js`
+(16 checks)锁住这两半。
+
+**尚未覆盖(结构性,已写进 docs/translation-coverage-audit.md)**:引擎 `#Token` 标签大多不在
+TM 里(58500 条几乎全是出装笔记)+ token 表生成器只收 `Label|TextButton|Button|Panel`,
+漏掉 `CitadelButton`/`SplitLabel`/多 class/无 class 的 `text=`(selector 的 UseBuild/AddTag/Publish、
+shop 的 Edit/AddToQueue/Browse/CompactAll/AddCategory、tooltip_mod 的 Enhanced/Corrupted 等);
+`placeholder` 与 `onmouseover` 工具提示结构上不在扫描范围;`HAS_CJK` 与 `build_tm.js` 的
+CJK 判定不一致(前者不含 Hangul/假名)。另有 `BuildName`/`BuildDescription` 的 TM 写与
+`applyResync` 重解析写竞态(TM miss 时会停在英文并丢中文)、selector/details 双实例重复 resync、
+`uiApplyResults` 写回 root 不匹配——都已记录为后续修法。
+
+复测:`node --check` OK、6 个布局 `ET.parse` OK、14 个套件全 exit 0(`layout_dom_simtest` 缺反编译布局 SKIP)。

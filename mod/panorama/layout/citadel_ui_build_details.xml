@@ -78,19 +78,31 @@
 				     BBTStatusLabel2 is the always-visible state readout: it shows
 				     v1.9.8 接线 N 项, then the last action ("点:刷新"/"菜单已开"), which
 				     answers "did my click arrive?" without opening the console. -->
-				<Panel id="BBTBar2" class="BBTBar" hittest="true" onmouseover="BBTActivate(&apos;hover:bar&apos;, $.GetContextPanel());">
+				<!-- BBTNoTranslate: this subtree is our own UI, not game text. The
+				     scanner must not "translate" it: the "English"/"한국어" menu
+				     labels would otherwise be harvested as untranslated text and
+				     rewritten, which breaks the label-text matching that binds the
+				     menu items. -->
+				<Panel id="BBTBar2" class="BBTBar BBTNoTranslate" hittest="true" onmouseover="BBTActivate(&apos;hover:bar&apos;, $.GetContextPanel());">
 					<Panel id="BBTControls2" class="BBTControls" hittest="true">
 						<TextButton id="BBTTranslateButton2" class="BBTButton Medium Fill" text="翻译本页" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
 						<TextButton id="BBTRefreshButton2" class="BBTButton Medium Fill" text="刷新" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
 						<TextButton id="BBTMenuButton2" class="BBTButton Medium Fill BBTMenuButton" text="&#9662;" hittest="true" onactivate="BBTActivate(&apos;menu&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;menu&apos;, $.GetContextPanel());" />
 					</Panel>
-					<Label id="BBTStatusLabel2" class="BBTStatus" hittest="false" />
+					<Label id="BBTStatusLabel2" class="BBTStatus BBTNoTranslate" hittest="false" />
 					<!-- De-duplication marker (0x0, invisible): both activation paths
 					     of one click write their action name + timestamp here, so the
 					     second path is dropped even when the two paths run in
 					     different script contexts/instances. Without it a toggle
-					     opened and instantly closed the dropdown = "dead ▾". -->
-					<Label id="BBTActMark2" class="BBTActMark" hittest="false" />
+					     opened and instantly closed the dropdown = "dead ▾".
+					     BBTNoTranslate keeps the translator off it: its text is
+					     "act:menu@<ms>" (no CJK), so without that class the scanner
+					     would log it as an untranslated game string, the harvest
+					     pipeline would machine-translate the marker into bba_tm.js,
+					     and the next session would write Chinese back into it, so the
+					     "name@<ms>" stamp stops parsing and the de-duplication that
+					     makes ▾ work would break again. -->
+					<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
 				</Panel>
 				<Panel id="BuildDetails">
 					<Panel id="DetailsTop">
@@ -140,7 +152,7 @@
 		     belong to another layout instance, and a missing export shows up as a
 		     status-line error instead of a dead button. onmouseactivate mirrors
 		     onactivate because Valve's own buttons in this file rely on it. -->
-		<Panel id="BBTMenu2" class="BBTMenu" hittest="true">
+		<Panel id="BBTMenu2" class="BBTMenu BBTNoTranslate" hittest="true">
 			<Button class="BBTMenuItem" hittest="true" onactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());">
 				<Label text="显示中文"  hittest="false"/>
 			</Button>
