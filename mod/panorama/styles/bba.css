@@ -8,14 +8,29 @@
    simply disappears. See resyncLabel in bba_translate.js. */
 
 
-/* Toolbar: its own row inside #BuildInfo (which is flow-children: down, so the
-   row is really laid out and gets clicks). #BuildControls must not be used: the
-   engine styles it as a 220px box without flow-children, so every child lands on
-   the same spot and would cover 出装选项. */
-.BBTBar { width: 100%; height: 30px; margin-top: 6px; }
+/* Toolbar: a child of the LAYOUT ROOT, not of #BuildInfo. Panorama only
+   hit-tests inside the parent's bounds; inside #BuildInfo the row rendered in
+   the right place but every click fell through to the panel behind it (v1.9.8
+   "按钮无效无法点击"). The root spans the whole details pane, so the row is
+   fully clickable; placeToolbar() in bba_translate.js sets its margin-top and
+   the buttons' margin-right from the engine's own control row. */
+.BBTBar {
+	align: left top;
+	width: 100%;
+	height: 30px;
+}
+/* Transparent spacer inside #BuildInfo: holds the space the root-level toolbar
+   row is painted over, so the overview still starts below it. */
+.BBTSlot { width: 100%; height: 36px; }
 .BBTControls { align: right center; flow-children: right; margin-right: 4px; }
 .BBTButton { margin-left: 4px; }
 .BBTMenuButton { min-width: 26px; }
+
+/* In-game shop-page header button (citadel_shop_mods_build.xml, first child of
+   #ControlButtons). Collapsed by default: the same layout is also embedded in
+   the build browser, where the details toolbar already offers these buttons.
+   bba_translate.js sets visibility:visible only on the standalone instance. */
+#BBTTranslateButton3 { visibility: collapse; margin-right: 6px; }
 
 /* Visible state readout. The player has no console when the mod misbehaves, so
    the toolbar reports the last thing that happened right here: "v1.9.8 接线 13

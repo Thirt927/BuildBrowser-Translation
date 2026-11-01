@@ -735,6 +735,60 @@ checkEq(XB.byId.get("BBTMenu2")._style.visibility, "collapse", "tooltip 副本�
 checkEq(XA.byId.get("BBTActMark2").text.indexOf("act:menu@"), 0, "去重 marker 写在被点实例自己的树里");
 
 /* ------------------------------------------------------------------ */
+/* [7] v1.9.9: toolbar row on the layout root + never write a #token   */
+/* ------------------------------------------------------------------ */
+
+console.log("== [7] v1.9.9 toolbar placement + no token writes ==");
+
+// Panorama only hit-tests inside the parent's bounds. v1.9.8 kept the toolbar
+// row inside #BuildInfo: it painted in the right place but every click fell
+// through to the panel behind it (user report 2026-11-01 "按钮无效无法点击").
+// The row is a child of the layout root now, and a transparent slot keeps its
+// 36px of space inside #BuildInfo so the overview still starts below it.
+const g7 = newHarness();
+const G7 = bootTree(g7, {}, true);
+const bar7 = G7.byId.get("BBTBar2");
+const bar7Parent = bar7 ? bar7.GetParent() : null;
+check(bar7 !== null, "树里存在 BBTBar2");
+checkEq(bar7Parent && bar7Parent.paneltype, "CitadelBuildDetails", "BBTBar2 的父面板是布局根（不再放在 #BuildInfo 里，整行可点）");
+check(G7.byId.get("BBTSlot2") !== null, "#BuildInfo 里保留 #BBTSlot2 占位，概览不被工具条覆盖");
+check(
+  /^\d+px$/.test(bar7 ? bar7._style.marginTop : ""),
+  "placeToolbar 从引擎控件行算出并写入工具条的 marginTop",
+  "marginTop=" + JSON.stringify(bar7 && bar7._style.marginTop)
+);
+check(
+  /^\d+px$/.test(G7.byId.get("BBTControls2")._style.marginRight),
+  "按钮行右边缘对齐引擎的 #BuildOptionButton",
+  "marginRight=" + JSON.stringify(G7.byId.get("BBTControls2")._style.marginRight)
+);
+
+// The in-game build page gets one extra button in the engine's own header row:
+// first child of #ControlButtons, i.e. immediately left of the info icon (the
+// slot the player pointed at). The same layout is embedded in the browser, so
+// the button is collapsed by default and shown only on the standalone page.
+const shopXml = fs.readFileSync(path.join(ROOT, "mod", "panorama", "layout", "citadel_shop_mods_build.xml"), "utf8");
+const bbaCss = fs.readFileSync(path.join(ROOT, "mod", "panorama", "styles", "bba.css"), "utf8");
+const headerBtnXml = shopXml.match(/<[^>]*\bid="BBTTranslateButton3"[^>]*>/);
+const headerBtnTag = headerBtnXml ? decodeEntities(headerBtnXml[0]) : null;
+const controlButtonsIdx = shopXml.indexOf('<Panel id="ControlButtons">');
+check(headerBtnXml !== null, "游戏内出装页头部有翻译按钮（#BBTTranslateButton3）");
+check(
+  controlButtonsIdx >= 0 && shopXml.indexOf('id="BBTTranslateButton3"') > controlButtonsIdx,
+  "头部按钮在 #ControlButtons 行内（信息图标左侧）"
+);
+check(headerBtnTag !== null && /BBTActivate\('translate'/.test(headerBtnTag), "头部按钮走 BBTActivate('translate')（与浏览器的翻译本页同一条路径）");
+check(/#BBTTranslateButton3\s*\{[^}]*visibility:\s*collapse/.test(bbaCss), "头部按钮默认折叠（内嵌到出装浏览器时不重复出现）");
+
+// The v1.9.8 flicker root cause: the resync path used to write the declared
+// #token back into label.text, and Panorama does not re-localize a token that
+// JS assigns, so the label rendered "#Citadel_HeroBuilds_CategoryDescription"
+// literally and the next scan translated it again. No write may ever start
+// with "#".
+const tokenWrites = g7.state.writes.filter((w) => w.prop === "text" && String(w.to).charAt(0) === "#");
+checkEq(tokenWrites.length, 0, "没有任何写操作把 #token 写进 label.text（v1.9.8 闪烁根因）");
+
+/* ------------------------------------------------------------------ */
 
 console.log("");
 console.log("checks: " + checks + ", failures: " + failures);

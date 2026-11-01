@@ -414,6 +414,50 @@ check(
   check("[G] category description refreshed", catP.text === "治疗类英雄的分类。", JSON.stringify(catP.text));
 }
 
+// =====================================================================
+// Case H: a label left showing a literal #Token. The engine only localizes a
+// token written in the XML attribute, so the v1.9.8 resync that assigned tokens
+// through JS put "#Citadel_HeroBuilds_CategoryDescription" on screen, the
+// scanner skipped it ("#" early-out) and the next pass translated it again =
+// the reported flicker. The scanner must repair such a label: localize the token
+// itself, translate the result, and never write a token back.
+// =====================================================================
+{
+  const root = makePanel({});
+  const idP = makeVarPanel("#Citadel_HeroBuilds_BuildID", "BUILD-111", "BuildID");
+  const catP = makeVarPanel(
+    "#Citadel_HeroBuilds_CategoryDescription",
+    "Category for the Rend hero.",
+    "CategoryDescription",
+  );
+  // the corrupted on-screen state: binding destroyed, the raw token visible
+  catP._template = null;
+  catP._text = "#Citadel_HeroBuilds_CategoryDescription";
+  attach(root, idP, catP);
+  const { sandbox, queue } = boot(root);
+  run(queue, 4);
+  check("[H] label stuck on a raw #token is repaired", catP.text === "撕裂类英雄的分类。", JSON.stringify(catP.text));
+  run(queue, 6);
+  check(
+    "[H] repaired label stays translated (no token <-> text alternation)",
+    catP.text === "撕裂类英雄的分类。",
+    JSON.stringify(catP.text),
+  );
+  catP._vars.category_description = "Category for the Heal hero.";
+  idP.engineSet("BUILD-222");
+  run(queue, 8);
+  check(
+    "[H] the repaired label follows the new category instead of freezing",
+    catP.text === "治疗类英雄的分类。",
+    JSON.stringify(catP.text),
+  );
+  check(
+    "[H] no token was written back to the label",
+    !String(catP.text).startsWith("#"),
+    JSON.stringify(catP.text),
+  );
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log("");
 if (failures) {

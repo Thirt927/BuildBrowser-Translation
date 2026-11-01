@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.8";
+  var VERSION = "1.9.9";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -660,22 +660,6 @@
     return live.panel;
   }
 
-  function liveHealthUrl(t, id) {
-    return "https://localhost:" + t.port + "/bridge?id=" + id + "&op=health";
-  }
-
-  // BabelTower's page reads a JSON payload from ?d= and posts it to its own API;
-  // our bridge accepts the same shape, so one client works with both.
-  function liveTranslateUrl(t, id, text, target) {
-    var payload = {
-      operation: "translate",
-      text: text,
-      targetLanguage: target || "zh-Hans",
-    };
-    return "https://localhost:" + t.port + "/bridge?id=" + id +
-      "&op=translate&d=" + encodeURIComponent(JSON.stringify(payload));
-  }
-
   // Build the bridge page URL for one request.
   //   kind "health"        -> ?op=health
   //   kind "text"          -> one text, works with BabelTower and our bridge
@@ -792,7 +776,7 @@
       return;
     }
     var t = LIVE_TARGETS[index];
-    liveSend({ kind: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
+    liveSend({ kind: "health" }, LIVE_PROBE_TIMEOUT, function (ok, _err, payload) {
       if (ok && payload && (payload.ok || payload.translations)) {
         LIVE_TARGET = t;
         live.provider = payload.provider ? String(payload.provider) : "";
@@ -1102,9 +1086,6 @@
   // bridge becomes available (otherwise the "nothing to do" memo would keep them
   // English forever).
   var missedList = [];
-  if (!WeakSet) {
-    var weakList = [];
-  }
   // Identity labels (build name, build id, mod name): their text changes when
   // the shown build/item changes.
   var identity = new WeakMap();
@@ -1189,14 +1170,6 @@
   // Only when that yields nothing we put the declared #token back into the label
   // and let the engine render it; if that fails too the previous text is
   // restored, so the UI never sits on a raw "#Token".
-  function classListOf(panel) {
-    try {
-      var c = panel.class;
-      if (typeof c === "string") return c;
-    } catch (e) {}
-    return "";
-  }
-
   // Source 2 in-game panels expose no `.class` string and no DOM-like
   // classList: the engine binding is panel.BHasClass(name) (the form BabelTower
   // verified in game; our v1.9.6 test proved classList/.class collect 0 labels
@@ -1273,18 +1246,68 @@
   // text is dropped first: when the translation memory has nothing for the new
   // build the label must fall back to the new English instead of keeping the
   // previous build's Chinese (that was the "overview never changes" report).
+  // What this English should say in Chinese, or null when nothing is known.
+  // Kept separate from translatePanel() so a resync can write the final text in
+  // ONE assignment: writing the English first and the Chinese a moment later is
+  // a visible two-step repaint (the "translation is flickering" report).
+  function translationFor(raw) {
+    var hit = lookup(raw);
+    if (hit) return hit.wasCopy ? hit.text + " 的副本" : hit.text;
+    var frag = fragmentTranslate(raw);
+    if (frag) return frag;
+    if (normalize(raw).length <= TERM_FALLBACK_MAX) {
+      var mixed = substituteTerms(raw);
+      if (mixed) return mixed;
+    }
+    return null;
+  }
+
   function applyResync(p, raw) {
     var cur = null;
     try { cur = p.text; } catch (e) { cur = null; }
     memo.delete(p);
     if (mode === "orig") {
-      try { p.text = raw; } catch (e) {}
+      if (cur !== raw) {
+        try { p.text = raw; } catch (e) {}
+      }
       return;
     }
+    var target = translationFor(raw);
+    if (target) {
+      target = present(raw, target);
+      if (writeText(p, target)) stats.writes += 1;
+      remember(p, 1, raw, target);
+      return;
+    }
+    // Nothing known yet: show the engine's new English (single write) and let
+    // the scanner / live bridge fill it in on a later pass.
     if (cur !== raw) {
       try { p.text = raw; } catch (e) {}
     }
-    try { translatePanel(p, raw); } catch (e) {}
+    remember(p, 0, raw, null);
+  }
+
+  // Panels the engine will not re-localize for us. v1.9.8 and earlier "restored"
+  // the declared #token into label.text and waited for the engine to resolve it;
+  // the engine only localizes the token in the XML attribute, NOT when JS assigns
+  // it, so the label rendered the literal "#Citadel_HeroBuilds_CategoryDescription"
+  // on screen (screenshots 2026-11-01) and the next scan pass translated it again
+  // = the reported flicker. Never write a token; freeze the panel for a while so
+  // the refresh loop cannot alternate between our text and a raw token either.
+  var resyncFrozen = new WeakMap();
+  var RESYNC_FREEZE_MS = 4000;
+
+  function freezeResync(p) {
+    try { resyncFrozen.set(p, nowMs() + RESYNC_FREEZE_MS); } catch (e) {}
+  }
+
+  function isResyncFrozen(p) {
+    var until = 0;
+    try { until = resyncFrozen.get(p) || 0; } catch (e) { return false; }
+    if (!until) return false;
+    if (nowMs() < until) return true;
+    try { resyncFrozen.delete(p); } catch (e) {}
+    return false;
   }
 
   var localizeProbed = false;
@@ -1329,37 +1352,18 @@
         );
       }
     }
-    // 2) Not available. For unambiguous roles put the declared token back and
-    // let the engine render it (0.2s is enough for the label to be laid out
-    // again). Ambiguous roles must not guess (a wrong token renders a
-    // different annotation), so they restore the last seen text instead.
-    if (typeof prev !== "string" || prev.indexOf("#") === 0) prev = null;
-    if (cands.length > 1) {
-      stats.resyncFail = (stats.resyncFail || 0) + 1;
-      if (prev !== null) { try { p.text = prev; } catch (e) {} }
-      if (debugOn()) $.Msg("[BBT] resync-defer " + cands.join(","));
-      return true;
+    // 2) The engine will not hand us the current value. Do NOT write the token
+    // back (see freezeResync): the engine does not re-localize a token assigned
+    // through JS, so the label would render "#Citadel_..." literally and the
+    // next scan would translate it again. Leaving the label alone keeps the last
+    // good text on screen; the freeze stops the refresh loop from retrying it
+    // every tick, and a panel whose text the engine does replace will be picked
+    // up by the scanner (raw text + memo miss) rather than by us.
+    freezeResync(p);
+    stats.resyncFail = (stats.resyncFail || 0) + 1;
+    if (debugOn()) {
+      $.Msg("[BBT] resync-unresolved " + cands.join(",") + " text=" + JSON.stringify(String(prev).slice(0, 24)));
     }
-    try { p.text = cands[0]; } catch (e) { return false; }
-    var tries = 0;
-    (function check() {
-      tries += 1;
-      var now = null;
-      try { now = p.text; } catch (e) { now = null; }
-      var val = resolvedText(now, cands[0]);
-      if (val) {
-        stats.resyncOk = (stats.resyncOk || 0) + 1;
-        if (debugOn()) $.Msg("[BBT] resync-ok " + cands[0] + " -> " + JSON.stringify(val.slice(0, 40)));
-        applyResync(p, val);
-        return;
-      }
-      if (tries < 3) { $.Schedule(0.2, check); return; }
-      stats.resyncFail = (stats.resyncFail || 0) + 1;
-      if (prev !== null) {
-        try { p.text = prev; } catch (e) {}
-      }
-      if (debugOn()) $.Msg("[BBT] resync-fail " + cands[0] + " raw=" + JSON.stringify(String(now).slice(0, 24)));
-    })();
     return true;
   }
 
@@ -1391,7 +1395,7 @@
       try { if (p.IsValid && !p.IsValid()) ok = false; } catch (e) { ok = false; }
       if (!ok) continue;
       if (!panelVisible(p)) continue;
-      if (roleTokenFor(p)) {
+      if (roleTokenFor(p) && !isResyncFrozen(p)) {
         if (primaryRole(p)) primary.push(p);
         else secondary.push(p);
       }
@@ -1532,6 +1536,14 @@
       if (!memo.has(panel)) tokenOf.set(panel, raw);
       observedToken.set(panel, raw);
       remember(panel, 0, raw, null);
+      // A label can be STUCK on its declared token: the engine localizes the
+      // token written in the XML attribute, not one assigned through JS (v1.9.8
+      // wrote tokens and rendered "#Citadel_HeroBuilds_CategoryDescription" on
+      // screen). Repair it instead of leaving the raw token visible: localize
+      // it ourselves, then translate the result. Panels bound to a {s:var}
+      // template cannot be repaired this way (Localize hands back the template
+      // itself), and they are left alone.
+      repairToken(panel, raw);
       return;
     }
     // Some custom panels expose their type name through .text; never treat that
@@ -1621,7 +1633,31 @@
     }
   }
 
-  var lastVisited = 0;
+  // See the #token branch of translatePanel. Writes at most once: either the
+  // translated text (when we know it) or the engine's own localized string.
+  function repairToken(panel, tok) {
+    var val = null;
+    try { val = $.Localize(tok, panel); } catch (e) { val = null; }
+    if (typeof val !== "string" || !val) return false;
+    if (val === tok || val.indexOf("#") === 0 || val.indexOf("{s:") >= 0) return false;
+    var out = translationFor(val);
+    if (out) {
+      var shown = present(val, out);
+      if (writeText(panel, shown)) {
+        stats.translated += 1;
+        stats.writes += 1;
+        stats.repaired = (stats.repaired || 0) + 1;
+      }
+      remember(panel, 1, val, shown);
+      return true;
+    }
+    // Nothing known for the localized text yet: show the engine's own words and
+    // let the scanner/bridge translate it on a later pass. This is the raw
+    // English, never the token, so the label cannot stay on "#Citadel_...".
+    if (writeText(panel, val)) stats.writes += 1;
+    remember(panel, 0, val, null);
+    return true;
+  }
 
   function scan(root) {
     var stack = [root];
@@ -1697,7 +1733,6 @@
     }
     stats.scanned += visited;
     stats.skipped += skipped;
-    lastVisited = visited;
     return fresh;
   }
 
@@ -1926,41 +1961,61 @@
     var scope = root || contextPanel();
     var ctl = uiPanelIn(scope, ["BBTControls2", "BBTControls"]);
     var menu = uiPanelIn(scope, ["BBTMenu2", "BBTMenu"]);
+    var bar = uiPanelIn(scope, ["BBTBar2", "BBTBar"]);
     if (!ctl || !menu) return false;
     var base = layoutRoot(scope);
     if (!base) return false;
-    var off = actualOffset(ctl, base);
-    if (!off) return false;
-    var ch = 0;
     var cw = 0;
     var rw = 0;
     var rh = 0;
     var mh = 0;
-    try { ch = Number(ctl.actualheight) || 0; cw = Number(ctl.actualwidth) || 0; } catch (e) {}
+    var ch = 0;
+    var cw = 0;
     try { rw = Number(base.actualwidth) || 0; rh = Number(base.actualheight) || 0; } catch (e) {}
     try { mh = Number(menu.actualheight) || 0; } catch (e) {}
+    // The toolbar row used to be a child of #BuildInfo. Panorama only hit-tests
+    // inside the parent's bounds and #BuildInfo's height is the engine's header
+    // height, so the row rendered below the header but every click fell through
+    // to the panel behind it ("按钮点了没反应", 2026-11-01). The row now lives on
+    // the layout root - the same fix the dropdown needed - and is positioned
+    // from the engine's own control row: top = that row's bottom edge, right
+    // edge = the 出装选项 button's right edge.
+    var anchor = uiPanelIn(scope, ["BuildOptionButton"]);
+    var anchorRow = uiPanelIn(scope, ["ControlArea"]);
+    var ref = anchor || anchorRow;
+    var ro = ref ? actualOffset(ref, base) : null;
+    var refW = 0;
+    var refH = 0;
+    if (ref) {
+      try { refW = Number(ref.actualwidth) || 0; refH = Number(ref.actualheight) || 0; } catch (e) {}
+    }
     // Before the first layout pass every size is 0; the CSS fallback stays until
     // the next attempt (the wire loop below retries 12 times).
-    if (ch <= 0 || cw <= 0 || rw <= 0) {
+    if (!ro || rw <= 0 || refW <= 0) {
       if (!placeProbeDone && debugOn()) {
         placeProbeDone = true;
         $.Msg(
           "[BBT] toolbar-place css-fallback ctl=" + (ch + "x" + cw) +
-            " root=" + rw + "x" + rh + " off=" + JSON.stringify(off) +
-            " actualx=" + (function () { try { return ctl.actualx; } catch (e) { return "?"; } })() +
-            " actualy=" + (function () { try { return ctl.actualy; } catch (e) { return "?"; } })()
+            " root=" + rw + "x" + rh + " off=" + JSON.stringify(ro) +
+            " anchor=" + (ref ? "yes" : "none") + " anchorW=" + refW
         );
       }
       return false;
     }
-    var top = Math.round(off.y + ch + 4);
-    var right = Math.round(rw - (off.x + cw));
+    var barTop = Math.round(ro.y + refH + 6);
+    var right = Math.round(rw - (ro.x + refW)) + 8;
     if (right < 4) right = 4;
+    var barH = ch > 0 ? ch : 30;
+    if (bar && barTop > 0) {
+      try { bar.style.marginTop = barTop + "px"; } catch (e) {}
+    }
+    try { ctl.style.marginRight = right + "px"; } catch (e) { return false; }
+    var top = Math.round(barTop + barH + 4);
     // Keep the whole dropdown inside the layout root. A menu whose top is past
     // the root's bottom edge is drawn outside its hit-test box: invisible AND
     // unclickable. When there is no room below, open upwards instead.
     if (rh > 0 && mh > 0 && top + mh > rh - 4) {
-      var above = Math.round(off.y - mh - 4);
+      var above = Math.round(barTop - mh - 4);
       top = above >= 4 ? above : Math.max(4, rh - mh - 4);
     }
     if (!(top > 0)) top = 4;
@@ -1976,6 +2031,7 @@
     var scope = root || contextPanel();
     if (!scope) return false;
     try { placeToolbar(scope); } catch (e) {}
+    try { wireHeaderButton(scope); } catch (e) {}
     if (uiWiredOnce) return true;
     var translateBtn = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
     var refreshBtn = uiPanelIn(scope, ["BBTRefreshButton", "BBTRefreshButton2"]);
@@ -1984,9 +2040,9 @@
     // Handlers capture this instance's root (not G.BBT*Page): the global is
     // overwritten by whichever layout booted last, and that instance does not
     // share our memo/written state.
-    bindClick(translateBtn, "translate", function () { translatePage(scope); });
-    bindClick(refreshBtn, "refresh", function () { refreshPage(scope); });
-    bindClick(menuBtn, "menu", function () { toggleMenu(scope); });
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(scope); }, "translate", scope);
+    onActivate(["BBTRefreshButton", "BBTRefreshButton2"], function () { refreshPage(scope); }, "refresh", scope);
+    onActivate(["BBTMenuButton", "BBTMenuButton2"], function () { toggleMenu(scope); }, "menu", scope);
     // The bind names below are the same action strings the layout passes to
     // BBTActivate ("mode:zh", "lang:ja", "save", ...): both activation paths then
     // share one uiGuard key, so a click that reaches us twice runs the action once.
@@ -2010,6 +2066,29 @@
     var n = Object.keys(uiWired).length;
     uiSetStatus("v" + VERSION + " 接线 " + n + " 项", scope);
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
+    return true;
+  }
+
+  // The in-game build page (citadel_shop_mods_build.xml) carries one extra
+  // button in the engine's own header row (#ControlButtons, the slot left of
+  // the info icon). The same layout is embedded in the build browser, which has
+  // its own toolbar, so the button stays collapsed unless this instance IS the
+  // page: its layout root is CitadelShopModsBuild, while inside the browser the
+  // root is CitadelBuildDetails.
+  var uiHeaderWired = false;
+  function wireHeaderButton(scope) {
+    if (uiHeaderWired) return true;
+    var btn = uiPanelIn(scope, "BBTTranslateButton3");
+    if (!btn) return false;
+    var root = null;
+    try { root = layoutRoot(btn) || scope; } catch (e) { root = scope; }
+    var tag = "";
+    try { tag = String(root.id || "") + "|" + String(root.tag || ""); } catch (e) { tag = ""; }
+    uiHeaderWired = true;
+    if (tag.indexOf("BuildDetails") >= 0 || tag.indexOf("ShopModsBuild") < 0) return true;
+    try { btn.style.visibility = "visible"; } catch (e) {}
+    bindClick(btn, "translate", function () { translatePage(root); });
+    $.Msg("[BBT] header button wired in " + instTag(scope));
     return true;
   }
 
@@ -2038,9 +2117,9 @@
       if (!text) continue;
       for (var k = 0; k < items.length; k += 1) {
         if (text.indexOf(items[k][1]) < 0) continue;
-        if (bindClick(child, prefix + items[k][0], (function (value) {
+        if (onActivateChild(child, (function (value) {
           return function () { action(value, scope); };
-        })(items[k][0]))) bound += 1;
+        })(items[k][0]), prefix + items[k][0])) bound += 1;
       }
     }
     return bound;
