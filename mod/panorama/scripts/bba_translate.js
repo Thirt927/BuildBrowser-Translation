@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.12";
+  var VERSION = "1.9.13";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -342,12 +342,18 @@
   // The XML handlers are resolved once, in the global scope, so the panel that
   // was clicked is the only reliable pointer to "which instance did the user
   // hit". From it we walk up to that instance's layout root.
+  // The engine reports the layout name on `panel.tag` (boot() logs it that way
+  // and it works in-game); `panel.paneltype` is only populated on a subset of
+  // panels, so it is an unreliable fallback. Read tag first, paneltype second.
+  function panelTag(p) {
+    try { return String(p.tag || p.paneltype || ""); } catch (e) { return ""; }
+  }
+
   function layoutRoot(panel) {
     var cur = panel;
     var top = panel;
     for (var i = 0; cur && i < 40; i += 1) {
-      var pt = "";
-      try { pt = String(cur.paneltype || ""); } catch (e) { pt = ""; }
+      var pt = panelTag(cur);
       if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector") return cur;
       top = cur;
       var up = null;
@@ -463,9 +469,8 @@
       // scan far above the page and burn its budget before reaching it, so the
       // header button would report "nothing to translate".
       var q = origin;
-      for (var j = 0; q && j < 14; j += 1) {
-        var qt = "";
-        try { qt = String(q.paneltype || ""); } catch (e) { qt = ""; }
+      for (var j = 0; q && j < 20; j += 1) {
+        var qt = panelTag(q);
         if (qt === "CitadelHeroBuildsSelector" || qt === "CitadelBuildDetails" || qt === "CitadelShopModsBuild") return q;
         try { q = q.GetParent ? q.GetParent() : null; } catch (e) { q = null; }
       }
@@ -474,8 +479,7 @@
     var p = uiPanel(["BBTTranslateButton2", "BBTTranslateButton", "BBTTranslateLabel2", "BBTTranslateLabel"]);
     var details = null;
     for (var i = 0; p && i < 12; i += 1) {
-      var pt = "";
-      try { pt = String(p.paneltype || ""); } catch (e) { pt = ""; }
+      var pt = panelTag(p);
       if (pt === "CitadelHeroBuildsSelector") return p; // the whole browser
       if (pt === "CitadelBuildDetails" && !details) details = p;
       try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
@@ -1956,6 +1960,26 @@
       if (panel) tag = String(panel.id || (panel.tag ? panel.tag : "panel")) || "?";
     } catch (e) { tag = "?"; }
     $.Msg("[BBT] click " + name + " on " + tag);
+    // One-shot (ungated) ancestor chain: the first real click dumps the clicked
+    // panel's id|tag|paneltype up 20 levels. This is the evidence that proves
+    // which ancestor is the real layout (pageRoot/layoutRoot match on tag), and
+    // it is needed exactly once per process, so it must never be gated away.
+    if (!G.__BBT_CHAIN_DUMPED && panel) {
+      G.__BBT_CHAIN_DUMPED = true;
+      var chain = [];
+      var c = panel;
+      for (var i = 0; c && i < 20; i += 1) {
+        var id = "", tg = "", pt = "";
+        try { id = String(c.id || ""); } catch (e) {}
+        try { tg = String(c.tag || ""); } catch (e) {}
+        try { pt = String(c.paneltype || ""); } catch (e) {}
+        chain.push(id + "|" + tg + "|" + pt);
+        var up = null;
+        try { up = c.GetParent ? c.GetParent() : null; } catch (e) { up = null; }
+        c = up;
+      }
+      $.Msg("[BBT] click-chain " + chain.join(" > "));
+    }
   }
 
   function reportClick(name, root) {

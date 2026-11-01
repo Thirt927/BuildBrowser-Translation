@@ -192,7 +192,9 @@ function makePanel(node, parent, opts) {
     actualy: g.y,
   };
   Object.defineProperty(p, "id", { get: () => p._id });
-  Object.defineProperty(p, "paneltype", { get: () => node.name });
+  if (!opts.noPaneltype) {
+    Object.defineProperty(p, "paneltype", { get: () => node.name });
+  }
   Object.defineProperty(p, "text", {
     get: () => p._text,
     set: (v) => {
@@ -776,6 +778,31 @@ check(
 // with "#".
 const tokenWrites = g7.state.writes.filter((w) => w.prop === "text" && String(w.to).charAt(0) === "#");
 checkEq(tokenWrites.length, 0, "没有任何写操作把 #token 写进 label.text（v1.9.8 闪烁根因）");
+
+/* ------------------------------------------------------------------ */
+/* [8] S1: root resolution reads panel.tag, not paneltype             */
+/* ------------------------------------------------------------------ */
+
+console.log("== [8] S1: 根解析用 tag（paneltype 缺失也能工作） ==");
+
+// The engine reports the layout name on panel.tag; panel.paneltype is only
+// populated on a subset of panels, so reading paneltype is unreliable. A fake
+// tree whose panels carry NO paneltype must still resolve its root and wire
+// the toolbar.
+const g8 = newHarness();
+const G8 = bootTree(g8, { noPaneltype: true }, true);
+const bootLine8 = g8.state.msgs.find((m) => m.indexOf("loaded") >= 0);
+check(bootLine8 !== undefined, "无 paneltype 的树 boot 后仍有 loaded 日志");
+check(
+  /in layout: CitadelBuildDetails/.test(bootLine8 || ""),
+  "boot 从 tag 读出 layout 名（paneltype 缺失时仍对）",
+  bootLine8 || ""
+);
+checkEq(G8.byId.get("BBTModeButton2").text, "中", "无 paneltype 时模式按钮仍被接线（根解析未断）");
+check(
+  /function panelTag\s*\(/.test(translateSrc) && /String\(p\.tag \|\| p\.paneltype/.test(translateSrc),
+  "panelTag 先读 tag 再读 paneltype"
+);
 
 /* ------------------------------------------------------------------ */
 
