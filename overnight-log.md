@@ -160,3 +160,11 @@ SetPanelEvent"的模拟里发现两个 toggle 互相抵消 → 菜单净关闭,�
 `"<action>@<ms>"`),全局 `G.__BBT_ACT` 账本作第二道网;菜单窗口 600ms、其余 350ms。同时让
 `缺少:…` 永久黏在状态行上(不再被 `接线 N 项` 覆盖)。`wiring_simtest` 由 95 → 97 checks,
 断言"一次点击只 toggle 一次、菜单保持打开、marker 写在被点实例里";13 个套件再次全 PASS。
+
+
+**根因校正(收尾复核)**:外部资料(Strata / VDC Panorama)确认 XML 事件属性在**面板自己的
+script scope** 求值;非模块脚本的顶层函数会隐式暴露,但 **IIFE 内声明不会**。v1.9.7 的三个
+`onactivate="BBTxxx()"` 全部指向 IIFE 里的函数 → panel scope 里是 `undefined` → 一次点击都没进脚本。
+这比"全局被最后 boot 的实例覆盖"更直接地解释了"三按钮 + 下拉同时全死"。v1.9.8 的 `expose()`
+因此改为三路导出:脚本全局对象、`$`、以及文档指定的 `$.GetContextObject()`(每路独立 try/catch)。
+`wiring_simtest` 97 checks 仍全绿,13 个套件全 PASS。

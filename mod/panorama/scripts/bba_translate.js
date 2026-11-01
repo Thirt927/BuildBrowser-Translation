@@ -2343,12 +2343,18 @@
     }
   }
 
-  // Panorama resolves onactivate="Name()" in the layout's global scope, so the
-  // handlers must exist there before the first click. BabelTower (the other long
-  // lived Deadlock Panorama mod here) lost a whole session's buttons to one
-  // exception that skipped its export lines; each export below is isolated and
-  // the result is collected so boot() can report a missing handler instead of
-  // letting the button die silently.
+  // XML attributes are evaluated in the panel's *script scope*, so the handler
+  // must exist there (this is why v1.9.7's bare onactivate="BBTRefreshPage()"
+  // never fired: the function lived inside this IIFE and was invisible to the
+  // panel scope). Three nets, each isolated so one failure cannot skip the rest:
+  //   1. the script global object (what a bare `Name()` resolves against),
+  //   2. the `$` object, for builds that expose `$.Name()`,
+  //   3. $.GetContextObject() — the documented "context object" that is used as
+  //      the script context when evaluating code embedded in panel tags.
+  // BabelTower (the other long-lived Deadlock Panorama mod here) lost a whole
+  // session's buttons to one exception that skipped its export lines, so every
+  // assignment below is try/catch'd and the result is collected: boot() reports
+  // a missing handler on the visible status line instead of dying silently.
   var exposedOk = {};
   function expose(name, fn) {
     var ok = false;
@@ -2356,9 +2362,17 @@
       G[name] = fn;
       ok = typeof G[name] === "function";
     } catch (e) { ok = false; }
-    // Some engine builds resolve XML handlers against the `$` object instead.
     try {
       if (typeof $ !== "undefined" && $) $[name] = fn;
+    } catch (e) {}
+    try {
+      if (typeof $ !== "undefined" && $ && typeof $.GetContextObject === "function") {
+        var ctxObj = $.GetContextObject();
+        if (ctxObj) {
+          ctxObj[name] = fn;
+          if (typeof ctxObj[name] === "function") ok = true;
+        }
+      }
     } catch (e) {}
     exposedOk[name] = ok;
     return ok;

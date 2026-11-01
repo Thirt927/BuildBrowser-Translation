@@ -876,3 +876,21 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
   `[BBT] HANDLER EXPORT FAILED:`。
 - 回归:`node --check` OK、XML 解析 OK、13 个套件全 exit 0(`layout_dom_simtest` 缺反编译布局仍 SKIP),
   其中 `wiring_simtest` 现在断言"一次点击只 toggle 一次、菜单保持打开、marker 写在被点实例里"。
+
+
+### 根因校正(外部资料核对后):裸名 handler 其实死于 IIFE 作用域
+- Panorama 的 XML 事件属性是**在面板自己的 script scope 里求值**的表达式;非模块脚本的顶层
+  `var`/`function` 会隐式暴露给 panel scope,但 **IIFE 内部声明不会**。v1.9.7 的
+  `onactivate="BBTRefreshPage()"` 里那个函数在 IIFE 里,panel scope 里根本没有 → 表达式抛
+  `is not defined`,点击在进入我们任何代码之前就死了。这解释了"三个按钮 + 下拉同时全死"
+  (三个 handler 都在同一个 IIFE 里),比"全局被最后 boot 的实例覆盖"更直接——那份注释是当时的推测。
+  参考:Strata Panorama「Using Modules」(non-module 脚本按 panel 重新执行/各自 scope)、
+  VDC Panorama/Overview/Events、Javascript。
+- v1.9.8 因此把 handler 做**三路导出**(每路独立 try/catch):①脚本全局对象(裸名解析根,
+  `globalThis[name] = fn`);②`$` 对象(`$.Name()`);③`$.GetContextObject()`(文档里明确作为
+  "在面板标签内求值时的 script context" 的对象)。缺任何一路都不致命,全缺才在状态行报 `缺少:…`。
+- 同批核对到的约束:XML 表达式里的 `$.GetContextPanel()` 返回**布局实例根**(不是被点按钮),
+  所以 `BBTActivate('action', $.GetContextPanel())` 传进去的正是我们要的实例根;
+  `hittestchildren="false"` 会杀掉整棵子树的点击(tooltip 布局就是这样,但那是隐藏副本);
+  `overflow` 默认 `squish` 会把下拉夹在祖先边界内 → placeToolbar 已把菜单夹在根边界内;
+  `opacity:0` 仍会吃输入,所以去重 marker 用 `hittest="false"` + 0x0。
