@@ -1580,6 +1580,15 @@
     return true;
   }
 
+  // Per-scan counters (S3): scan() resets these, translatePanel() increments
+  // token on every engine-owned token/template label it meets, and scan() reads
+  // them back to emit the one-shot scan-summary line.
+  var scanCtx = { token: 0, baselineWrites: 0 };
+  // $.Localize is an engine round-trip; a stuck #token label would otherwise
+  // call it every poll. Try at most once per TOKEN_REREAD_MS per label.
+  var tokenStamp = new WeakMap();
+  var TOKEN_REREAD_MS = 1500;
+
   function translatePanel(panel, preRead) {
     // Defence in depth: the scan already skips our own chrome, but every write
     // entry point funnels through here (resyncAll, refresh, live bridge).
@@ -1603,12 +1612,17 @@
       }
       return;
     }
-    if (raw.indexOf("#") === 0) {
-      // localization token, already localized by the game. Remember it: if this
-      // label later shows the engine's resolved English, the token proves the
-      // label is engine-driven (and, when the localized value contains {s:var},
-      // that it is bound to dialog variables).
-      if (!memo.has(panel)) tokenOf.set(panel, raw);
+    if (raw.indexOf("#") === 0 || raw.indexOf("{s:") >= 0) {
+      // Engine-owned label: either a declared #token whose localization the
+      // engine resolves, or an unresolved {s:var} template waiting on dialog
+      // variables. Neither is translatable as-is, and a {s:var} template must
+      // never reach noteMiss() (it would machine-translate the template string
+      // into bba_tm.js). Record the token for identity tracking and leave the
+      // label for a later pass: the moment the engine resolves it, .text changes
+      // and the normal path re-runs (the k:0 memo below never blocks that — a
+      // changed text falls through the memo check).
+      scanCtx.token += 1;
+      if (raw.indexOf("#") === 0 && !memo.has(panel)) tokenOf.set(panel, raw);
       observedToken.set(panel, raw);
       remember(panel, 0, raw, null);
       // A label can be STUCK on its declared token: the engine localizes the
@@ -1618,7 +1632,13 @@
       // it ourselves, then translate the result. Panels bound to a {s:var}
       // template cannot be repaired this way (Localize hands back the template
       // itself), and they are left alone.
-      repairToken(panel, raw);
+      if (raw.indexOf("#") === 0) {
+        var lastTok = tokenStamp.get(panel);
+        if (lastTok === undefined || nowMs() - lastTok >= TOKEN_REREAD_MS) {
+          tokenStamp.set(panel, nowMs());
+          repairToken(panel, raw);
+        }
+      }
       return;
     }
     // Some custom panels expose their type name through .text; never treat that
@@ -1738,11 +1758,39 @@
     return true;
   }
 
+  // One-shot per-instance diagnostic (S3): on the first fully-stable scan of a
+  // layout instance, report how many panels were walked and why the rest were
+  // skipped. Ungated (a once-per-instance line is not spam) so a "tooltip never
+  // translates" report comes back with the actual skip reason.
+  var scanSummaries = new WeakMap();
+  function scanSummaryOnce(root, visited, skippedToken, skippedHidden, skippedOwn, wrote) {
+    try {
+      if (scanSummaries.get(root)) return;
+      scanSummaries.set(root, 1);
+    } catch (e) {
+      return;
+    }
+    $.Msg("[BBT] scan-summary " + instTag(root) + "：visited=" + visited + " skippedToken=" + skippedToken + " skippedHidden=" + skippedHidden + " skippedOwn=" + skippedOwn + " wrote=" + wrote);
+  }
+
+  // Cumulative writes per layout instance (S3): the scan-summary's `wrote` is
+  // the total this instance has written since it appeared, not just the one
+  // stable scan that happens to emit the line.
+  var scanBaselines = new WeakMap();
+
   function scan(root) {
     var stack = [root];
     var visited = 0;
     var fresh = 0;
     var skipped = 0;
+    var skippedOwn = 0;
+    scanCtx.token = 0;
+    try {
+      if (!scanBaselines.has(root)) scanBaselines.set(root, stats.writes);
+      scanCtx.baselineWrites = scanBaselines.get(root);
+    } catch (e) {
+      scanCtx.baselineWrites = stats.writes;
+    }
     while (stack.length && visited < SCAN_BUDGET) {
       var p = stack.pop();
       visited += 1;
@@ -1752,7 +1800,7 @@
       } catch (e) {
         continue;
       }
-      if (isOwnChrome(p)) continue; // own status line / dedupe marker
+      if (isOwnChrome(p)) { skippedOwn += 1; continue; } // own status line / dedupe marker
       var known = memo.has(p);
       if (!known) fresh += 1;
       // Only panels that carry a string need the extra TextEntry probes; every
@@ -1812,6 +1860,8 @@
     }
     stats.scanned += visited;
     stats.skipped += skipped;
+    scanCtx.wrote = stats.writes - scanCtx.baselineWrites;
+    if (fresh === 0) scanSummaryOnce(root, visited, scanCtx.token, skipped, skippedOwn, scanCtx.wrote);
     return fresh;
   }
 

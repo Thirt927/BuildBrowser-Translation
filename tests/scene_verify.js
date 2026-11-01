@@ -89,10 +89,11 @@ function walk(panel, fn) {
 
 function runScript(root) {
   const sandbox = { console };
+  const log = [];
   sandbox.$ = {
     GetContextPanel: () => root,
     Schedule: (d, fn) => (sandbox.__q = sandbox.__q || []).push(fn),
-    Msg: () => {},
+    Msg: (m) => log.push(String(m)),
   };
   vm.createContext(sandbox);
   for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
@@ -107,6 +108,7 @@ function runScript(root) {
     const fn = sandbox.__q.shift();
     fn();
   }
+  sandbox.__log = log;
   return sandbox;
 }
 
@@ -314,6 +316,37 @@ console.log("\n=== Scene 4: build category header (overview text) ===");
     runScript(cat);
     report("category name translated", CJK.test(nameHost.text), nameHost.text.slice(0, 40));
     report("category description translated", CJK.test(descHost.text), descHost.text.slice(0, 50));
+  }
+}
+
+// =====================================================================
+// Scene 5: S3 — token/template early-out + scan-summary diagnostic
+// =====================================================================
+console.log("\n=== Scene 5: token/template early-out + scan-summary (S3) ===");
+{
+  const tip = loadLayout("tooltips/citadel_tooltip_mod_details");
+  let host = null;
+  walk(tip, (p) => { if (!host && p.classes.includes("ModifiesLabel")) host = p; });
+  if (!host) {
+    report("S3: tooltip has a .ModifiesLabel host", false, "layout structure changed?");
+  } else {
+    // 1) unresolved {s:var} template must not be harvested as a MISS
+    host.text = "{s:mod_annotation}";
+    const s = runScript(tip);
+    report(
+      "S3: {s:var} template is not MISS-harvested",
+      !s.__log.some((l) => l.indexOf("MISS") >= 0 && l.indexOf("{s:") >= 0),
+      "MISS lines: " + s.__log.filter((l) => l.indexOf("MISS") >= 0).length,
+    );
+    // 2) scan-summary emitted with the S3 counters
+    const summary = s.__log.find((l) => l.indexOf("scan-summary") >= 0);
+    report("S3: scan-summary emitted", !!summary, summary || "(none)");
+    report("S3: scan-summary reports skippedToken>0", !!summary && /skippedToken=[1-9]/.test(summary), summary || "");
+    // 3) with real English annotation, the same instance writes >0
+    host.text = annotated.annotation;
+    const s2 = runScript(tip);
+    const summary2 = s2.__log.find((l) => l.indexOf("scan-summary") >= 0);
+    report("S3: scan-summary wrote>0 with English annotation", !!summary2 && /wrote=[1-9]/.test(summary2), summary2 || "");
   }
 }
 
