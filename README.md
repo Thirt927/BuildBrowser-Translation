@@ -295,7 +295,7 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
 出装浏览器头部右侧多了一个小工具条,按钮左边还有一行状态字:
 
 ```
-[ 翻译本页 ] [ 刷新 ] [ ▾ ]      v1.9.8 接线 13 项 · 点:刷新 · 刷新 23 条
+[ 翻译本页 ] [ 刷新 ] [ ▾ ]      v1.9.9 接线 13 项 · 点:刷新 · 刷新 23 条
                             ├ 显示中文          (默认)
                             ├ 显示原文          (对照用)
                             ├ 中英对照          (译文 + 空行 + 原文)
@@ -303,10 +303,15 @@ node tests\layout_dom_simtest.js --layouts "<反编译后的 layout 目录>"
                             └ 查看本地库统计
 ```
 
+游戏**内**的出装页(`citadel_shop_mods_build`)另外在引擎自己的按钮行里多一个
+**「翻译」**按钮,位置就在信息图标左边(`#ControlButtons` 的第一格),效果与浏览器的
+「翻译本页」相同。同一份布局被出装浏览器内嵌,所以那个实例上该按钮保持隐藏,
+不会出现第二个翻译按钮。
+
 - **状态行**(按钮左边那行小字)是这个 mod 的自检读条:工具条一接上就显示
-  `v1.9.8 接线 N 项`,之后每次点击会变成 `点:刷新` / `点:translate` / `菜单已开`
+  `v1.9.9 接线 N 项`,之后每次点击会变成 `点:刷新` / `点:translate` / `菜单已开`
   等,再显示动作结果。**拿不到控制台日志时,先看这一行**:
-  - 一直是 `v1.9.8 启动中` 不变 → 脚本跑起来了但没绑上按钮(见"排查"第 5 条);
+  - 一直是 `v1.9.9 启动中` 不变 → 脚本跑起来了但没绑上按钮(见"排查"第 5 条);
   - 变成 `缺少:BBTRefreshPage` → 引擎没拿到某个 handler(导出失败);
   - 悬停在工具条上会短暂显示 `点:hover:bar`,说明布局里的 handler 名字能被引擎解析;
   - 点了没变化 → 引擎根本没把这次点击送到脚本(见"排查"第 5 条)。
@@ -329,6 +334,14 @@ v1.9.7 及更早:布局里写的是裸名 `onactivate="BBTRefreshPage()"`,引擎
 v1.9.8 起:布局里的每个 handler 都变成 `BBTActivate('refresh', $.GetContextPanel())`,
 **把被点的面板本身**交给脚本定位实例;`onactivate` 与 `onmouseactivate` 两个事件都绑
 (引擎吞掉哪个都还有另一个);菜单改回"CSS 类切换 + 行内样式"双写;导出集中到文件末尾并逐个自检。
+
+v1.9.9 再补一刀:Panorama 只在**父面板边界内**做命中测试,而 v1.9.8 把工具条那一行
+还留在 `#BuildInfo` 里,渲染位置对、点击却穿透到后面的面板。现在整行挂在布局根
+(`#BuildInfo` 里只留 36px 透明占位 `#BBTSlot2` 保持版式),位置由引擎自己的控件行算出来。
+顺手修掉了与之同源的**翻译闪烁**:resync 过去会把 `#Token` 写进 `label.text`,
+而引擎只本地化 XML 属性里的 token,于是标签把 `#Citadel_HeroBuilds_CategoryDescription`
+直接显示出来、下一轮又被翻译一次 → 中文/裸 token 反复切换。现在 resync 一次写好最终文本,
+拿不到值就冻结 4 秒等下个扫描周期;已经卡在裸 token 的标签会在扫描时自愈(`repairToken`)。
 
 ## 本地翻译库为什么会自动变大,又怎么保证不变太大
 
@@ -457,7 +470,7 @@ powershell -ExecutionPolicy Bypass -File tools\get_layouts.ps1 -S2VDir "<S2V导�
    的文件树,冲突时把本 mod 改成更小的编号(改 `scripts/build.ps1` 的 `-PakName` 参数)。
 3. 需要看日志时,给 Deadlock 加启动项 `-condebug`,打开一次商城/出装浏览器后,
    在 `game/citadel/console.log` 里搜 `[BBT]`,正常应看到
-   `[BBT] v1.9.8 loaded (tm=..., glossary=1) in layout: <面板类型> root=<面板 id/类型>`:
+   `[BBT] v1.9.9 loaded (tm=..., glossary=1) in layout: <面板类型> root=<面板 id/类型>`:
    这条日志会告诉你是**哪个布局**真正带上了扫描器(右侧详情应为 `CitadelBuildDetails`,
    装备提示应为 `CitadelTooltipModDetails`),`root=` 后面是这份实例的标识——多份实例
    同时打日志时靠它分辨。同一行之后的 `[BBT] MISS ...` 就是待补译文本。

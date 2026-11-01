@@ -925,3 +925,50 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
 - 建议修法(按性价比):① 扩 token 生成器正则 + 读 `placeholder=` + 多 class 用 id;重新生成 token 表;
   ② 把常用 UI 英文词条补进 TM(离线也有中文);③ `applyResync` 改「命中才改 text」,selector 实例跳过嵌套 details;
   ④ `uiApplyResults` 按收集 root 写回;⑤ 统一 CJK 判定。
+
+## 十六、v1.9.9 —— 翻译闪烁 + 三个按钮点不动 + 游戏内头部翻译按钮(2026-11-01 下午,人工会话)
+
+实机报告(用户截图,m00121-m00124):换出装后分类标题在「中文」和
+`#Citadel_HeroBuilds_CategoryDescription` 之间反复跳(闪烁);浏览器右侧三个按钮
+「翻译本页/刷新/▾」点了没反应;希望游戏内出装页顶部「出装选项」旁边(信息图标左侧空位)多一个翻译按钮。
+
+三个现象各有独立根因:
+
+1. **闪烁 = resync 把 `#token` 写进了 `label.text`**(已修)
+   - 根因:引擎只本地化**XML 属性里**声明的 token;JS 赋值的 token 不会被解析,标签直接把
+     `#Citadel_HeroBuilds_CategoryDescription` 渲染到屏幕上(v1.9.8 的 resync 就是这么"恢复"的);
+     下一轮扫描看到 `#` 开头直接 return,于是标签永远停在裸 token,而其它路径又写回中文 → 交替闪烁。
+     附带:`applyResync` 先写英文、再写中文,等于两次可见重绘。
+   - 修法:`resyncLabel` 不再写 token,拿不到引擎当前值就 `freezeResync(p)` 冻结 4s
+     (`resyncFrozen` WeakMap),让扫描器/桥在后续 pass 里补;`applyResync` 改成**一次写入**——
+     新增 `translationFor(raw)` 先算好目标文本(TM → 副本后缀 → 整句兜底 → 术语兜底),
+     命中就 `writeText` 一次,未命中只写引擎原文一次。
+   - 追加自愈:`translatePanel` 的 `#` 分支新增 `repairToken(panel, tok)`——标签已经卡在裸 token 时,
+     自己 `$.Localize(tok, panel)` 拿回本地化文本(带面板 dialog variable 解析),再走正常翻译链,
+     把坏状态就地修好(不会被冻结逻辑留在 `#Token`)。
+   - 回归:`tests/refresh_verify.js` Case H(卡 token → 修复 → 跟随新分类 → 全程不写 token)。
+
+2. **三个按钮点不动 = 工具条那一行在 `#BuildInfo` 里,超出父面板命中范围**(已修)
+   - 根因:Panorama 只在**父面板边界内**做命中测试。v1.9.8 把 `#BBTBar2` 放在 `#BuildInfo` 里,
+     渲染位置没问题,点击却穿透到后面的面板(与"下拉菜单必须挂在布局根"是同一个约束,当时只给菜单改了)。
+     日志证据:`toolbar wired: N control(s)` 有,`[BBT] click ...` / 状态行 `点:...` 一次都没有。
+   - 修法:`#BBTBar2` 移到 `<CitadelBuildDetails>` 根层(与 `#BBTMenu2` 同级);
+     `#BuildInfo` 里留一个透明占位 `#BBTSlot2`(36px)保持原有版式,概览不被盖住;
+     `placeToolbar()` 不再测自身位置,改为锚定引擎自己的控件行:
+     `barTop = #BuildOptionButton 底边 + 6`、按钮行右边距按它的右边缘对齐,菜单仍按同一锚点算;
+     `.BBTBar` 改成 `align: left top; width: 100%`。
+   - 回归:`tests/wiring_simtest.js` [7](BBTBar2 的父面板就是布局根、占位存在、marginTop/marginRight 已写入)。
+
+3. **游戏内头部翻译按钮**(新增)
+   - `citadel_shop_mods_build.xml` 的 `#ControlButtons` 第一个子节点加
+     `<CitadelButton id="BBTTranslateButton3" ... text="翻译">`,inline
+     `BBTActivate('translate', $.GetContextPanel())` + `onmouseactivate` 双路径,
+     与浏览器「翻译本页」同一条执行链(`translatePage(root)`)。
+   - 同一份布局也被出装浏览器内嵌,所以按钮默认 `visibility: collapse`;
+     `wireHeaderButton()` 只在**独立实例**(布局根是 `CitadelShopModsBuild`,而非 `CitadelBuildDetails`)
+     时显形并 `bindClick`,避免浏览器里出现第二个翻译按钮。
+   - 回归:`wiring_simtest` [7] 的 4 条 XML/CSS 断言。
+
+**顺手清理**:`bba_translate.js` 里 `liveHealthUrl`/`liveTranslateUrl`/`classListOf`/`weakList`/`lastVisited`
+是 v1.9.8 重构后留下的死代码,已删除;`onActivate`/`onActivateChild` 原本也没人调用(文档却写着它们在接线),
+改为 `wireToolbar`/`wireMenuItems` 真正走这两个函数,文档与代码一致。
