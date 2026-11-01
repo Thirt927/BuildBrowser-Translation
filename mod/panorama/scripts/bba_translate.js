@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.9";
+  var VERSION = "1.9.10";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -2072,22 +2072,34 @@
   // The in-game build page (citadel_shop_mods_build.xml) carries one extra
   // button in the engine's own header row (#ControlButtons, the slot left of
   // the info icon). The same layout is embedded in the build browser, which has
-  // its own toolbar, so the button stays collapsed unless this instance IS the
-  // page: its layout root is CitadelShopModsBuild, while inside the browser the
-  // root is CitadelBuildDetails.
+  // its own toolbar, so the button must stay collapsed there. layoutRoot()
+  // cannot tell them apart - in game it walks up to the HUD root - so look for
+  // a CitadelBuildDetails ancestor instead: that is exactly what the browser
+  // wraps the embedded page in.
+  function nestedInDetails(panel) {
+    var p = panel;
+    for (var d = 0; p && d < 16; d += 1) {
+      var tag = "";
+      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (e) { tag = ""; }
+      if (tag.indexOf("BuildDetails") >= 0) return true;
+      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+    }
+    return false;
+  }
+
   var uiHeaderWired = false;
   function wireHeaderButton(scope) {
     if (uiHeaderWired) return true;
     var btn = uiPanelIn(scope, "BBTTranslateButton3");
     if (!btn) return false;
-    var root = null;
-    try { root = layoutRoot(btn) || scope; } catch (e) { root = scope; }
-    var tag = "";
-    try { tag = String(root.id || "") + "|" + String(root.tag || ""); } catch (e) { tag = ""; }
     uiHeaderWired = true;
-    if (tag.indexOf("BuildDetails") >= 0 || tag.indexOf("ShopModsBuild") < 0) return true;
+    if (nestedInDetails(btn)) {
+      $.Msg("[BBT] header button hidden (this layout is embedded in the build browser) in " + instTag(scope));
+      return true;
+    }
+    try { btn.AddClass("BBTShow"); } catch (e) {}
     try { btn.style.visibility = "visible"; } catch (e) {}
-    bindClick(btn, "translate", function () { translatePage(root); });
+    bindClick(btn, "translate", function () { translatePage(scope); });
     $.Msg("[BBT] header button wired in " + instTag(scope));
     return true;
   }

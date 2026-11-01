@@ -8,19 +8,29 @@
    simply disappears. See resyncLabel in bba_translate.js. */
 
 
-/* Toolbar: a child of the LAYOUT ROOT, not of #BuildInfo. Panorama only
-   hit-tests inside the parent's bounds; inside #BuildInfo the row rendered in
-   the right place but every click fell through to the panel behind it (v1.9.8
-   "按钮无效无法点击"). The root spans the whole details pane, so the row is
-   fully clickable; placeToolbar() in bba_translate.js sets its margin-top and
-   the buttons' margin-right from the engine's own control row. */
+/* BBT overlay layer: the LAST child of .HeroBuildsExtraInfo, the panel that
+   holds #Background, #BuildInfo and #BuildControlsContainer. Those siblings all
+   share one origin and overlap each other (the background sits behind the info
+   content), so this container simply covers the whole details pane and paints
+   above them by document order. The layout ROOT is flow-children: down (engine
+   CSS), which is why a root-level child got laid out below the full-height
+   .HeroBuildsExtraInfo: v1.9.9 lost the whole toolbar row that way, and the
+   v1.9.8 "dropdown never appears" report has the same cause. */
+.BBTLayer {
+	align: left top;
+	width: 100%;
+	height: 100%;
+}
+
+/* Toolbar row: positioned by placeToolbar() in bba_translate.js from the
+   engine's own control row (#BuildOptionButton). */
 .BBTBar {
 	align: left top;
 	width: 100%;
 	height: 30px;
 }
-/* Transparent spacer inside #BuildInfo: holds the space the root-level toolbar
-   row is painted over, so the overview still starts below it. */
+/* Transparent spacer inside #BuildInfo: holds the space the overlaid toolbar
+   row is painted on, so the overview still starts below it. */
 .BBTSlot { width: 100%; height: 36px; }
 .BBTControls { align: right center; flow-children: right; margin-right: 4px; }
 .BBTButton { margin-left: 4px; }
@@ -31,6 +41,8 @@
    the build browser, where the details toolbar already offers these buttons.
    bba_translate.js sets visibility:visible only on the standalone instance. */
 #BBTTranslateButton3 { visibility: collapse; margin-right: 6px; }
+/* bba_translate.js adds .BBTShow on the standalone (in-game) instance only. */
+#BBTTranslateButton3.BBTShow { visibility: visible; }
 
 /* Visible state readout. The player has no console when the mod misbehaves, so
    the toolbar reports the last thing that happened right here: "v1.9.8 接线 13

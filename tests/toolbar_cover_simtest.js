@@ -64,29 +64,36 @@ const selectorFile = "citadel_ui_build_selector.xml";
   })();
   check(detailsFile + ": toolbar is not stacked inside #BuildControls", !toolbarInsideBuildControls);
 
-  // Panorama only hit-tests inside the parent's bounds, so the dropdown must hang
-  // off the layout root (which spans the whole details pane), not the header row.
-  const menuInsideHeader = (function () {
+  // Panorama only hit-tests inside the parent's bounds, so the dropdown must sit
+  // in a box that covers the whole details pane: the .BBTLayer overlay, whose
+  // parent is .HeroBuildsExtraInfo (the panel that already stacks #Background and
+  // #BuildInfo on top of each other). The layout ROOT is flow-children: down, so
+  // a root-level menu is laid out under the full-height pane and never shows -
+  // that is the v1.9.8 "dropdown never appears" report.
+  const menuHostId = (function () {
     let depth = 0;
-    let headerDepth = -1;
+    const stack = [];
     for (const m of xml.matchAll(/<(\/?)(Panel|Button|Label|HTML|TextButton)([^>]*)>/g)) {
       const closing = m[1] === "/";
       const self = /\/\s*$/.test(m[3] || "");
-      const attrs = m[3] || "";
-      const idMatch = /id="([^"]+)"/.exec(attrs);
+      const idMatch = /id="([^"]+)"/.exec(m[3] || "");
       const id = idMatch ? idMatch[1] : "";
       if (!closing && !self) {
+        stack.push(id);
         depth += 1;
-        if (/class="[^"]*HeroBuildsExtraInfo/.test(attrs)) headerDepth = depth;
-        if (id === "BBTMenu2" && headerDepth > 0) return true;
       } else if (closing) {
-        if (depth === headerDepth && headerDepth > 0) headerDepth = -1;
+        if (id === "BBTMenu2") return stack[stack.length - 1] || "";
+        stack.pop();
         depth -= 1;
       }
     }
-    return false;
+    return "";
   })();
-  check(detailsFile + ": dropdown hangs off the layout root", !menuInsideHeader);
+  check(menuHostId === "BBTLayer2", detailsFile + ": 下拉菜单挂在铺满详情面板的 #BBTLayer2 上", "host=" + menuHostId);
+  check(
+    xml.indexOf('class="HeroBuildsExtraInfo"') < xml.indexOf('id="BBTLayer2"'),
+    detailsFile + ": #BBTLayer2 在 .HeroBuildsExtraInfo 里（同源叠放，覆盖整个详情面板）"
+  );
 
   // the dropdown must sit outside the horizontal button row, otherwise it flows off
   // to the right instead of dropping below (this was the "cannot open" layout bug)

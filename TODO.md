@@ -972,3 +972,29 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
 **顺手清理**:`bba_translate.js` 里 `liveHealthUrl`/`liveTranslateUrl`/`classListOf`/`weakList`/`lastVisited`
 是 v1.9.8 重构后留下的死代码,已删除;`onActivate`/`onActivateChild` 原本也没人调用(文档却写着它们在接线),
 改为 `wireToolbar`/`wireMenuItems` 真正走这两个函数,文档与代码一致。
+
+### v1.9.10 —— 上面三处修复的实机回退与修正(同日 下午)
+
+实机截图反馈:浏览器右侧工具条整行消失,游戏内头部仍无翻译按钮(闪烁已修好)。两条都不是
+新 bug,而是 v1.9.9 首版对引擎行为的两处误判:
+
+1. **工具条整行消失 = 挂在 layout root 上的兄弟节点会被排到面板下方**
+   - v1.9.9 以为"根面板铺满详情页,所以挂根上命中范围最大"。实机证明 root 是
+     `flow-children: down`,而 `.HeroBuildsExtraInfo` 是 100% 高度 → 根上的兄弟节点从
+     面板**下方**开始布局,等于永远不可见。v1.9.8「下拉菜单从没出现」也是同一个原因
+     (当时只把菜单挂到根上就以为好了)。
+   - 修正:新增 `#BBTLayer2`(`.BBTLayer`,`align: left top; width/height 100%`),
+     作为 `.HeroBuildsExtraInfo` 的**最后一个子节点**——这个面板的子节点本来就是同源叠放的
+     (`#Background` 在 `#BuildInfo` 后面,引擎自己的 `#BuildControlsContainer` 也是叠上去的),
+     所以覆盖层既能盖住整个详情面板,又落在父面板边界内(可点)。工具条与下拉都搬进这一层。
+   - 回归:`toolbar_cover_simtest` 改成断言 `#BBTMenu2` 的父面板是 `#BBTLayer2` 且该层位于
+     `.HeroBuildsExtraInfo` 内;`wiring_simtest` [7] 断言 `#BBTBar2` 的父面板是 `#BBTLayer2`、
+     `#BBTLayer2` 的父面板带 `HeroBuildsExtraInfo` 且**不是** layout root。
+
+2. **游戏内头部按钮不显形 = 用 `layoutRoot()` 判断"是否内嵌"**
+   - 实机日志:`in layout: CitadelShopModsBuild root=CitadelHudRoot`——游戏内 `layoutRoot()`
+     会一路走到 HUD 根,既不是 `CitadelShopModsBuild` 也不是 `CitadelBuildDetails`,
+     `wireHeaderButton` 因此判定"这是内嵌副本"并保持折叠,而且不打印任何日志。
+   - 修正:改用 `nestedInDetails(btn)` 向上找 `CitadelBuildDetails` 祖先(只有出装浏览器
+     内嵌时才存在);显形同时加 `.BBTShow` 类 + 行内 `visibility`;两条分支都打印一行
+     `[BBT] header button wired/hidden`,下次实机一眼可判。

@@ -749,8 +749,21 @@ const g7 = newHarness();
 const G7 = bootTree(g7, {}, true);
 const bar7 = G7.byId.get("BBTBar2");
 const bar7Parent = bar7 ? bar7.GetParent() : null;
+const layer7 = G7.byId.get("BBTLayer2");
+const layer7Parent = layer7 ? layer7.GetParent() : null;
 check(bar7 !== null, "树里存在 BBTBar2");
-checkEq(bar7Parent && bar7Parent.paneltype, "CitadelBuildDetails", "BBTBar2 的父面板是布局根（不再放在 #BuildInfo 里，整行可点）");
+checkEq(bar7Parent && bar7Parent.id, "BBTLayer2", "BBTBar2 在 BBTLayer2 里（层级不再夹在 #BuildInfo 的命中框里）");
+check(
+  layer7Parent !== null &&
+    String(layer7Parent.paneltype) === "Panel" &&
+    (layer7Parent._classes || []).indexOf("HeroBuildsExtraInfo") >= 0,
+  "BBTLayer2 挂在 .HeroBuildsExtraInfo 下（与 #Background/#BuildInfo 同源叠放，不是 layout root）",
+  "parent=" + (layer7Parent ? layer7Parent.id || layer7Parent.paneltype : "null")
+);
+check(
+  !layer7Parent || String(layer7Parent.paneltype) !== "CitadelBuildDetails",
+  "BBTLayer2 不是 layout root 的子节点（root 是 flow-children: down，会把整层排到面板下方）"
+);
 check(G7.byId.get("BBTSlot2") !== null, "#BuildInfo 里保留 #BBTSlot2 占位，概览不被工具条覆盖");
 check(
   /^\d+px$/.test(bar7 ? bar7._style.marginTop : ""),
