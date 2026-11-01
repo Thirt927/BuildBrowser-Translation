@@ -792,6 +792,23 @@ check(
 );
 check(headerBtnTag !== null && /BBTActivate\('translate'/.test(headerBtnTag), "头部按钮走 BBTActivate('translate')（与浏览器的翻译本页同一条路径）");
 check(/#BBTTranslateButton3\s*\{[^}]*visibility:\s*collapse/.test(bbaCss), "头部按钮默认折叠（内嵌到出装浏览器时不重复出现）");
+check(/\.BBTShow[^}]*visibility:\s*visible/.test(bbaCss), "头部按钮用 .BBTShow 显形（行内样式 + 类两道保险）");
+
+// The in-game page has no toolbar and no status label: the header button is the
+// only place a result can show up, otherwise pressing it looks like nothing
+// happened ("点击翻译按钮无效果", 2026-11-01).
+check(
+  /function uiSetLabel[\s\S]{0,1200}BBTTranslateButton3/.test(translateSrc),
+  "uiSetLabel 会回退到头部按钮写进度（该布局没有工具条/状态行）"
+);
+check(/function uiResetLabel/.test(translateSrc), "uiResetLabel 按布局恢复按钮标题（翻译本页 / 翻译）");
+// layoutRoot() returns the HUD root in game, so pageRoot() must snap to the
+// nearest page-ish ancestor or the scan starts above the page and its 3000-panel
+// budget runs out before reaching it.
+check(
+  /function pageRoot\([\s\S]{0,1600}CitadelShopModsBuild/.test(translateSrc),
+  "pageRoot 从被点控件向上找 CitadelShopModsBuild（不会一路走到 HUD 根）"
+);
 
 // The v1.9.8 flicker root cause: the resync path used to write the declared
 // #token back into label.text, and Panorama does not re-localize a token that

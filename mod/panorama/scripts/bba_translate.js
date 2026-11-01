@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.10";
+  var VERSION = "1.9.11";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -76,6 +76,11 @@
     try {
       if (typeof globalThis !== "undefined" && globalThis) return globalThis;
     } catch (e) {}
+    // Required by the engine, not by choice: some Deadlock Panorama builds have
+    // no globalThis and throw on any reference to an undeclared identifier, so
+    // this is the only way left to reach the global object (see AGENTS.md 6.7).
+    // The source is a constant string with no input from the game or the bridge,
+    // so there is nothing to inject into it.
     try {
       return Function("return this")();
     } catch (e) {}
@@ -354,17 +359,8 @@
   }
 
   // Wide enough root for page-wide work: the build browser owns the whole page,
-  // the spec/details instance is nested inside it.
-  function pageRootIn(root) {
-    var p = root;
-    for (var i = 0; p && i < 12; i += 1) {
-      var pt = "";
-      try { pt = String(p.paneltype || ""); } catch (e) { pt = ""; }
-      if (pt === "CitadelHeroBuildsSelector") return p;
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
-    }
-    return root;
-  }
+  // the spec/details instance is nested inside it. pageRoot() below walks up to
+  // the same kind of panel directly from the clicked control.
 
   // Short, log-safe name of an instance ("browser<CitadelBuildDetails"): one
   // console line is then enough to tell the visible page from the tooltip copy.
@@ -421,13 +417,26 @@
       try { l.text = text; } catch (e) {}
     } else {
       // The toolbar uses the game's TextButton (native look), whose text lives on
-      // the button itself instead of in a child label.
+      // the button itself instead of in a child label. The in-game build page's
+      // header button (#BBTTranslateButton3) is the only control there, so it
+      // carries the progress too - otherwise pressing it looks like nothing
+      // happened at all (no status label and no toolbar in that layout).
       var b = uiPanelIn(scope || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]);
+      if (!b) b = uiPanelIn(scope || contextPanel(), "BBTTranslateButton3");
       if (b) {
         try { b.text = text; } catch (e) {}
       }
     }
     ui.lastResult = text;
+  }
+
+  // Restore the caption of whichever translate control this layout has: the
+  // toolbar button says 翻译本页, the compact header button says 翻译.
+  function uiResetLabel(root) {
+    var scope = root || contextPanel();
+    var toolbarBtn = uiPanelIn(scope, ["BBTTranslateButton2", "BBTTranslateButton"]);
+    if (!toolbarBtn && uiPanelIn(scope, "BBTTranslateButton3")) uiSetLabel("翻译", scope);
+    else uiSetLabel("翻译本页", scope);
   }
 
   // The widest panel the toolbar button should act on. Several layout instances
@@ -437,7 +446,21 @@
   function pageRoot(origin) {
     // A clicked panel (the XML handlers pass one) names its instance directly;
     // that is always more trustworthy than "the first button we can find".
-    if (origin && typeof origin.GetChildCount === "function") return pageRootIn(layoutRoot(origin));
+    if (origin && typeof origin.GetChildCount === "function") {
+      // Nearest page-ish ancestor: the browser selector, a details pane, or the
+      // standalone in-game build page behind #ControlButtons. Snapping to the
+      // HUD root (which is what layoutRoot() returns in game) would start the
+      // scan far above the page and burn its budget before reaching it, so the
+      // header button would report "nothing to translate".
+      var q = origin;
+      for (var j = 0; q && j < 14; j += 1) {
+        var qt = "";
+        try { qt = String(q.paneltype || ""); } catch (e) { qt = ""; }
+        if (qt === "CitadelHeroBuildsSelector" || qt === "CitadelBuildDetails" || qt === "CitadelShopModsBuild") return q;
+        try { q = q.GetParent ? q.GetParent() : null; } catch (e) { q = null; }
+      }
+      return layoutRoot(origin) || origin;
+    }
     var p = uiPanel(["BBTTranslateButton2", "BBTTranslateButton", "BBTTranslateLabel2", "BBTTranslateLabel"]);
     var details = null;
     for (var i = 0; p && i < 12; i += 1) {
@@ -2307,21 +2330,25 @@
     if (!texts.length) {
       uiSetLabel("没有需要翻译的文本", scope);
       uiSetStatus("无可翻译文本", scope);
-      $.Schedule(2.0, function () { uiSetLabel("翻译本页", scope); });
+      $.Schedule(2.0, function () { uiResetLabel(scope); });
       return;
     }
     if (live.state !== "on") {
       // Offline: re-run the memory/glossary pass over the whole page so the
-      // button visibly does something even without the bridge.
+      // button visibly does something even without the bridge. Whatever is still
+      // missing cannot be translated here (the memory shipped inside the VPK is
+      // fixed) - say so on the control instead of looking dead.
       var before = stats.translated + stats.fallback;
+      var pending = texts.length;
       try { if (page) resetMemos(page); } catch (e) {}
       uiSetLabel("重新翻译中…", scope);
       uiSetStatus("翻译中", scope);
       $.Schedule(0.5, function () {
         var done = stats.translated + stats.fallback - before;
-        uiSetLabel("离线已重译 " + (done > 0 ? done + " 条" : "整页文本"), scope);
+        uiSetLabel(pending > 0 ? "离线 " + done + " 译 / " + pending + " 缺" : "离线重译 " + done + " 条", scope);
+        uiSetStatus("离线 " + done + " 条", scope);
       });
-      $.Schedule(3.5, function () { uiSetLabel("翻译本页", scope); });
+      $.Schedule(3.5, function () { uiResetLabel(scope); });
       return;
     }
     ui.busy = true;
@@ -2339,7 +2366,7 @@
         // New translations may unlock panels we had memoised as "nothing found".
         try { liveUpgradeWeakWrites(); } catch (e) {}
       }
-      $.Schedule(4.0, function () { uiSetLabel("翻译本页", scope); });
+      $.Schedule(4.0, function () { uiResetLabel(scope); });
     });
   }
 

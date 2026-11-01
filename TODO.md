@@ -998,3 +998,32 @@ label.text = "#Citadel_HeroBuilds_BuildDescription";  // 引擎重新解析 → 
    - 修正:改用 `nestedInDetails(btn)` 向上找 `CitadelBuildDetails` 祖先(只有出装浏览器
      内嵌时才存在);显形同时加 `.BBTShow` 类 + 行内 `visibility`;两条分支都打印一行
      `[BBT] header button wired/hidden`,下次实机一眼可判。
+
+### v1.9.11 —— 点「翻译」看起来没反应 + 红框文本没译文(同日 下午,第二轮)
+
+实机反馈:游戏内头部「翻译」按钮已出现,但点了没效果,框选的分类说明/注释仍是英文。
+
+两条独立原因:
+
+1. **点了没反应是"没有反馈通道",不是点击没到**
+   - 游戏内那份 `citadel_shop_mods_build` 布局里既没有工具条也没有 `#BBTStatusLabel2`,
+     而 `uiSetLabel()` 只找 `BBTTranslateButton2`(工具条的按钮)→ 按钮文字永远不变;
+     再加上离线时 `translatePage()` 只做"重跑离线库",本来就翻不出新文本,于是完全静默。
+   - 修法:`uiSetLabel()` 找不到工具条按钮时回退到 `#BBTTranslateButton3`(头部按钮自己显示
+     `重新翻译中… → 离线 N 译 / M 缺`),新增 `uiResetLabel()` 按布局恢复标题(`翻译` / `翻译本页`);
+     离线分支把"还有 M 条未收录"直接写在按钮上,不再假装成功。
+   - 追加:`pageRoot()` 以前对游戏内实例会一路走到 HUD 根(日志 `root=CitadelHudRoot`),
+     扫描从整页上方开始、3000 面板预算可能还没走到出装页就耗尽 → 现在从被点控件向上找最近的
+     `CitadelShopModsBuild` / `CitadelBuildDetails` / `CitadelHeroBuildsSelector` 并停在那里。
+
+2. **红框文本没有译文是数据问题:它们从来没进过译文库**
+   - `console.log` 里这些行都是 `[BBT] MISS`(分类说明 "…can buy stuff on right; sell 1600s…"、
+     注释 "item annotations good to read (sometimes)"、"Your choice"、"Encore Damage" …)。
+   - 修法:跑既有离线流水线把 MISS 收进库——
+     `node tools\collect_new_texts.js`(63 条 MISS → `tools/cache/extra_texts.json`,累计 249 条)
+     → `node tools\build_tm.js`(Bing 机翻 63 条,244/249 已有译文;`bba_tm.js` 条目 58500 → 58563)
+     → 重新打包部署。之后这些文本在**离线**下也能出中文(例:`item annotations good to read
+     (sometimes)` → `物品注释值得一看（有时）`,`Your choice` → `你自己选择`)。
+   - 说明:译文库里没有的文本,离线永远翻不出来——这是设计边界,不是 bug;要即时翻译仍需
+     bridge(`tools/bridge/bridge.js` 8793 或 DeadlockLingua 8792)在线。**出新出装后请跑一次
+     `scripts\refresh_tm.ps1`**,把新文本并入库再打包。
