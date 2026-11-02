@@ -2107,16 +2107,28 @@
     var scope = root || contextPanel();
     if (!scope) return false;
     try { wireHeaderButton(scope); } catch (e) {}
-    // Reflect the shared display mode on the trigger (the mode is a persisted,
-    // module-level setting; each toolbar copy must show it).
-    uiSetModeText(MODE_LABELS[mode], scope);
     if (uiWiredOnce) return true;
     var trigger = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
     if (!trigger) return false;
-    // The single trigger toggles the dropdown (BBTMenuOpen). Its bind name
-    // matches the layout's BBTActivate('menu:toggle', ...) so both activation
-    // paths share one uiGuard key and a single click toggles exactly once.
-    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { toggleMenu(scope); }, "menu:toggle", scope);
+    if (nestedInOverview(trigger)) {
+      // Overview / category surface: collapse + disable hit-testing; the page
+      // is translated by the scanner, the engine's own 出装选项 button owns the
+      // row here (our trigger would sit under it and look unclickable).
+      try { trigger.style.visibility = "collapse"; } catch (e) {}
+      try { trigger.hittest = "false"; } catch (e) {}
+      if (debugOn()) $.Msg("[BBT] trigger hidden in overview context (" + instTag(scope) + ")");
+      uiWiredOnce = true;
+      return true;
+    }
+    // v1.9.16: one plain trigger. The v1.9.15 dropdown (BBTMenu2 + the
+    // 原文/翻译/中英对照 modes) was dropped - in game it surfaced as a floating,
+    // clipped list that looked like it appeared out of nowhere. The button now
+    // does the job itself: click = translate this page (offline memory first,
+    // bridge batch when a bridge is reachable, probing on demand). The bind
+    // name stays "translate" so the XML's BBTActivate('translate', ...) and
+    // this JS binding share one uiGuard key; the longer window tolerates the
+    // onactivate/onmouseactivate pair plus a user's impatient double-click.
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(scope); }, "translate", scope);
     uiWiredOnce = true;
     var n = Object.keys(uiWired).length;
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
@@ -2142,6 +2154,25 @@
   }
 
   var uiHeaderWired = false;
+  // v1.9.16: overview / category surfaces embed the details layout, and there
+  // the engine's own 出装选项 button stacks over ours and eats the click, so
+  // the trigger is hidden on those surfaces. They are translated by the
+  // polling scanner anyway (no button needed). A ≤16-step ancestor walk, the
+  // same pattern as nestedInDetails: on the plain details page
+  // BuildDetails_Overview is a SIBLING of #BuildControls, so only genuinely
+  // embedded contexts (CitadelShopModsBuildCategory, the in-game category tab,
+  // or a build list under BuildDetails_Overview) match.
+  function nestedInOverview(panel) {
+    var p = panel;
+    for (var d = 0; p && d < 16; d += 1) {
+      var tag = "";
+      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (e) { tag = ""; }
+      if (tag.indexOf("CitadelShopModsBuildCategory") >= 0 || tag.indexOf("BuildDetails_Overview") >= 0) return true;
+      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+    }
+    return false;
+  }
+
   function wireHeaderButton(scope) {
     if (uiHeaderWired) return true;
     var btn = uiPanelIn(scope, "BBTTranslateButton3");
