@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.22";
+  var VERSION = "1.9.23";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -91,6 +91,7 @@
     // The source is a constant string with no input from the game or the bridge,
     // so there is nothing to inject into it.
     try {
+      // pi-lens-ignore: no-new-func
       return Function("return this")();
     } catch{}
     return {};
@@ -544,9 +545,14 @@
       }
       var n = 0;
       try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch{ n = 0; }
-      for (var i = 0; i < n; i += 1) {
+      // Push children in reverse so the stack pops them in DOM order (first
+      // card first). v1.9.23: the old forward push made the LAST recommended
+      // build card collect before the earlier ones, so the text limit filled
+      // up on that card's annotations and the previous cards were truncated
+      // ("only the last card translates").
+      for (var i = n; i > 0; i -= 1) {
         try {
-          var c = p.GetChild(i);
+          var c = p.GetChild(i - 1);
           if (c) stack.push(c);
         } catch{}
       }
@@ -2486,7 +2492,10 @@
     var scope = root || contextPanel();
     var page = pageRoot(scope);
     var counts = { scanned: 0, already: 0 };
-    var texts = collectMisses(24, page, counts);
+    // v1.9.23: 24 filled up on the last card's annotations alone. The batch
+    // sender chunks at UI_BATCH / LIVE_BATCH_CHARS, so a larger pool is still
+    // safe for the document.title channel - it just takes more chunks.
+    var texts = collectMisses(160, page, counts);
     var miss = texts.length;
     if (!texts.length) {
       uiSetLabel("没有需要翻译的文本", scope);
