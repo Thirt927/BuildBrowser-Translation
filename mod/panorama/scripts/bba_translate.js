@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.23";
+  var VERSION = "1.9.24";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -708,7 +708,10 @@
       var p = stack.pop();
       if (!p) continue;
       try {
-        if (p.id && LIVE_PANEL_IDS.indexOf(String(p.id)) >= 0) return p;
+        if (p.id && LIVE_PANEL_IDS.indexOf(String(p.id)) >= 0) {
+          registerBridgePanel(p);
+          return p;
+        }
       } catch{}
       var n = 0;
       try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch{ n = 0; }
@@ -722,9 +725,35 @@
     return null;
   }
 
+  // v1.9.24: cross-context registry. Only some layouts declare the <HTML>
+  // bridge panel (the shop-category layout does NOT), and a context without
+  // one cannot reach another layout's panel tree. Register every panel we
+  // find so any context can reuse it.
+  function registerBridgePanel(p) {
+    try {
+      var reg = G.__BBT_BRIDGE_PANELS;
+      if (!reg) { reg = G.__BBT_BRIDGE_PANELS = []; }
+      for (var i = 0; i < reg.length; i += 1) { if (reg[i] === p) return; }
+      reg.push(p);
+      if (reg.length > 8) reg.shift();
+    } catch{}
+  }
+
+  function liveRegistryPanel() {
+    try {
+      var reg = G.__BBT_BRIDGE_PANELS;
+      if (!reg) return null;
+      for (var i = reg.length; i > 0; i -= 1) {
+        var p = reg[i - 1];
+        if (p && p.IsValid && p.IsValid()) return p;
+      }
+    } catch{}
+    return null;
+  }
+
   function livePanel() {
     if (live.panel && live.panel.IsValid && live.panel.IsValid()) return live.panel;
-    live.panel = liveRoot();
+    live.panel = liveRoot() || liveRegistryPanel();
     return live.panel;
   }
 
