@@ -458,6 +458,72 @@ check(
   );
 }
 
+// Case I (v1.9.16 T4, task doc "Case H" — the H letter is already used by the
+// v1.9.8 token-repair case above): static audit. Every RESYNC_TOKENS entry in
+// bba_translate.js must reference a class group that the generated layout
+// table actually declares, and every candidate token must be one of the
+// declared candidates for that class. A stale or mistyped token literal here
+// means resyncLabel tries a candidate no layout declares: resolvedText() then
+// fails and the label keeps the previous build's text (the v1.9.7 "category
+// description freezes" failure mode). Regenerate the table first:
+//   node tools/build_layout_tokens.js --check
+// =====================================================================
+{
+  const translateSrc = fs.readFileSync(
+    path.join(ROOT, "mod/panorama/scripts/bba_translate.js"),
+    "utf8",
+  );
+  const m = translateSrc.match(/var RESYNC_TOKENS = \[([\s\S]*?)\n  \];/);
+  check("[I] RESYNC_TOKENS literal found in bba_translate.js", !!m, String(translateSrc.length));
+  const entries = [];
+  if (m) {
+    for (const line of m[1].split("\n")) {
+      const lm = line.match(/^\s*\[\s*"([A-Za-z0-9_]+)"\s*,\s*(\[.*\]|"[^"]*")\s*\],?\s*$/);
+      if (lm) {
+        const cand = JSON.parse(lm[2]);
+        entries.push([lm[1], Array.isArray(cand) ? cand : [cand]]);
+      }
+    }
+  }
+  check(
+    "[I] RESYNC_TOKENS has the five build-content entries",
+    entries.length === 5,
+    String(entries.length),
+  );
+  // Load the generated table the same way the game would (it only sets
+  // globalThis.BBA_LAYOUT_TOKENS; no exports).
+  const layoutSrc = fs.readFileSync(
+    path.join(ROOT, "mod/panorama/scripts/bba_layout_tokens.js"),
+    "utf8",
+  );
+  vm.runInThisContext(layoutSrc, { filename: "bba_layout_tokens.js" });
+  const tokens = globalThis.BBA_LAYOUT_TOKENS;
+  check(
+    "[I] generated layout table exposes BBA_LAYOUT_TOKENS",
+    !!tokens && !!tokens.byClassAll,
+  );
+  let clsHits = 0;
+  let candHits = 0;
+  const totalCands = entries.reduce((a, e) => a + e[1].length, 0);
+  for (const [cls, cands] of entries) {
+    const declared = tokens && tokens.byClassAll ? tokens.byClassAll[cls] : null;
+    if (Array.isArray(declared)) clsHits += 1;
+    for (const c of cands) {
+      if (Array.isArray(declared) && declared.indexOf(c) >= 0) candHits += 1;
+    }
+  }
+  check(
+    "[I] every RESYNC_TOKENS class group exists in byClassAll",
+    clsHits === entries.length,
+    clsHits + "/" + entries.length,
+  );
+  check(
+    "[I] every RESYNC_TOKENS candidate is a declared candidate (no stale literals)",
+    candHits === totalCands,
+    candHits + "/" + totalCands,
+  );
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log("");
 if (failures) {
