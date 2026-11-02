@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.24";
+  var VERSION = "1.9.25";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -2103,18 +2103,32 @@
     // translate it again.
     if (identityChanged || (contentChanged && ticksSinceRebind > 3)) {
       identityChanged = false;
-      // A new build/item is showing: it is a fresh page, not the one the user
-      // toggled to 原文 - clear the per-root gate so it auto-translates.
-      try { displayOrig.delete(ctx); } catch{}
       contentChanged = false;
       // A new build/item is showing: stay responsive for a moment instead of
       // sitting at the backed-off interval, so a hovered tooltip is translated
       // on the next poll (~150ms) rather than up to a second later.
       idleTicks = 0;
       interval = POLL_INTERVAL;
-      try {
-        if (resyncAll(40)) ticksSinceRebind = 0;
-      } catch{}
+      var manual = false, origNow = false;
+      try { manual = !!(ctx && manualMode.get(ctx)); } catch{}
+      if (manual) {
+        // v1.9.25 two-state manual page: honour the current toggle state.
+        try { origNow = !!(ctx && displayOrig.get(ctx)); } catch{}
+        if (origNow) {
+          // Pinned to the original: stay parked, no writes -> no flicker.
+          ticksSinceRebind = 0;
+        } else {
+          // Translated state: re-resolve the engine labels for the new build.
+          try { if (resyncAll(40)) ticksSinceRebind = 0; } catch{}
+        }
+      } else {
+        // Non-manual page (selector list / in-game build page): a fresh page,
+        // not one the user toggled - clear the gate and auto-translate.
+        try { displayOrig.delete(ctx); } catch{}
+        try {
+          if (resyncAll(40)) ticksSinceRebind = 0;
+        } catch{}
+      }
     }
     ticksSinceRebind += 1;
     try { liveDrainQueue(); } catch{}
@@ -2158,6 +2172,14 @@
   // v1.9.17 two-state trigger toggle: pageRoot -> 1 while that page is
   // deliberately showing the ORIGINAL text (scanner must not re-translate).
   var displayOrig = new WeakMap();
+  // v1.9.25 manual two-state page flag: armed in boot() for the build-details
+  // context only. tick() honours it on a build switch - a manual page pinned
+  // to the original stays parked (no re-translate, no flicker); one in the
+  // translated state is re-synced to stay fresh. Non-manual contexts (selector
+  // list, in-game build page) keep the old auto-translate-on-switch path.
+  // The actual show/gate state lives in displayOrig; manualMode only tells
+  // tick() to honour it instead of forcing an auto-translate.
+  var manualMode = new WeakMap();
 
   function nowMs() {
     try { if (typeof Date.now === "function") return Date.now(); } catch{}
@@ -2463,8 +2485,12 @@
     // button; the dropdown now holds that action, and a hidden menu item would
     // swallow the feedback.
     uiSetRefreshText("刷新中…", scope);
+    // v1.9.25: the button must cover every category + item annotation on the
+    // page, not just the last card - re-resolve up to 400 engine labels instead
+    // of 80. This is the one-shot click path (never the periodic scanner), so
+    // a higher limit costs nothing at idle.
     var n = 0;
-    try { n = resyncAll(80, scope); } catch{ n = -1; }
+    try { n = resyncAll(400, scope); } catch{ n = -1; }
     $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) in " + instTag(scope));
     uiSetRefreshText(n >= 0 ? "已刷新 " + n + " 条" : "刷新失败", scope);
     uiSetStatus("刷新 " + n + " 条", scope);
@@ -2524,7 +2550,10 @@
     // v1.9.23: 24 filled up on the last card's annotations alone. The batch
     // sender chunks at UI_BATCH / LIVE_BATCH_CHARS, so a larger pool is still
     // safe for the document.title channel - it just takes more chunks.
-    var texts = collectMisses(160, page, counts);
+    // v1.9.25: 800 (was 160) so every category's description + the item
+    // annotations across all categories are collected, not truncated to the
+    // last few cards. The batch sender still chunks at UI_BATCH / LIVE_BATCH_CHARS.
+    var texts = collectMisses(800, page, counts);
     var miss = texts.length;
     if (!texts.length) {
       uiSetLabel("没有需要翻译的文本", scope);
@@ -2712,12 +2741,14 @@
             resetMemos(page); // put the source text back on every translated label
             displayOrig.set(page, 1); // stop the scanner re-translating this page
             displayOrig.set(root, 1); // alias: the context panel of the clicked instance
+            displayOrig.set(origin, 1); // the scanner gate key (context panel)
             uiSetModeText("翻译", root);
             if (debugOn()) $.Msg("[BBT] trigger: show original on " + instTag(page) + " (ctx=" + instTag(root) + ")");
             return;
           }
           displayOrig.delete(page);
           displayOrig.delete(root);
+          displayOrig.delete(origin); // the scanner gate key (context panel)
           uiSetModeText("原文", root); // resting state; the async feedback
                                        // (正在连接桥…/已译 N 条) overrides it while running
           // v1.9.18: re-resolve the engine labels (build title / description /
@@ -2815,6 +2846,7 @@
     // The build-details layout is reused as a hover tooltip (hittest=false).
     // A toolbar there can never be clicked, it would only sit on top of the
     // tooltip, so hide it.
+    var isTooltip = false;
     try {
       var up = ctx;
       for (var d = 0; up && d < 10; d += 1) {
@@ -2826,6 +2858,7 @@
           if (!upc) upc = String(up.class || "");
         } catch{ upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
+          isTooltip = true;
           // Collapse the toolbar wrapper + every button: the hover tooltip
           // reuses this layout but its buttons can never be clicked.
           var toolbarIds = ["BBTTranslateButton2", "BBTTranslateButton"];
@@ -2883,6 +2916,23 @@
     // -condebug to check that every layout surface that shows player text is
     // really covered (e.g. a game update may spawn a new out-of-tree layout).
     var bootRoot = layoutRoot(ctx);
+    // v1.9.25 two-state manual page: the build-details page defaults to the
+    // ORIGINAL text. The 翻译/原文 trigger (BBTTranslateButton2) is the only
+    // way in or out of the translated state - click 翻译 to translate every
+    // category + item annotation on the page, click 原文 to put it back. The
+    // transient hover tooltip reuses this layout but must keep auto-translating,
+    // so it is excluded (isTooltip). See tick()'s manual branch + dispatch().
+    if (!isTooltip && layoutTag === "CitadelBuildDetails") {
+      try {
+        manualMode.set(ctx, 1);
+        displayOrig.set(ctx, 1); // default: show the original text
+        var mp = pageRoot(ctx);
+        if (mp) displayOrig.set(mp, 1);
+        if (bootRoot) displayOrig.set(bootRoot, 1);
+        uiSetModeText("翻译", bootRoot); // resting label: next action = translate
+      } catch{}
+      if (debugOn()) $.Msg("[BBT] manual two-state armed on " + instTag(bootRoot) + " (default 原文)");
+    }
     var missing = missingHandlers();
     $.Msg(
       "[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) +
