@@ -2179,19 +2179,30 @@
     var scope = root || contextPanel();
     if (!scope) return false;
     try { wireHeaderButton(scope); } catch (e) {}
-    if (uiWiredOnce) return true;
+    // v1.9.17 (T2 fix): the overview/category collapse must run in EVERY
+    // context that carries a trigger, before the uiWiredOnce early return -
+    // the flag belongs to whichever context wired first, and the overview
+    // page's own embedded details context would otherwise keep a visible,
+    // dead trigger under the engine's 出装选项 button (the v1.9.16 report).
     var trigger = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
-    if (!trigger) return false;
-    if (nestedInOverview(trigger)) {
+    if (trigger && nestedInOverview(trigger)) {
       // Overview / category surface: collapse + disable hit-testing; the page
       // is translated by the scanner, the engine's own 出装选项 button owns the
       // row here (our trigger would sit under it and look unclickable).
       try { trigger.style.visibility = "collapse"; } catch (e) {}
-      try { trigger.hittest = "false"; } catch (e) {}
+      try { trigger.hittest = false; } catch (e) {}
       if (debugOn()) $.Msg("[BBT] trigger hidden in overview context (" + instTag(scope) + ")");
       uiWiredOnce = true;
       return true;
     }
+    if (uiWiredOnce) {
+      if (debugOn() && !G.__BBT_WIRED_SKIP_LOGGED) {
+        G.__BBT_WIRED_SKIP_LOGGED = true;
+        $.Msg("[BBT] trigger wiring skipped in " + instTag(scope) + " (uiWiredOnce set by an earlier context)");
+      }
+      return true;
+    }
+    if (!trigger) return false;
     // v1.9.16: one plain trigger. The v1.9.15 dropdown (the
     // 原文/翻译/中英对照 modes) was dropped - in game it surfaced as a floating,
     // clipped list that looked like it appeared out of nowhere. The button now
