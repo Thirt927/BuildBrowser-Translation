@@ -40,7 +40,10 @@
   var IDLE_MAX_INTERVAL = 1.0; // back off to this when the tree is quiet
   var PARKED_INTERVAL = 0.5; // layout not visible (shop closed, browser closed)
   var IDLE_TICKS_BEFORE_BACKOFF = 6;
-  var SCAN_BUDGET = 6000; // panels visited per tick
+  var SCAN_BUDGET = 2000; // panels visited per tick (T6 chunking: the walk is a
+                          // persistent carry — a budget-capped tick resumes where it
+                          // stopped instead of dropping 6000 unvisited panels and
+                          // restarting the whole tree one tick later)
   var TERM_FALLBACK_MAX = 160; // only short labels get glossary substitution
   // Glossary substitution is only written when it actually produced a Chinese
   // sentence: below this CJK share (or when a run of English words survives) the
@@ -1175,6 +1178,7 @@
     rebindUndone: 0,
     tableEntries: 0,
     tableAliases: 0,
+    stableSkips: 0, // T6-3: ticks where the stable-root probe skipped the walk
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
@@ -1573,7 +1577,13 @@
     memo.set(panel, { k: kind, in: raw, out: out || null });
   }
 
-  var missSeen = Object.create(null);
+  // T6-2: session-global MISS ledger on globalThis. Every layout context has
+  // its own closure scope, but all contexts share one globalThis — so each key
+  // logs its first [BBT] MISS line ONCE per game session, not once per context
+  // (the v1.9.14 console.log showed the same key ~17× across 12 contexts).
+  // Also cuts per-tick $.Msg I/O: after the first hit the check is one
+  // property read.
+  var missLedger = (G && G.__BBT_MISS_LOGGED) || (G && (G.__BBT_MISS_LOGGED = Object.create(null)));
 
   function noteMiss(raw, panel) {
     if (!COLLECT_MISSES || stats.misses >= MISS_CAP) return;
@@ -1589,8 +1599,8 @@
     if (!/[A-Za-z]{2}/.test(flat)) return;
     if (/^https?:\/\//i.test(flat)) return;
     var k = keyOf(flat);
-    if (missSeen[k]) return;
-    missSeen[k] = 1;
+    if (missLedger[k]) return; // T6-2: 同一 key 全会话只记首条
+    missLedger[k] = 1;
     stats.misses += 1;
     $.Msg("[BBT] MISS " + k + " " + flat);
   }
@@ -1811,12 +1821,33 @@
   // stable scan that happens to emit the line.
   var scanBaselines = new WeakMap();
 
+  var scanCarry = []; // T6: unvisited panels left over from a budget-capped tick.
+  // T6-3: fully-memoed tree fast-exit. A root is only ever marked stable by a
+  // FULL walk (carry drained) that found nothing new, skipped nothing hidden and
+  // wrote nothing — that is the proof the whole visible tree is in the memo. A
+  // stable tick then probes only the identity labels recorded at the end of
+  // that walk (build-switch detector) plus whether the child set changed. Any
+  // changed probe or new child drops the root and the NEXT tick does a full
+  // walk again — so this adds no new periodic rescan, it only replaces a
+  // zero-work walk with a handful of `.text` reads (the "不拖帧" target).
+  var stableRoots = new WeakMap(); // root -> { probes: [[panel, text]], children: n }
+
   function scan(root) {
-    var stack = [root];
+    // T6 chunking: a walk is a persistent cycle. When carry is empty this is the
+    // first tick of a cycle (push root); otherwise we resume mid-walk. A panel
+    // has exactly one parent, so nothing is re-pushed; disposed panels die on the
+    // IsValid() guard below. Burst ticks keep going at FAST_INTERVAL — each is
+    // just another chunk of the same walk.
+    if (scanCarry.length === 0) scanCarry.push(root);
+    var stack = scanCarry;
     var visited = 0;
     var fresh = 0;
     var skipped = 0;
     var skippedOwn = 0;
+    var writesBefore = stats.writes; // T6-3: stability is judged on THIS tick's writes only
+    var rootChildren = 0; // T6-3: child-set snapshot taken before the walk
+    try { rootChildren = root.GetChildCount ? root.GetChildCount() : 0; } catch (e) {}
+    var probes = []; // T6-3: identity-label texts recorded during the walk
     scanCtx.token = 0;
     try {
       if (!scanBaselines.has(root)) scanBaselines.set(root, stats.writes);
@@ -1862,6 +1893,7 @@
           var prev = identity.get(p);
           if (prev !== undefined && prev !== t) identityChanged = true;
           identity.set(p, t);
+          probes.push([p, t]); // T6-3: stable-root probe (build-switch detector)
         } else if (!TICKING_TOKEN.test(tok) && rec && rec.in !== t) {
           // Some other engine-driven label changed inside this layout: the
           // hovered item / opened panel is a different one even if no explicit
@@ -1895,6 +1927,16 @@
     stats.skipped += skipped;
     scanCtx.wrote = stats.writes - scanCtx.baselineWrites;
     if (fresh === 0) scanSummaryOnce(root, visited, scanCtx.token, skipped, skippedOwn, scanCtx.wrote);
+    // T6-3: stamp stability only on a clean, full walk — chunk drained, no new
+    // panels, nothing hidden (a visibility toggle could not be probed otherwise),
+    // zero writes this tick, and at least one identity label to probe. Without
+    // any of that the root stays unstable and keeps its ordinary walk.
+    if (stack.length === 0 && fresh === 0 && skipped === 0 &&
+        stats.writes - writesBefore === 0 && probes.length > 0) {
+      stableRoots.set(root, { probes: probes, children: rootChildren });
+    } else {
+      stableRoots.delete(root);
+    }
     return fresh;
   }
 
@@ -1913,8 +1955,38 @@
     var hidden = false;
     try {
       var ctx = $.GetContextPanel();
-      if (ctx && panelVisible(ctx)) fresh = scan(ctx);
-      else hidden = true;
+      if (ctx && panelVisible(ctx)) {
+        // T6-3 fast-exit: a stable root is probed, not walked — identity-label
+        // texts plus the child count. Stable tick = a few .text reads, zero
+        // writes, interval backoff continues unchanged. Any change drops the
+        // root and runs a full walk right now, so nothing can lag by more
+        // than one tick (and the burst/resync paths pick up fresh/identity).
+        var snap = stableRoots.get(ctx);
+        if (snap) {
+          var stale = false;
+          try {
+            var cc = ctx.GetChildCount ? ctx.GetChildCount() : 0;
+            if (cc !== snap.children) stale = true;
+          } catch (e) { stale = true; }
+          if (!stale) {
+            for (var pi = 0; pi < snap.probes.length; pi += 1) {
+              try {
+                var pp = snap.probes[pi][0];
+                if (pp.IsValid && !pp.IsValid()) { stale = true; break; }
+                if (pp.text !== snap.probes[pi][1]) { stale = true; break; }
+              } catch (e) { stale = true; break; }
+            }
+          }
+          if (stale) {
+            stableRoots.delete(ctx);
+            fresh = scan(ctx);
+          } else {
+            stats.stableSkips += 1; // observability: walks replaced by probes
+          }
+        } else {
+          fresh = scan(ctx);
+        }
+      } else hidden = true;
     } catch (e) {
       hidden = true;
     }
