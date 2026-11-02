@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.19";
+  var VERSION = "1.9.20";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -2290,7 +2290,13 @@
     for (var d = 0; p && d < 16; d += 1) {
       var tag = "";
       try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (e) { tag = ""; }
-      if (tag.indexOf("CitadelShopModsBuildCategory") >= 0 || tag.indexOf("BuildDetails_Overview") >= 0) return true;
+      // v1.9.20: HeroBuildSelector added - the build browser's overview embeds
+      // the details layout under its selector root, and there our trigger sits
+      // in the engine's own 出装选项 row (overlapping the 复制出装 dropdown).
+      // The in-game shop page (CitadelShopModsBuild, no HeroBuildSelector in
+      // the chain) keeps its button.
+      if (tag.indexOf("CitadelShopModsBuildCategory") >= 0 || tag.indexOf("BuildDetails_Overview") >= 0 ||
+          tag.indexOf("HeroBuildSelector") >= 0 || tag.indexOf("HeroBuildsSelector") >= 0) return true;
       try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
     }
     return false;
