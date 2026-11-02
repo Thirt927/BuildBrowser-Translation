@@ -560,7 +560,30 @@ check(
     .join(" | ")
 );
 pump(h, 400);
-checkEq(aTrig.text, "翻译", "触发反馈 1.6s 后 uiResetLabel 复位为 翻译（v1.9.16 无模式菜单，统一复位）");
+checkEq(aTrig.text, "原文", "v1.9.17 双态触发器：复位文案 = 下一个显示状态（页面已译 → 下次点 原文）");
+
+// ---- v1.9.17 two-state toggle: 原文（显示原文）→ 翻译（重新译）----
+activate(h, "translate", aTrig); // label was 原文: show original on A's page
+checkEq(aTrig.text, "翻译", "二击（label 原文）→ 页面恢复原文，按钮变 翻译");
+h.state.writes.length = 0;
+pump(h, 40); // scanner ticks several times in 400ms
+checkEq(
+  h.state.writes.length,
+  0,
+  "原文 状态下扫描器不再写译文（displayOrig gate 生效）",
+  "writes=" + h.state.writes.length
+);
+pump(h, 80); // clear the 600ms act:translate guard window
+activate(h, "translate", aTrig); // label 翻译: translate again
+checkMatch(
+  aTrig.text,
+  /^正在连接桥…|桥未连接\(\d+ 条缺\)|无新译文\(\d+ 条缺\)|已译 \d+ 条$/,
+  "三击（label 翻译）→ 桥批量翻译进行中，反馈落在触发器上"
+);
+h.state.writes.length = 0;
+pump(h, 60);
+checkEq(aTrig.text, "原文", "三击 settle 后复位文案回到稳态 原文（双态）");
+check(h.state.writes.length > 0, "切回 翻译 后扫描器恢复写译文", "writes=" + h.state.writes.length);
 
 const aTrigBeforeBRefresh = aTrig.text;
 h.state.writes.length = 0;
@@ -600,7 +623,7 @@ check(
 );
 
 pump(h3, 400);
-checkEq(cTrig.text, "翻译", "触发器最终复位为当前模式（翻译）");
+checkEq(cTrig.text, "原文", "v1.9.17 双态触发器：刷新后复位文案 = 下一个显示状态（已译 → 原文）");
 
 /* ------------------------------------------------------------------ */
 /* [4] missing export is visible                                       */

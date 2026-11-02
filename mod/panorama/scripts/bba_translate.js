@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.16";
+  var VERSION = "1.9.17";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -455,8 +455,21 @@
   }
 
   // Restore the trigger's caption. Progress feedback ("已译 N 条") overwrites it
-  // while an action runs; this puts the static "翻译" caption back.
+  // while an action runs; this puts the correct resting caption back. v1.9.17
+  // two-state trigger: the resting caption names the NEXT display state -
+  // "原文" while the page is translated, "翻译" while it shows the original.
+  // The in-game header layout (no BBTTranslateButton2/1) stays at "翻译".
   function uiResetLabel(root) {
+    var b = null;
+    try { b = uiPanelIn(root || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (e) { b = null; }
+    if (b) {
+      var page = null;
+      try { page = pageRoot(root); } catch (e) { page = null; }
+      var origOn = false;
+      try { origOn = !!(page && displayOrig.get(page)); } catch (e) {}
+      uiSetModeText(origOn ? "翻译" : "原文", root);
+      return;
+    }
     uiSetModeText("翻译", root);
   }
 
@@ -1626,7 +1639,7 @@
   // Per-scan counters (S3): scan() resets these, translatePanel() increments
   // token on every engine-owned token/template label it meets, and scan() reads
   // them back to emit the one-shot scan-summary line.
-  var scanCtx = { token: 0, baselineWrites: 0 };
+  var scanCtx = { token: 0, baselineWrites: 0, root: null };
   // $.Localize is an engine round-trip; a stuck #token label would otherwise
   // call it every poll. Try at most once per TOKEN_REREAD_MS per label.
   var tokenStamp = new WeakMap();
@@ -1848,6 +1861,7 @@
     var rootChildren = 0; // T6-3: child-set snapshot taken before the walk
     try { rootChildren = root.GetChildCount ? root.GetChildCount() : 0; } catch (e) {}
     var probes = []; // T6-3: identity-label texts recorded during the walk
+    scanCtx.root = root; // v1.9.17: displayOrig gate (原文/翻译 toggle)
     scanCtx.token = 0;
     try {
       if (!scanBaselines.has(root)) scanBaselines.set(root, stats.writes);
@@ -1879,7 +1893,13 @@
         if (tk) tokenOf.set(p, tk);
       }
       if (typeof t === "string" && t.length >= 2) {
-        if (!isTextEntry(p)) translatePanel(p, t);
+        if (!isTextEntry(p)) {
+          // v1.9.17 原文/翻译 toggle: while this page is deliberately showing
+          // the original text, the scanner must not re-translate it.
+          var origOn = false;
+          try { origOn = !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch (e) {}
+          if (!origOn) translatePanel(p, t);
+        }
         else if (!known) remember(p, 0, t, null);
       } else if (!known) {
         remember(p, 0, null, null);
@@ -2007,6 +2027,9 @@
     // translate it again.
     if (identityChanged || (contentChanged && ticksSinceRebind > 3)) {
       identityChanged = false;
+      // A new build/item is showing: it is a fresh page, not the one the user
+      // toggled to 原文 - clear the per-root gate so it auto-translates.
+      try { displayOrig.delete(ctx); } catch (e) {}
       contentChanged = false;
       // A new build/item is showing: stay responsive for a moment instead of
       // sitting at the backed-off interval, so a hovered tooltip is translated
@@ -2056,6 +2079,9 @@
   // fired instead of requiring the console.
   var uiWired = Object.create(null);
   var uiWiredOnce = false;
+  // v1.9.17 two-state trigger toggle: pageRoot -> 1 while that page is
+  // deliberately showing the ORIGINAL text (scanner must not re-translate).
+  var displayOrig = new WeakMap();
 
   function nowMs() {
     try { if (typeof Date.now === "function") return Date.now(); } catch (e) {}
@@ -2555,7 +2581,37 @@
     if (!uiGuard(root, "act:" + action, actionWindow(action))) return;
     reportClick(action, root);
     try {
-      if (action === "translate") translatePage(root);
+      if (action === "translate") {
+        // v1.9.17 two-state trigger (browser 翻译 button): the label always
+        // names the NEXT display state. 翻译 -> run the bridge-batch translate,
+        // then show 原文; 原文 -> put the original text back; then show 翻译…
+        // The in-game header button has no BBTTranslateButton2/1 in its
+        // layout, so it keeps the plain translatePage flow.
+        var page = pageRoot(root);
+        var toggle = null;
+        try { toggle = uiPanelIn(root, ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (e) {}
+        if (toggle) {
+          var cur = "";
+          try { cur = String(toggle.text || ""); } catch (e) {}
+          // The label is the state: "原文" -> next click shows the original;
+          // anything else (翻译 / feedback strings) -> next click translates.
+          // displayOrig is only the scanner gate, managed by both branches.
+          if (cur.indexOf("原文") === 0) {
+            resetMemos(page); // put the source text back on every translated label
+            displayOrig.set(page, 1); // stop the scanner re-translating this page
+            uiSetModeText("翻译", root);
+            if (debugOn()) $.Msg("[BBT] trigger: show original on " + instTag(page));
+            return;
+          }
+          displayOrig.delete(page);
+          uiSetModeText("原文", root); // resting state; the async feedback
+                                       // (正在连接桥…/已译 N 条) overrides it while running
+          translatePage(root);
+          if (debugOn()) $.Msg("[BBT] trigger: translate on " + instTag(page));
+          return;
+        }
+        translatePage(root);
+      }
       else if (action === "refresh") refreshPage(root);
       else if (action.indexOf("hover") === 0) return; // status only
       else if (action.indexOf("lang:") === 0) setTargetLang(action.slice(5), root);
