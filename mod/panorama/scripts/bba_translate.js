@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.17";
+  var VERSION = "1.9.18";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -302,7 +302,7 @@
   // Handlers are global functions because Panorama resolves onactivate="Name()"
   // in the global scope.
 
-  var ui = { busy: false, lastResult: "", batch: [] };
+  var ui = { busy: false, busySince: 0, lastResult: "", batch: [] };
 
   // Depth-first scan bounded by `root`. Every lookup in this file goes through
   // here: the build browser, the spec page nested inside it and the hover tooltip
@@ -2229,6 +2229,20 @@
       return true;
     }
     if (!trigger) return false;
+    if (debugOn() && !G.__BBT_TRIGGER_ANCESTORS_LOGGED) {
+      G.__BBT_TRIGGER_ANCESTORS_LOGGED = true;
+      // One-shot B1-class diagnostic (v1.9.18): if the overview hide still
+      // fails in game, this line shows the exact ancestor chain so the
+      // nestedInOverview matcher can be fixed from the morning log instead
+      // of by guessing the in-game tag spelling.
+      var chain = [];
+      var ap = trigger;
+      for (var ad = 0; ap && ad < 16; ad += 1) {
+        chain.push(String(ap.id || "?") + "|" + panelTag(ap));
+        try { ap = ap.GetParent ? ap.GetParent() : null; } catch (e) { ap = null; }
+      }
+      $.Msg("[BBT] trigger ancestors: " + chain.join(" < "));
+    }
     // v1.9.16: one plain trigger. The v1.9.15 dropdown (the
     // 原文/翻译/中英对照 modes) was dropped - in game it surfaced as a floating,
     // clipped list that looked like it appeared out of nowhere. The button now
@@ -2237,7 +2251,7 @@
     // name stays "translate" so the XML's BBTActivate('translate', ...) and
     // this JS binding share one uiGuard key; the longer window tolerates the
     // onactivate/onmouseactivate pair plus a user's impatient double-click.
-    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { translatePage(scope); }, "translate", scope);
+    onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { dispatch("translate", scope); }, "translate", scope);
     uiWiredOnce = true;
     var n = Object.keys(uiWired).length;
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
@@ -2409,7 +2423,19 @@
 
   // The main button: "translate everything on this page that we do not know yet".
   function translatePage(root) {
-    if (ui.busy) return;
+    if (ui.busy) {
+      // v1.9.18 self-heal: a lost bridge callback must not block the button
+      // forever - the lock expires after 15s.
+      var stale = 0;
+      try { stale = nowMs(); } catch (e) {}
+      // No clock, or no busy timestamp, or a stale lock -> release. Only a
+      // *live* lock (<15s, with a working clock) keeps the button quiet.
+      if (!ui.busySince || stale <= 0 || stale - ui.busySince > 15000) {
+        ui.busy = false;
+      } else {
+        return;
+      }
+    }
     var scope = root || contextPanel();
     var page = pageRoot(scope);
     var counts = { scanned: 0, already: 0 };
@@ -2460,6 +2486,7 @@
       return;
     }
     ui.busy = true;
+    ui.busySince = nowMs();
     uiSetLabel("翻译中… " + texts.length, scope);
     uiSetStatus("翻译中 " + texts.length, scope);
     uiRequestBatch(texts, function (results, err) {
@@ -2599,15 +2626,23 @@
           if (cur.indexOf("原文") === 0) {
             resetMemos(page); // put the source text back on every translated label
             displayOrig.set(page, 1); // stop the scanner re-translating this page
+            displayOrig.set(root, 1); // alias: the context panel of the clicked instance
             uiSetModeText("翻译", root);
-            if (debugOn()) $.Msg("[BBT] trigger: show original on " + instTag(page));
+            if (debugOn()) $.Msg("[BBT] trigger: show original on " + instTag(page) + " (ctx=" + instTag(root) + ")");
             return;
           }
           displayOrig.delete(page);
+          displayOrig.delete(root);
           uiSetModeText("原文", root); // resting state; the async feedback
                                        // (正在连接桥…/已译 N 条) overrides it while running
+          // v1.9.18: re-resolve the engine labels (build title / description /
+          // annotations) for the build that is on screen NOW before the bridge
+          // batch - a hero/build switch that left the title stale is what the
+          // user sees as "点了翻译没用". refreshPage's 刷新中…/已刷新 N 条
+          // feedback is immediately followed by the translate feedback.
+          try { refreshPage(root); } catch (e) {}
           translatePage(root);
-          if (debugOn()) $.Msg("[BBT] trigger: translate on " + instTag(page));
+          if (debugOn()) $.Msg("[BBT] trigger: translate on " + instTag(page) + " (ctx=" + instTag(root) + ")");
           return;
         }
         translatePage(root);
