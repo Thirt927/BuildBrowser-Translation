@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.20";
+  var VERSION = "1.9.21";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -73,7 +73,7 @@
     { port: 8793, tag: "BBT", name: "bbt-bridge" },
   ];
   var LIVE_TARGET = null; // { port, tag, name } once the probe succeeded
-  var LIVE_PROBE_TIMEOUT = 2.0; // seconds to wait for the health answer
+  var LIVE_PROBE_TIMEOUT = 4.0; // seconds to wait for the health answer (v1.9.21: page load + API round trip)
   var LIVE_REQUEST_TIMEOUT = 6.0; // seconds per translation request
   var LIVE_POLL = 0.1; // title poll interval
   var LIVE_HARD_FAILS_MAX = 3; // give up after this many dead round trips
@@ -84,7 +84,7 @@
   function realGlobal() {
     try {
       if (typeof globalThis !== "undefined" && globalThis) return globalThis;
-    } catch (e) {}
+    } catch (_e) {}
     // Required by the engine, not by choice: some Deadlock Panorama builds have
     // no globalThis and throw on any reference to an undeclared identifier, so
     // this is the only way left to reach the global object (see AGENTS.md 6.7).
@@ -92,7 +92,7 @@
     // so there is nothing to inject into it.
     try {
       return Function("return this")();
-    } catch (e) {}
+    } catch (_e) {}
     return {};
   }
   var G = realGlobal();
@@ -116,7 +116,7 @@
         var v = $.PersistentStorage.GetString(key, "");
         if (v) return v;
       }
-    } catch (e) {}
+    } catch (_e) {}
     return fallback;
   }
 
@@ -125,7 +125,7 @@
       if ($.PersistentStorage && typeof $.PersistentStorage.SetString === "function") {
         $.PersistentStorage.SetString(key, value);
       }
-    } catch (e) {}
+    } catch (_e) {}
   }
   var GLOSS = G.BBA_GLOSSARY || null;
   // class/id -> the text="..." our layouts declare. Lets the scanner recognise
@@ -321,21 +321,21 @@
         for (var k = 0; k < list.length; k += 1) {
           if (p.id === list[k]) return p;
         }
-      } catch (e) {}
+      } catch (_e) {}
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try {
           var c = p.GetChild(i);
           if (c) stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     return null;
   }
 
   function contextPanel() {
-    try { return $.GetContextPanel() || null; } catch (e) { return null; }
+    try { return $.GetContextPanel() || null; } catch (_e){ return null; }
   }
 
   function uiPanel(ids) {
@@ -349,7 +349,7 @@
   // and it works in-game); `panel.paneltype` is only populated on a subset of
   // panels, so it is an unreliable fallback. Read tag first, paneltype second.
   function panelTag(p) {
-    try { return String(p.tag || p.paneltype || ""); } catch (e) { return ""; }
+    try { return String(p.tag || p.paneltype || ""); } catch (_e){ return ""; }
   }
 
   function layoutRoot(panel) {
@@ -360,7 +360,7 @@
       if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector" || pt === "CitadelShopModsBuild") return cur;
       top = cur;
       var up = null;
-      try { up = cur.GetParent ? cur.GetParent() : null; } catch (e) { up = null; }
+      try { up = cur.GetParent ? cur.GetParent() : null; } catch (_e){ up = null; }
       if (!up) break;
       cur = up;
     }
@@ -385,9 +385,9 @@
     var p = root;
     for (var i = 0; p && i < 3; i += 1) {
       var s = "";
-      try { s = String(p.id || "") || String(p.paneltype || "") || "?"; } catch (e) { s = "?"; }
+      try { s = String(p.id || "") || String(p.paneltype || "") || "?"; } catch (_e){ s = "?"; }
       bits.push(s);
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+      try { p = p.GetParent ? p.GetParent() : null; } catch (_e){ p = null; }
     }
     return bits.join("<");
   }
@@ -400,7 +400,7 @@
     try {
       p.text = text;
       return true;
-    } catch (e) {
+    } catch (_e){
       return false;
     }
   }
@@ -438,7 +438,7 @@
     var scope = root || null;
     var l = uiPanelIn(scope || contextPanel(), ["BBTTranslateLabel", "BBTTranslateLabel2"]);
     if (l) {
-      try { l.text = text; } catch (e) {}
+      try { l.text = text; } catch (_e) {}
     } else {
       // The toolbar uses the game's TextButton (native look), whose text lives on
       // the button itself instead of in a child label. The in-game build page's
@@ -448,7 +448,7 @@
       var b = uiPanelIn(scope || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]);
       if (!b) b = uiPanelIn(scope || contextPanel(), "BBTTranslateButton3");
       if (b) {
-        try { b.text = text; } catch (e) {}
+        try { b.text = text; } catch (_e) {}
       }
     }
     ui.lastResult = text;
@@ -461,12 +461,12 @@
   // The in-game header layout (no BBTTranslateButton2/1) stays at "翻译".
   function uiResetLabel(root) {
     var b = null;
-    try { b = uiPanelIn(root || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (e) { b = null; }
+    try { b = uiPanelIn(root || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (_e){ b = null; }
     if (b) {
       var page = null;
-      try { page = pageRoot(root); } catch (e) { page = null; }
+      try { page = pageRoot(root); } catch (_e){ page = null; }
       var origOn = false;
-      try { origOn = !!(page && displayOrig.get(page)); } catch (e) {}
+      try { origOn = !!(page && displayOrig.get(page)); } catch (_e) {}
       uiSetModeText(origOn ? "翻译" : "原文", root);
       return;
     }
@@ -490,7 +490,7 @@
       for (var j = 0; q && j < 20; j += 1) {
         var qt = panelTag(q);
         if (qt === "CitadelHeroBuildsSelector" || qt === "CitadelBuildDetails" || qt === "CitadelShopModsBuild") return q;
-        try { q = q.GetParent ? q.GetParent() : null; } catch (e) { q = null; }
+        try { q = q.GetParent ? q.GetParent() : null; } catch (_e){ q = null; }
       }
       return layoutRoot(origin) || origin;
     }
@@ -500,10 +500,10 @@
       var pt = panelTag(p);
       if (pt === "CitadelHeroBuildsSelector") return p; // the whole browser
       if (pt === "CitadelBuildDetails" && !details) details = p;
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+      try { p = p.GetParent ? p.GetParent() : null; } catch (_e){ p = null; }
     }
     if (details) return details;
-    try { return $.GetContextPanel(); } catch (e) {}
+    try { return $.GetContextPanel(); } catch (_e) {}
     return null;
   }
 
@@ -514,7 +514,7 @@
   // the last global handler belongs to a smaller layout (tooltip).
   function collectMisses(limit, root, counts) {
     if (!root) {
-      try { root = $.GetContextPanel(); } catch (e) { return []; }
+      try { root = $.GetContextPanel(); } catch (_e){ return []; }
     }
     var out = [];
     var seen = Object.create(null);
@@ -527,7 +527,7 @@
       if (!p) continue;
       if (!panelVisible(p)) continue;
       var t = null;
-      try { t = p.text; } catch (e) { t = null; }
+      try { t = p.text; } catch (_e){ t = null; }
       if (typeof t === "string" && t.length >= 3 && t.length <= LIVE_TEXT_MAX) {
         scanned += 1;
         if (t.indexOf("#") !== 0 && !HAS_CJK.test(t) && !seen[t]) {
@@ -543,12 +543,12 @@
         }
       }
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try {
           var c = p.GetChild(i);
           if (c) stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     if (counts) { counts.scanned = scanned; counts.already = already; }
@@ -634,7 +634,7 @@
   // Write the freshly translated strings into the labels that are on screen now.
   function uiApplyResults(results) {
     var root = null;
-    try { root = $.GetContextPanel(); } catch (e) { return 0; }
+    try { root = $.GetContextPanel(); } catch (_e){ return 0; }
     var applied = 0;
     var stack = [root];
     var budget = 3000;
@@ -644,7 +644,7 @@
       if (!p) continue;
       if (!panelVisible(p)) continue;
       var t = null;
-      try { t = p.text; } catch (e) { t = null; }
+      try { t = p.text; } catch (_e){ t = null; }
       if (typeof t === "string") {
         var tr = results[t] || liveCacheGet(t);
         if (tr) {
@@ -655,12 +655,12 @@
         }
       }
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try {
           var c = p.GetChild(i);
           if (c) stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     return applied;
@@ -693,7 +693,7 @@
 
   function liveRoot() {
     var ctx = null;
-    try { ctx = $.GetContextPanel(); } catch (e) { return null; }
+    try { ctx = $.GetContextPanel(); } catch (_e){ return null; }
     // The <HTML> panel is declared in the layout; find it by id once.
     var stack = [ctx];
     var budget = 4000;
@@ -703,14 +703,14 @@
       if (!p) continue;
       try {
         if (p.id && LIVE_PANEL_IDS.indexOf(String(p.id)) >= 0) return p;
-      } catch (e) {}
+      } catch (_e) {}
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try {
           var c = p.GetChild(i);
           if (c) stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     return null;
@@ -757,20 +757,21 @@
       return null;
     }
     var panel = livePanel();
+    var tj = target || LIVE_TARGET;
     if (!panel || typeof panel.SetURL !== "function") {
+      if (debugOn()) $.Msg("[BBT] live probe: panel unavailable on " + (tj ? tj.port : "?") + " (no HTML panel found from this context)");
       cb(false, "panel_unavailable", null);
       return null;
     }
-    var t = target || LIVE_TARGET;
-    if (!t) {
+    if (!tj) {
       cb(false, "no_target", null);
       return null;
     }
     var id = "r" + (++live.seq).toString(36);
     var job = {
       id: id,
-      tag: t.tag,
-      url: liveRequestUrl(t, id, req),
+      tag: tj.tag,
+      url: liveRequestUrl(tj, id, req),
       cb: cb,
       startedAt: 0,
       polls: 0,
@@ -780,8 +781,9 @@
     live.pending = job;
     try {
       panel.SetURL(job.url);
-    } catch (e) {
+    } catch (e){
       live.pending = null;
+      if (debugOn()) $.Msg("[BBT] live probe: SetURL failed on " + tj.port + " (" + e + ")");
       cb(false, "seturl_failed", null);
       return null;
     }
@@ -794,11 +796,11 @@
     if (!live.pending || live.pending !== job || job.done) return;
     var panel = livePanel();
     var title = "";
-    try { title = panel && panel.title ? String(panel.title) : ""; } catch (e) { title = ""; }
+    try { title = panel && panel.title ? String(panel.title) : ""; } catch (_e){ title = ""; }
     var prefix = (job.tag || "BBT") + job.id;
     if (title && title.indexOf(prefix) === 0) {
       var payload = null;
-      try { payload = JSON.parse(title.slice(prefix.length)); } catch (e) { payload = null; }
+      try { payload = JSON.parse(title.slice(prefix.length)); } catch (_e){ payload = null; }
       if (payload && payload.translation && !payload.translations) {
         // BabelTower answers with a single {translation}; normalise it.
         payload = { ok: payload.ok !== false, translations: [String(payload.translation)] };
@@ -814,6 +816,18 @@
     if (job.polls > job.maxPolls) {
       job.done = true;
       live.pending = null;
+      if (debugOn()) {
+        // v1.9.21 decisive diagnostic: which title did the page actually
+        // carry when we gave up? "(no panel)"/"" = page never loaded
+        // (cert/HTTPS issue or panel missing); a non-matching title =
+        // protocol skew.
+        var lastTitle = "(no panel)";
+        try {
+          var lp = livePanel();
+          if (lp && lp.title) lastTitle = String(lp.title).slice(0, 80);
+        } catch (_e) {}
+        $.Msg("[BBT] live probe timeout on " + (job.tag || "") + " " + job.id + ": polls=" + job.polls + " lastTitle=" + JSON.stringify(lastTitle));
+      }
       job.cb(false, "timeout", null);
       return;
     }
@@ -839,7 +853,8 @@
       return;
     }
     var t = LIVE_TARGETS[index];
-    liveSend({ kind: "health" }, LIVE_PROBE_TIMEOUT, function (ok, _err, payload) {
+    liveSend({ kind: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
+      if (!ok && debugOn()) $.Msg("[BBT] live probe failed on " + t.port + ": " + err);
       if (ok && payload && (payload.ok || payload.translations)) {
         LIVE_TARGET = t;
         live.provider = payload.provider ? String(payload.provider) : "";
@@ -849,13 +864,13 @@
         // Delayed so the first on-screen texts get the channel first: overrides
         // exist to correct the pak, not to block it.
         $.Schedule(1.5, function () {
-          try { liveFetchOverrides(); } catch (e) {}
+          try { liveFetchOverrides(); } catch (_e) {}
         });
         $.Msg("[BBT] live bridge: connected to " + live.targetName + " (localhost:" + t.port +
           (live.provider ? ", provider=" + live.provider : "") +
           "), offline memory + live fallback" +
           (live.provider && live.provider !== "bing" ? " [note: that provider is configured in the bridge's own settings]" : ""));
-        try { liveUpgradeWeakWrites(); } catch (e) {}
+        try { liveUpgradeWeakWrites(); } catch (_e) {}
         liveProbeSettled();
         return;
       }
@@ -892,7 +907,7 @@
     var listeners = live.settleListeners;
     live.settleListeners = [];
     for (var i = 0; i < listeners.length; i += 1) {
-      try { listeners[i](); } catch (e) {}
+      try { listeners[i](); } catch (_e) {}
     }
   }
 
@@ -920,7 +935,7 @@
       var rec = memo.get(p);
       if (!rec || rec.k !== 1 || !rec.in) continue;
       var cur;
-      try { cur = p.text; } catch (e) { continue; }
+      try { cur = p.text; } catch (_e){ continue; }
       if (cur !== rec.out) continue; // repainted meanwhile: the scan will redo it
       queueLiveUpgrade(p, rec.in, rec.out);
     }
@@ -954,7 +969,7 @@
   function applyLiveUpgrade(job, value) {
     var p = job.panel;
     var cur;
-    try { cur = p.text; } catch (e) { return; }
+    try { cur = p.text; } catch (_e){ return; }
     if (cur !== job.shown) return; // user already moved on
     var shown = present(job.text, value);
     if (writeText(p, shown)) {
@@ -972,7 +987,7 @@
     if (typeof n !== "number") return;
     if (live.tableSize === n) return;
     live.tableSize = n;
-    if (live.state === "on") $.Schedule(0.5, function () { try { liveFetchOverrides(); } catch (e) {} });
+    if (live.state === "on") $.Schedule(0.5, function () { try { liveFetchOverrides(); } catch (_e) {} });
   }
 
   function liveFetchOverrides(attempt) {
@@ -1008,7 +1023,7 @@
       stats.overrides = n;
       if (changed) {
         $.Msg("[BBT] local overrides loaded: " + n);
-        try { resetMemos($.GetContextPanel()); } catch (e) {}
+        try { resetMemos($.GetContextPanel()); } catch (_e) {}
       }
       // No timer: the bridge reports its table size on every response, and a
       // change there (new translations, new corrections) triggers a refetch. See
@@ -1068,7 +1083,7 @@
         stats.live += 1;
         // Re-read the label: it may have been repainted meanwhile.
         var cur;
-        try { cur = panel.text; } catch (e) { cur = null; }
+        try { cur = panel.text; } catch (_e){ cur = null; }
         if (cur === raw) {
           var shownLive = present(raw, String(out));
           writeText(panel, shownLive);
@@ -1238,7 +1253,7 @@
     try {
       var c = panel.class;
       if (typeof c === "string") return c.split(/\s+/)[0] || "?";
-    } catch (e) {}
+    } catch (_e) {}
     for (var i = 0; i < CLASS_PROBES.length; i += 1) {
       if (panelHasClass(panel, CLASS_PROBES[i])) return CLASS_PROBES[i];
     }
@@ -1254,7 +1269,7 @@
     try {
       var id = panel.id;
       if (typeof id === "string" && id && LAYOUT_TOKENS.byId[id]) return LAYOUT_TOKENS.byId[id];
-    } catch (e) {}
+    } catch (_e) {}
     // The real engine exposes no `.class` string: CSS classes live on
     // panel.classList (a token list with .contains()), so probe the known
     // class names instead of splitting a string.
@@ -1303,18 +1318,18 @@
   function panelHasClass(panel, cls) {
     try {
       if (typeof panel.BHasClass === "function") return panel.BHasClass(cls) === true;
-    } catch (e) {}
+    } catch (_e) {}
     try {
       var cl = panel.classList;
       if (cl && typeof cl.contains === "function") return cl.contains(cls) === true;
-    } catch (e) {}
+    } catch (_e) {}
     try {
       var c = panel.class;
       if (typeof c === "string") {
         var parts = c.split(/\s+/);
         for (var i = 0; i < parts.length; i += 1) if (parts[i] === cls) return true;
       }
-    } catch (e) {}
+    } catch (_e) {}
     return false;
   }
 
@@ -1334,7 +1349,7 @@
   function isOwnChrome(panel) {
     try {
       if (panelHasClass(panel, "BBTNoTranslate")) return true;
-    } catch (e) {}
+    } catch (_e) {}
     return false;
   }
 
@@ -1389,11 +1404,11 @@
 
   function applyResync(p, raw) {
     var cur = null;
-    try { cur = p.text; } catch (e) { cur = null; }
+    try { cur = p.text; } catch (_e){ cur = null; }
     memo.delete(p);
     if (mode === "orig") {
       if (cur !== raw) {
-        try { p.text = raw; } catch (e) {}
+        try { p.text = raw; } catch (_e) {}
       }
       return;
     }
@@ -1407,7 +1422,7 @@
     // Nothing known yet: show the engine's new English (single write) and let
     // the scanner / live bridge fill it in on a later pass.
     if (cur !== raw) {
-      try { p.text = raw; } catch (e) {}
+      try { p.text = raw; } catch (_e) {}
     }
     remember(p, 0, raw, null);
   }
@@ -1423,15 +1438,15 @@
   var RESYNC_FREEZE_MS = 4000;
 
   function freezeResync(p) {
-    try { resyncFrozen.set(p, nowMs() + RESYNC_FREEZE_MS); } catch (e) {}
+    try { resyncFrozen.set(p, nowMs() + RESYNC_FREEZE_MS); } catch (_e) {}
   }
 
   function isResyncFrozen(p) {
     var until = 0;
-    try { until = resyncFrozen.get(p) || 0; } catch (e) { return false; }
+    try { until = resyncFrozen.get(p) || 0; } catch (_e){ return false; }
     if (!until) return false;
     if (nowMs() < until) return true;
-    try { resyncFrozen.delete(p); } catch (e) {}
+    try { resyncFrozen.delete(p); } catch (_e) {}
     return false;
   }
 
@@ -1443,14 +1458,14 @@
     // name for two #tokens); resyncLabel tries them until one resolves.
     var cands = (typeof roleTok === "string" ? [roleTok] : roleTok.slice());
     var prev = null;
-    try { prev = p.text; } catch (e) { return false; }
+    try { prev = p.text; } catch (_e){ return false; }
     // 1) Ask the engine for the current value with the label's dialog variables.
     var fresh = null;
     var usedTok = null;
     for (var i = 0; i < cands.length; i += 1) {
       var cand = cands[i];
       var f = null;
-      try { f = $.Localize(cand, p); } catch (e) { f = null; }
+      try { f = $.Localize(cand, p); } catch (_e){ f = null; }
       f = resolvedText(f, cand);
       if (f) { fresh = f; usedTok = cand; break; }
     }
@@ -1468,8 +1483,8 @@
       localizeProbed = true;
       for (var j = 0; j < cands.length; j += 1) {
         var two = null, one = null;
-        try { two = $.Localize(cands[j], p); } catch (e) { two = "err:" + e; }
-        try { one = $.Localize(cands[j]); } catch (e) { one = "err:" + e; }
+        try { two = $.Localize(cands[j], p); } catch (e){ two = "err:" + e; }
+        try { one = $.Localize(cands[j]); } catch (e){ one = "err:" + e; }
         $.Msg(
           "[BBT] localize-probe " + cands[j] +
             " 2arg=" + JSON.stringify(String(two).slice(0, 48)) +
@@ -1505,7 +1520,7 @@
   function resyncAll(limit, origin) {
     var max = limit || 40;
     var root = null;
-    try { root = pageRoot(origin); } catch (e) { root = null; }
+    try { root = pageRoot(origin); } catch (_e){ root = null; }
     if (!root) root = contextPanel();
     if (!root) return 0;
     var primary = [];
@@ -1517,7 +1532,7 @@
       var p = stack.pop();
       if (!p) continue;
       var ok = true;
-      try { if (p.IsValid && !p.IsValid()) ok = false; } catch (e) { ok = false; }
+      try { if (p.IsValid && !p.IsValid()) ok = false; } catch (_e){ ok = false; }
       if (!ok) continue;
       if (!panelVisible(p)) continue;
       if (roleTokenFor(p) && !isResyncFrozen(p)) {
@@ -1525,19 +1540,19 @@
         else secondary.push(p);
       }
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var k = n - 1; k >= 0; k -= 1) {
         try {
           var ch = p.GetChild(k);
           if (ch) stack.push(ch);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     var count = 0;
     var order = primary.concat(secondary);
     for (var i = 0; i < order.length && count < max; i += 1) {
       count += 1;
-      try { resyncLabel(order[i]); } catch (e) {}
+      try { resyncLabel(order[i]); } catch (_e) {}
     }
     return count;
   }
@@ -1565,13 +1580,13 @@
 
   function writeText(panel, value) {
     var current;
-    try { current = panel.text; } catch (e) { return false; }
+    try { current = panel.text; } catch (_e){ return false; }
     if (typeof current === "string" && current === value) return false;
     try {
       panel.text = value;
       if (written.length < 400 && written.indexOf(panel) < 0) written.push(panel);
       return true;
-    } catch (e) {
+    } catch (_e){
       return false;
     }
   }
@@ -1606,7 +1621,7 @@
     try {
       // Custom panels can expose their type name through .text; never collect that.
       if (panel && panel.paneltype && raw === panel.paneltype) return;
-    } catch (e) {}
+    } catch (_e) {}
     var flat = flatten(raw);
     if (flat.length < 4 || flat.length > 2000) return;
     if (!/[A-Za-z]{2}/.test(flat)) return;
@@ -1623,7 +1638,7 @@
       if (typeof panel.placeholder === "string") return true;
       // maxchars may be exposed as a number or as the raw attribute string.
       if (typeof panel.maxchars === "number" || typeof panel.maxchars === "string") return true;
-    } catch (e) {}
+    } catch (_e) {}
     return false;
   }
 
@@ -1632,7 +1647,7 @@
     try {
       if (typeof panel.BIsVisible === "function") return panel.BIsVisible();
       if (typeof panel.IsVisible === "function") return panel.IsVisible();
-    } catch (e) {}
+    } catch (_e) {}
     return true;
   }
 
@@ -1654,7 +1669,7 @@
       // Scan already read the text; re-reading it here would double the number
       // of JS <-> UI binding crossings, which dominate the in-game cost.
       raw = preRead === undefined ? panel.text : preRead;
-    } catch (e) {
+    } catch (_e){
       return;
     }
     if (typeof raw !== "string" || raw.length < 2) return;
@@ -1663,7 +1678,7 @@
       // "show the original": never write; if we had written before, put it back.
       var rec0 = memo.get(panel);
       if (rec0 && rec0.k >= 1 && raw === rec0.out) {
-        try { panel.text = rec0.in; } catch (e) {}
+        try { panel.text = rec0.in; } catch (_e) {}
         memo.delete(panel);
       }
       return;
@@ -1704,7 +1719,7 @@
         remember(panel, 0, raw, null);
         return;
       }
-    } catch (e) {}
+    } catch (_e) {}
 
     // Cheap early-outs before any hashing: the overwhelming majority of labels
     // in the game UI are Chinese localization output and never need a lookup.
@@ -1792,7 +1807,7 @@
   // translated text (when we know it) or the engine's own localized string.
   function repairToken(panel, tok) {
     var val = null;
-    try { val = $.Localize(tok, panel); } catch (e) { val = null; }
+    try { val = $.Localize(tok, panel); } catch (_e){ val = null; }
     if (typeof val !== "string" || !val) return false;
     if (val === tok || val.indexOf("#") === 0 || val.indexOf("{s:") >= 0) return false;
     var out = translationFor(val);
@@ -1823,7 +1838,7 @@
     try {
       if (scanSummaries.get(root)) return;
       scanSummaries.set(root, 1);
-    } catch (e) {
+    } catch (_e){
       return;
     }
     $.Msg("[BBT] scan-summary " + instTag(root) + "：visited=" + visited + " skippedToken=" + skippedToken + " skippedHidden=" + skippedHidden + " skippedOwn=" + skippedOwn + " wrote=" + wrote);
@@ -1859,14 +1874,14 @@
     var skippedOwn = 0;
     var writesBefore = stats.writes; // T6-3: stability is judged on THIS tick's writes only
     var rootChildren = 0; // T6-3: child-set snapshot taken before the walk
-    try { rootChildren = root.GetChildCount ? root.GetChildCount() : 0; } catch (e) {}
+    try { rootChildren = root.GetChildCount ? root.GetChildCount() : 0; } catch (_e) {}
     var probes = []; // T6-3: identity-label texts recorded during the walk
     scanCtx.root = root; // v1.9.17: displayOrig gate (原文/翻译 toggle)
     scanCtx.token = 0;
     try {
       if (!scanBaselines.has(root)) scanBaselines.set(root, stats.writes);
       scanCtx.baselineWrites = scanBaselines.get(root);
-    } catch (e) {
+    } catch (_e){
       scanCtx.baselineWrites = stats.writes;
     }
     while (stack.length && visited < SCAN_BUDGET) {
@@ -1875,7 +1890,7 @@
       if (!p) continue;
       try {
         if (p.IsValid && !p.IsValid()) continue;
-      } catch (e) {
+      } catch (_e){
         continue;
       }
       if (isOwnChrome(p)) { skippedOwn += 1; continue; } // own status line / dedupe marker
@@ -1884,7 +1899,7 @@
       // Only panels that carry a string need the extra TextEntry probes; every
       // other panel type would cost two more property reads per tick.
       var t;
-      try { t = p.text; } catch (e) { t = null; }
+      try { t = p.text; } catch (_e){ t = null; }
       // Resolve the label's declared #token once (id/class lookup), then reuse
       // it: identity labels tell us the shown build/item changed, even when the
       // panels we already translated are stuck on an old translation.
@@ -1897,7 +1912,7 @@
           // v1.9.17 原文/翻译 toggle: while this page is deliberately showing
           // the original text, the scanner must not re-translate it.
           var origOn = false;
-          try { origOn = !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch (e) {}
+          try { origOn = !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch (_e) {}
           if (!origOn) translatePanel(p, t);
         }
         else if (!known) remember(p, 0, t, null);
@@ -1925,7 +1940,7 @@
       var n = 0;
       try {
         n = p.GetChildCount ? p.GetChildCount() : 0;
-      } catch (e) {
+      } catch (_e){
         n = 0;
       }
       for (var i = n - 1; i >= 0; i -= 1) {
@@ -1940,7 +1955,7 @@
             continue;
           }
           stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
     stats.scanned += visited;
@@ -1987,14 +2002,14 @@
           try {
             var cc = ctx.GetChildCount ? ctx.GetChildCount() : 0;
             if (cc !== snap.children) stale = true;
-          } catch (e) { stale = true; }
+          } catch (_e){ stale = true; }
           if (!stale) {
             for (var pi = 0; pi < snap.probes.length; pi += 1) {
               try {
                 var pp = snap.probes[pi][0];
                 if (pp.IsValid && !pp.IsValid()) { stale = true; break; }
                 if (pp.text !== snap.probes[pi][1]) { stale = true; break; }
-              } catch (e) { stale = true; break; }
+              } catch (_e){ stale = true; break; }
             }
           }
           if (stale) {
@@ -2007,7 +2022,7 @@
           fresh = scan(ctx);
         }
       } else hidden = true;
-    } catch (e) {
+    } catch (_e){
       hidden = true;
     }
     if (hidden) {
@@ -2029,7 +2044,7 @@
       identityChanged = false;
       // A new build/item is showing: it is a fresh page, not the one the user
       // toggled to 原文 - clear the per-root gate so it auto-translates.
-      try { displayOrig.delete(ctx); } catch (e) {}
+      try { displayOrig.delete(ctx); } catch (_e) {}
       contentChanged = false;
       // A new build/item is showing: stay responsive for a moment instead of
       // sitting at the backed-off interval, so a hovered tooltip is translated
@@ -2038,11 +2053,11 @@
       interval = POLL_INTERVAL;
       try {
         if (resyncAll(40)) ticksSinceRebind = 0;
-      } catch (e) {}
+      } catch (_e) {}
     }
     ticksSinceRebind += 1;
-    try { liveDrainQueue(); } catch (e) {}
-    try { liveDrainUpgrades(); } catch (e) {}
+    try { liveDrainQueue(); } catch (_e) {}
+    try { liveDrainUpgrades(); } catch (_e) {}
     var worked = stats.translated + stats.fallback > before || fresh > 0;
     if (worked) {
       idleTicks = 0;
@@ -2084,7 +2099,7 @@
   var displayOrig = new WeakMap();
 
   function nowMs() {
-    try { if (typeof Date.now === "function") return Date.now(); } catch (e) {}
+    try { if (typeof Date.now === "function") return Date.now(); } catch (_e) {}
     return 0;
   }
 
@@ -2103,7 +2118,7 @@
     var g = null;
     try {
       g = G.__BBT_ACT || (G.__BBT_ACT = {});
-    } catch (e) {
+    } catch (_e){
       g = null;
     }
     var gAt = 0;
@@ -2114,7 +2129,7 @@
     var mark = uiPanelIn(root, ["BBTActMark2", "BBTActMark"]);
     var prev = "";
     if (mark) {
-      try { prev = String(mark.text || ""); } catch (e) { prev = ""; }
+      try { prev = String(mark.text || ""); } catch (_e){ prev = ""; }
     }
     var cut = prev.lastIndexOf("@");
     if (cut > 0) {
@@ -2122,10 +2137,10 @@
       if (mAt > 0 && now - mAt < win) return false;
     }
     if (g && now > 0) {
-      try { g[name] = now; } catch (e) {}
+      try { g[name] = now; } catch (_e) {}
     }
     if (mark) {
-      try { mark.text = name + "@" + now; } catch (e) {}
+      try { mark.text = name + "@" + now; } catch (_e) {}
     }
     return true;
   }
@@ -2146,7 +2161,7 @@
     var tag = "?";
     try {
       if (panel) tag = String(panel.id || (panel.tag ? panel.tag : "panel")) || "?";
-    } catch (e) { tag = "?"; }
+    } catch (_e){ tag = "?"; }
     $.Msg("[BBT] click " + name + " on " + tag);
     // One-shot (ungated) ancestor chain: the first real click dumps the clicked
     // panel's id|tag|paneltype up 20 levels. This is the evidence that proves
@@ -2158,12 +2173,12 @@
       var c = panel;
       for (var i = 0; c && i < 20; i += 1) {
         var id = "", tg = "", pt = "";
-        try { id = String(c.id || ""); } catch (e) {}
-        try { tg = String(c.tag || ""); } catch (e) {}
-        try { pt = String(c.paneltype || ""); } catch (e) {}
+        try { id = String(c.id || ""); } catch (_e) {}
+        try { tg = String(c.tag || ""); } catch (_e) {}
+        try { pt = String(c.paneltype || ""); } catch (_e) {}
         chain.push(id + "|" + tg + "|" + pt);
         var up = null;
-        try { up = c.GetParent ? c.GetParent() : null; } catch (e) { up = null; }
+        try { up = c.GetParent ? c.GetParent() : null; } catch (_e){ up = null; }
         c = up;
       }
       $.Msg("[BBT] click-chain " + chain.join(" > "));
@@ -2185,14 +2200,14 @@
         reportClick(name, root);
         try {
           fn(panel);
-        } catch (e) {
+        } catch (e){
           $.Msg("[BBT] handler " + name + " threw: " + e);
           uiSetStatus("错误:" + name, root);
         }
       });
       uiWired[name] = true;
       return true;
-    } catch (e) {
+    } catch (_e){
       return false;
     }
   }
@@ -2204,7 +2219,7 @@
   function wireToolbar(root) {
     var scope = root || contextPanel();
     if (!scope) return false;
-    try { wireHeaderButton(scope); } catch (e) {}
+    try { wireHeaderButton(scope); } catch (_e) {}
     // v1.9.17 (T2 fix): the overview/category collapse must run in EVERY
     // context that carries a trigger, before the uiWiredOnce early return -
     // the flag belongs to whichever context wired first, and the overview
@@ -2215,8 +2230,8 @@
       // Overview / category surface: collapse + disable hit-testing; the page
       // is translated by the scanner, the engine's own 出装选项 button owns the
       // row here (our trigger would sit under it and look unclickable).
-      try { trigger.style.visibility = "collapse"; } catch (e) {}
-      try { trigger.hittest = false; } catch (e) {}
+      try { trigger.style.visibility = "collapse"; } catch (_e) {}
+      try { trigger.hittest = false; } catch (_e) {}
       if (debugOn()) $.Msg("[BBT] trigger hidden in overview context (" + instTag(scope) + ")");
       uiWiredOnce = true;
       return true;
@@ -2239,7 +2254,7 @@
       var ap = trigger;
       for (var ad = 0; ap && ad < 16; ad += 1) {
         chain.push(String(ap.id || "?") + "|" + panelTag(ap));
-        try { ap = ap.GetParent ? ap.GetParent() : null; } catch (e) { ap = null; }
+        try { ap = ap.GetParent ? ap.GetParent() : null; } catch (_e){ ap = null; }
       }
       $.Msg("[BBT] trigger ancestors: " + chain.join(" < "));
     }
@@ -2269,9 +2284,9 @@
     var p = panel;
     for (var d = 0; p && d < 16; d += 1) {
       var tag = "";
-      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (e) { tag = ""; }
+      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (_e){ tag = ""; }
       if (tag.indexOf("BuildDetails") >= 0) return true;
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+      try { p = p.GetParent ? p.GetParent() : null; } catch (_e){ p = null; }
     }
     return false;
   }
@@ -2289,7 +2304,7 @@
     var p = panel;
     for (var d = 0; p && d < 16; d += 1) {
       var tag = "";
-      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (e) { tag = ""; }
+      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch (_e){ tag = ""; }
       // v1.9.20: HeroBuildSelector added - the build browser's overview embeds
       // the details layout under its selector root, and there our trigger sits
       // in the engine's own 出装选项 row (overlapping the 复制出装 dropdown).
@@ -2297,7 +2312,7 @@
       // the chain) keeps its button.
       if (tag.indexOf("CitadelShopModsBuildCategory") >= 0 || tag.indexOf("BuildDetails_Overview") >= 0 ||
           tag.indexOf("HeroBuildSelector") >= 0 || tag.indexOf("HeroBuildsSelector") >= 0) return true;
-      try { p = p.GetParent ? p.GetParent() : null; } catch (e) { p = null; }
+      try { p = p.GetParent ? p.GetParent() : null; } catch (_e){ p = null; }
     }
     return false;
   }
@@ -2311,8 +2326,8 @@
       $.Msg("[BBT] header button hidden (this layout is embedded in the build browser) in " + instTag(scope));
       return true;
     }
-    try { btn.AddClass("BBTShow"); } catch (e) {}
-    try { btn.style.visibility = "visible"; } catch (e) {}
+    try { btn.AddClass("BBTShow"); } catch (_e) {}
+    try { btn.style.visibility = "visible"; } catch (_e) {}
     // The button translates the build page directly (v1.9.16, no dropdown).
     // bindClick passes the real button to rootOf(), which matches
     // CitadelShopModsBuild on the way up; the v1.9.13 inline
@@ -2356,21 +2371,21 @@
         // Put the source text back so the next scan re-evaluates it under the new
         // mode. Token-bound labels get their #token back (the engine re-resolves).
         var cur = null;
-        try { cur = p.text; } catch (e) { cur = null; }
+        try { cur = p.text; } catch (_e){ cur = null; }
         if (cur !== null && cur !== rec.in) {
           // Always restore the source text we translated: that is what "original"
           // means, and the token table is only a heuristic for engine labels.
-          try { p.text = rec.in; } catch (e) {}
+          try { p.text = rec.in; } catch (_e) {}
         }
       }
       memo.delete(p);
       var n = 0;
-      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try {
           var c = p.GetChild(i);
           if (c) stack.push(c);
-        } catch (e) {}
+        } catch (_e) {}
       }
     }
   }
@@ -2388,7 +2403,7 @@
     // swallow the feedback.
     uiSetRefreshText("刷新中…", scope);
     var n = 0;
-    try { n = resyncAll(80, scope); } catch (e) { n = -1; }
+    try { n = resyncAll(80, scope); } catch (_e){ n = -1; }
     $.Msg("[BBT] refresh: re-resolved " + n + " engine label(s) in " + instTag(scope));
     uiSetRefreshText(n >= 0 ? "已刷新 " + n + " 条" : "刷新失败", scope);
     uiSetStatus("刷新 " + n + " 条", scope);
@@ -2405,7 +2420,7 @@
   // missing" readout names the bridge instead of the memory.
   function offlineTranslateFallback(scope, page, counts, texts, miss, noBridge) {
     var before = stats.translated + stats.fallback;
-    try { if (page) resetMemos(page); } catch (e) {}
+    try { if (page) resetMemos(page); } catch (_e) {}
     uiSetLabel("重新翻译中…", scope);
     uiSetStatus("翻译中", scope);
     $.Schedule(0.5, function () {
@@ -2433,7 +2448,7 @@
       // v1.9.18 self-heal: a lost bridge callback must not block the button
       // forever - the lock expires after 15s.
       var stale = 0;
-      try { stale = nowMs(); } catch (e) {}
+      try { stale = nowMs(); } catch (_e) {}
       // No clock, or no busy timestamp, or a stale lock -> release. Only a
       // *live* lock (<15s, with a working clock) keeps the button quiet.
       if (!ui.busySince || stale <= 0 || stale - ui.busySince > 15000) {
@@ -2473,7 +2488,7 @@
               } else {
                 uiSetLabel("已翻译 " + applied + " 条", scope);
                 uiSetStatus("已翻译 " + applied + " 条", scope);
-                try { liveUpgradeWeakWrites(); } catch (e) {}
+                try { liveUpgradeWeakWrites(); } catch (_e) {}
               }
               $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + applied +
                 " already=" + counts.already + " miss=" + Math.max(0, texts.length - applied) +
@@ -2505,7 +2520,7 @@
         uiSetLabel("已翻译 " + applied + " 条", scope);
         uiSetStatus("已翻译 " + applied, scope);
         // New translations may unlock panels we had memoised as "nothing found".
-        try { liveUpgradeWeakWrites(); } catch (e) {}
+        try { liveUpgradeWeakWrites(); } catch (_e) {}
       }
       $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + applied + " already=" + counts.already + " miss=" + Math.max(0, texts.length - applied) + " scope=" + instTag(scope));
       $.Schedule(4.0, function () { uiResetLabel(scope); });
@@ -2517,10 +2532,10 @@
     TARGET_LANG = lang;
     settingsSet(LANG_KEY, TARGET_LANG);
     overrides = null;
-    try { var r = pageRoot(root); if (r) resetMemos(r); } catch (e) {}
+    try { var r = pageRoot(root); if (r) resetMemos(r); } catch (_e) {}
     // Non-Chinese targets come from the local table / bridge only.
     if (LIVE_TARGET && LIVE_TARGET.tag === "BBT") {
-      try { liveFetchOverrides(); } catch (e) {}
+      try { liveFetchOverrides(); } catch (_e) {}
     }
     uiSetLabel("语言:" + TARGET_LANG, root);
     $.Msg("[BBT] target language -> " + TARGET_LANG);
@@ -2549,7 +2564,7 @@
         var rec = memo.get(p);
         if (rec && rec.k === 1 && rec.in) {
           var cur = null;
-          try { cur = p.text; } catch (e) { cur = null; }
+          try { cur = p.text; } catch (_e){ cur = null; }
           if (cur && cur !== rec.in) {
             // In "both" mode the label shows translation + original: keep only
             // the translation part.
@@ -2562,15 +2577,15 @@
           }
         }
         var n = 0;
-        try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (e) { n = 0; }
+        try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch (_e){ n = 0; }
         for (var i = 0; i < n; i += 1) {
           try {
             var c = p.GetChild(i);
             if (c) stack.push(c);
-          } catch (e) {}
+          } catch (_e) {}
         }
       }
-    } catch (e) {}
+    } catch (_e) {}
     if (!pairs.length) {
       uiSetLabel("本页没有可存的译文", root);
       $.Schedule(2.5, function () { uiSetLabel("翻译", root); });
@@ -2622,10 +2637,10 @@
         // layout, so it keeps the plain translatePage flow.
         var page = pageRoot(root);
         var toggle = null;
-        try { toggle = uiPanelIn(root, ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (e) {}
+        try { toggle = uiPanelIn(root, ["BBTTranslateButton2", "BBTTranslateButton"]); } catch (_e) {}
         if (toggle) {
           var cur = "";
-          try { cur = String(toggle.text || ""); } catch (e) {}
+          try { cur = String(toggle.text || ""); } catch (_e) {}
           // The label is the state: "原文" -> next click shows the original;
           // anything else (翻译 / feedback strings) -> next click translates.
           // displayOrig is only the scanner gate, managed by both branches.
@@ -2646,7 +2661,7 @@
           // batch - a hero/build switch that left the title stale is what the
           // user sees as "点了翻译没用". refreshPage's 刷新中…/已刷新 N 条
           // feedback is immediately followed by the translate feedback.
-          try { refreshPage(root); } catch (e) {}
+          try { refreshPage(root); } catch (_e) {}
           translatePage(root);
           if (debugOn()) $.Msg("[BBT] trigger: translate on " + instTag(page) + " (ctx=" + instTag(root) + ")");
           return;
@@ -2659,7 +2674,7 @@
       else if (action === "save") savePageToTable(root);
       else if (action === "stats") showTableStats(root);
       else $.Msg("[BBT] unknown action " + action);
-    } catch (e) {
+    } catch (e){
       $.Msg("[BBT] action " + action + " threw: " + e);
       uiSetStatus("错误:" + action, root);
     }
@@ -2683,10 +2698,10 @@
     try {
       G[name] = fn;
       ok = typeof G[name] === "function";
-    } catch (e) { ok = false; }
+    } catch (_e){ ok = false; }
     try {
       if (typeof $ !== "undefined" && $) $[name] = fn;
-    } catch (e) {}
+    } catch (_e) {}
     try {
       if (typeof $ !== "undefined" && $ && typeof $.GetContextObject === "function") {
         var ctxObj = $.GetContextObject();
@@ -2695,7 +2710,7 @@
           if (typeof ctxObj[name] === "function") ok = true;
         }
       }
-    } catch (e) {}
+    } catch (_e) {}
     exposedOk[name] = ok;
     return ok;
   }
@@ -2732,7 +2747,7 @@
       ctx = $.GetContextPanel();
       if (ctx && ctx.tag) layoutTag = String(ctx.tag);
       if (!layoutTag && ctx && ctx.paneltype) layoutTag = String(ctx.paneltype);
-    } catch (e) {}
+    } catch (_e) {}
     // The build-details layout is reused as a hover tooltip (hittest=false).
     // A toolbar there can never be clicked, it would only sit on top of the
     // tooltip, so hide it.
@@ -2740,12 +2755,12 @@
       var up = ctx;
       for (var d = 0; up && d < 10; d += 1) {
         var upt = "";
-        try { upt = String(up.paneltype || ""); } catch (e) { upt = ""; }
+        try { upt = String(up.paneltype || ""); } catch (_e){ upt = ""; }
         var upc = "";
         try {
           if (panelHasClass(up, "BuildDetailsTooltip")) upc = "BuildDetailsTooltip";
           if (!upc) upc = String(up.class || "");
-        } catch (e) { upc = ""; }
+        } catch (_e){ upc = ""; }
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
           // Collapse the toolbar wrapper + every button: the hover tooltip
           // reuses this layout but its buttons can never be clicked.
@@ -2760,9 +2775,9 @@
           if (debugOn()) $.Msg("[BBT] toolbar hidden in tooltip context (" + (upt || upc) + ")");
           break;
         }
-        try { up = up.GetParent ? up.GetParent() : null; } catch (e) { up = null; }
+        try { up = up.GetParent ? up.GetParent() : null; } catch (_e){ up = null; }
       }
-    } catch (e) {}
+    } catch (_e) {}
     // B5 instrumentation (permanent, BBT_DEBUG-gated): dump the toolbar's own
     // visibility and first layout sizes so the morning log shows whether the
     // toolbar exists but is clipped/hidden on a given surface.
@@ -2770,12 +2785,12 @@
       var tc2 = uiPanel("BBTTranslateButton2");
       if (tc2) {
         var gv = "?";
-        try { gv = tc2.style ? String(tc2.style.visibility) : "?"; } catch (e) { gv = "?"; }
+        try { gv = tc2.style ? String(tc2.style.visibility) : "?"; } catch (_e){ gv = "?"; }
         $.Msg(
           "[BBT] toolbar-geom " +
             "vis=" + gv +
-            " actual=" + (function () { try { return tc2.actualwidth + "x" + tc2.actualheight; } catch (e) { return "?"; } })() +
-            " tag=" + (function () { try { return tc2.tag; } catch (e) { return "?"; } })()
+            " actual=" + (function () { try { return tc2.actualwidth + "x" + tc2.actualheight; } catch (_e){ return "?"; } })() +
+            " tag=" + (function () { try { return tc2.tag; } catch (_e){ return "?"; } })()
         );
       } else {
         $.Msg("[BBT] toolbar-geom none in this layout");
@@ -2792,10 +2807,10 @@
         if (rp) {
           $.Msg(
             "[BBT] rect " + rectIds[ri] +
-              " x=" + (function () { try { return rp.actualx; } catch (e) { return "?"; } })() +
-              " y=" + (function () { try { return rp.actualy; } catch (e) { return "?"; } })() +
-              " w=" + (function () { try { return rp.actualwidth; } catch (e) { return "?"; } })() +
-              " h=" + (function () { try { return rp.actualheight; } catch (e) { return "?"; } })()
+              " x=" + (function () { try { return rp.actualx; } catch (_e){ return "?"; } })() +
+              " y=" + (function () { try { return rp.actualy; } catch (_e){ return "?"; } })() +
+              " w=" + (function () { try { return rp.actualwidth; } catch (_e){ return "?"; } })() +
+              " h=" + (function () { try { return rp.actualheight; } catch (_e){ return "?"; } })()
           );
         }
       }
@@ -2828,7 +2843,7 @@
     // the first layout pass).
     var wireTries = 0;
     (function wire() {
-      try { wireToolbar(bootRoot); } catch (e) { $.Msg("[BBT] wire threw: " + e); }
+      try { wireToolbar(bootRoot); } catch (e){ $.Msg("[BBT] wire threw: " + e); }
       wireTries += 1;
       if (wireTries < 12 && (!uiWiredOnce || wireTries < 8)) $.Schedule(0.5, wire);
     })();
