@@ -1209,3 +1209,53 @@ ControlArea→BBTControls2→按钮)。全 12 套 + build_layout_tokens --check 
   - 物品注释出中文;console.log 不再有那 3 条 MISS。
   - §6 rect 探测:开 globalThis.BBT_DEBUG=true 后看 `[BBT] rect …` 行,据此微调 #BBTMenu2 的
     静态 CSS 对齐(本版未凭空猜像素)。
+
+### v1.9.16 —— 弃用下拉改「单翻译按钮点击走桥」+ 概览页去按钮 + 刷新审计 + 补库 + 卡顿削减(2026-11-02)
+
+背景(2026-11-01 夜,v1.9.15 部署后用户实机反馈,任务书 `F:\agents\pi-1\BUG任务书-v1916.md`):
+下拉"凭空出现、只露 2.2 行"→ 用户明确放弃下拉;概览页按钮压"出装选项"点不动;
+换出装名称/注释停留旧译文;点"浏览出装"明显卡顿(§2.5:同一秒 7K+ 节点访问 + burst×4)。
+
+方向性回退(六项,各一个 Conventional Commit):
+1. **T1 `72f5f7f`** 删 #BBTMenu2 整块 + 5 菜单项 + 三模式 UI(js/xml/css 三层同步);
+   单「翻译」按钮(onactivate = `BBTActivate('translate')`)→ 点击 = 离线 TM 先行,
+   剩余 MISS 批量送桥(`uiRequestBatch`),**探活改点击时按需**(桥后起来不用重启游戏);
+   反馈文案 翻译中… → 已译 N 条 / 桥未连接(N 条缺),1.6s 复位「翻译」。
+   验收:dist 里 `BBTMenu2=0`、`menu:toggle=0`(注释残留由 `894ddf8`/`f8311cf` 清掉)。
+2. **T2 `7cdce1c`** 概览/分类上下文(`CitadelShopModsBuildCategory` / `BuildDetails_Overview`)
+   里 wireToolbar 接线前 ≤16 层祖先检查命中 → 触发器 `visibility:collapse + hittest=false`,
+   记一行 `[BBT] trigger hidden in overview context`（BBT_DEBUG 门控）;普通详情页不误伤
+   （`BuildDetails_Overview` 是兄弟节点）。
+3. **T4 `91b522f`** RESYNC_TOKENS 静态审计(refresh_verify 新增 Case I):五个组全在
+   `byClassAll`、候选 token 与布局表一致 → **无需新增候选**;停留旧译文的残留根因 =
+   TM 缺文本 + 桥没开(T5 + T1 双管齐下),换装仍走身份探针触发的有界 `resyncAll(40)`。
+4. **T5 `77251d9`** 22:43 log 的 MISS 榜单收割进 TM:bba_tm.js 58,621 → 58,631;
+   §2.4 前 20 条 key 全查到;`[Lockbuilds.com]/[tracklock.gg]` 原文保留。
+5. **T6 `19d88f6`** 卡顿只削不加:①`SCAN_BUDGET` 6000→2000/tick + `scanCarry` 持久断点续扫
+   （不再整树重头来）②`G.__BBT_MISS_LOGGED` 会话级 MISS 去重(12 上下文共享,杀 ×17 刷日志)
+   ③全 memo 树快退(`stableRoots`:干净 walk 后只探身份标签 + 子节点数,换装/新面板自动失效重扫,
+   `BBT_STATS.stableSkips` 可观测)。红线:无新周期全量重扫,`BBT_STATS.interval` 语义不变。
+6. **T3 `29221f1`** `node tools/bridge/check.js`(只读):TCP 探 8792/8793 + 读
+   `CurrentUser\Root` 受信证书,打印 "8792 ready"/"8793 ready";本次运行 8792 ready
+   （BabelTower 桥在跑,`CN=BabelTower-localhost` 已受信）。
+
+测试同步:wiring_simtest(删 menu 断言,加点击→桥批量 fake 桥断言 + 桥未连接反馈 +
+act:translate@ marker 去重 + SetPanelEvent 双投递去重)、toolbar_cover_simtest(菜单节点
+不存在 + 单按钮在 + 无 BBTMenuOpen 类驱动)、own_chrome_simtest(菜单项断言删除)、
+ui_button_simtest(按需探活 0.5s 回退时机 pump 修正)。全 12 套 + 3 基线 + tm_export 全绿。
+
+构建/部署:dist/pak13_dir.vpk 4,261,843 字节(mtime 2026-11-02 17:35),二进制抽检
+`1.9.16`=8 / `BBTMenu2`=0 / `menu:toggle`=0 / `trigger hidden in overview context`=1;
+已部署 addons(首装无 .bak,cmp 一致);`origin/main` 已推送(f8311cf)。
+完整报告见 `docs/delivery-v1.9.16.md`。
+
+待游戏验证(早间,任务书 §5 六步):
+  0. `node tools/bridge/check.js` → 8792/8793 ready(本次 8792 ready ✓)。
+  1. 重启游戏(`-condebug`, `globalThis.BBT_DEBUG = true`)→ 概览/分类页无我们的按钮、
+     不压"出装选项"(看 `[BBT] trigger hidden in overview context`)。
+  2. 浏览器详情页:单个「翻译」按钮(无下拉箭头),点开不再"凭空 2.2 行"。
+  3. 点「翻译」:桥通 → 翻译中… → 已译 N 条;物品短句注释出中文。
+  4. 换新出装(Drifter 类):名称/描述/注释 1 个 burst 内刷新(看 `resync-*` 行)。
+  5. 点"浏览出装"不再顿(记 `BBT_STATS.ms` / `stableSkips`)。
+  6. §2.4 榜单文本开箱即中文(T5,不依赖桥)。
+  以上 1–6 若仍复现 → 待游戏验证(代码侧已完成)。
