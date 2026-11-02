@@ -2192,7 +2192,7 @@
       uiWiredOnce = true;
       return true;
     }
-    // v1.9.16: one plain trigger. The v1.9.15 dropdown (BBTMenu2 + the
+    // v1.9.16: one plain trigger. The v1.9.15 dropdown (the
     // 原文/翻译/中英对照 modes) was dropped - in game it surfaced as a floating,
     // clipped list that looked like it appeared out of nowhere. The button now
     // does the job itself: click = translate this page (offline memory first,
@@ -2282,8 +2282,8 @@
     };
   };
 
-    // v1.9.16: the 原文/中英对照 mode UI was dropped together with the dropdown
-  // (BBTMenu2); the display now always stays in zh mode. The mode variable and
+    // v1.9.16: the 原文/中英对照 mode UI was dropped together with the dropdown;
+    // the display now always stays in zh mode. The mode variable and
   // the present()/applyMode() pipeline are kept so a future UI can re-add the
   // modes without touching the scanner.
 
