@@ -406,9 +406,12 @@ for (const m of translateSrc.matchAll(/expose\(\s*"([A-Za-z_$][\w$]*)"\s*,/g)) e
 for (const m of translateSrc.matchAll(/\bG\.([A-Za-z_$][\w$]*)\s*=/g)) exported.add(m[1]);
 
 check(exported.has("BBTActivate"), "bbe_translate.js 导出 BBTActivate（expose）", [...exported].join(","));
-for (const name of ["BBTTranslatePage", "BBTRefreshPage", "BBTSetLanguageMode", "BBTSetTargetLang", "BBTSavePageToTable", "BBTShowTableStats"]) {
+// v1.9.16 (T1): BBTSetLanguageMode dropped with the 3-mode dropdown; the
+// single 翻译 trigger only needs the remaining six exports.
+for (const name of ["BBTTranslatePage", "BBTRefreshPage", "BBTSetTargetLang", "BBTSavePageToTable", "BBTShowTableStats"]) {
   check(exported.has(name), "导出清单包含 " + name);
 }
+check(!exported.has("BBTSetLanguageMode"), "导出清单不再包含 BBTSetLanguageMode（T1 已删 3 模式下拉）");
 
 const LEGACY = ["BBTTranslatePage", "BBTRefreshPage", "BBTSetLanguageMode", "BBTSetTargetLang", "BBTSavePageToTable", "BBTShowTableStats"];
 const enginePattern = /^(\$|Citadel|UI|Game|Dispatch|Players|CustomNetTable|Steam)/;
@@ -499,32 +502,22 @@ for (const item of handlerAttrs) {
 check(bbtNames.has("BBTActivate"), "布局里 BBT 侧唯一入口名是 BBTActivate", [...bbtNames].join(","));
 check(unknownNames.size === 0, "布局里没有无法解析（既非引擎名也非导出名）的 handler", [...unknownNames].join(","));
 checkEq(legacyHits, 0, "布局里不存在旧的裸名 handler（BBTTranslatePage() 等）");
-check(bbtActivateCalls >= 6, "布局里 BBTActivate 调用数 >= 6", "found " + bbtActivateCalls);
+// v1.9.16 (T1): the dropdown menu is gone; the details layout carries exactly
+// the trigger's onactivate + onmouseactivate = 2 BBTActivate calls.
+check(bbtActivateCalls >= 2, "布局里 BBTActivate 调用数 >= 2（单触发器 onactivate+onmouseactivate）", "found " + bbtActivateCalls);
 checkEq(notTwoArgs.length, 0, "所有 BBTActivate 调用都带两个参数且第二个是 $.GetContextPanel()", notTwoArgs.join(" | "));
 
 const triggerXml = detailsXml.match(/<[^>]*\bid="BBTTranslateButton2"[^>]*>/);
 const triggerTag = triggerXml ? decodeEntities(triggerXml[0]) : null;
-check(triggerXml !== null, "布局里存在 BBTTranslateButton2（下拉触发器）");
+check(triggerXml !== null, "布局里存在 BBTTranslateButton2（单翻译触发器）");
 if (triggerTag) {
-  check(/onactivate="[^"]*BBTActivate\('menu:toggle'/.test(triggerTag), "触发器 onactivate 走 BBTActivate('menu:toggle')");
-  check(/onmouseactivate="[^"]*BBTActivate\('menu:toggle'/.test(triggerTag), "触发器还挂了 onmouseactivate（第二激活事件）");
+  check(/onactivate="[^"]*BBTActivate\('translate'/.test(triggerTag), "触发器 onactivate 走 BBTActivate('translate')");
+  check(/onmouseactivate="[^"]*BBTActivate\('translate'/.test(triggerTag), "触发器还挂了 onmouseactivate（第二激活事件，uiGuard 去重）");
 }
-check(detailsXml.indexOf('id="BBTMenu2"') >= 0, "布局里存在 BBTMenu2 下拉面板");
-const menuItemSpecs = [
-  ["BBTMenuOrig", "mode:orig"],
-  ["BBTMenuZh", "mode:zh"],
-  ["BBTMenuBoth", "mode:both"],
-  ["BBTMenuRefresh", "refresh"],
-  ["BBTMenuSave", "save"],
-];
-for (const [id, act] of menuItemSpecs) {
-  const m = detailsXml.match(new RegExp("<[^>]*\\bid=\"" + id + "\"[^>]*>"));
-  check(m !== null, "布局里存在下拉项 " + id);
-  if (m) {
-    const tag = decodeEntities(m[0]);
-    check(tag.indexOf("BBTActivate('" + act + "'") >= 0, id + " 走 BBTActivate('" + act + "')");
-  }
-}
+check(detailsXml.indexOf('id="BBTMenu2"') < 0, "布局里不存在 BBTMenu2 下拉面板（v1.9.16 T1 已删）");
+// v1.9.16 (T1): 原文/中英对照/刷新本页/存表 五个下拉项已删；触发器点击
+// 直接走 BBTActivate('translate') → bridge 批量翻译（见 [2]）。
+check(detailsXml.indexOf('id="BBTMenuRefresh"') < 0, "布局里不存在 BBTMenuRefresh 下拉项（v1.9.16 T1 已删）");
 
 /* ------------------------------------------------------------------ */
 /* [2] multi-instance isolation                                        */
@@ -542,43 +535,36 @@ checkEq(B.byId.get("BBTTranslateButton2").text, "翻译", "B 触发器初始显�
 
 const aTrig = A.byId.get("BBTTranslateButton2");
 const bTrig = B.byId.get("BBTTranslateButton2");
-const aMenuOrig = A.byId.get("BBTMenuOrig");
-const bMenuOrig = B.byId.get("BBTMenuOrig");
 
-// Menu toggle is per-instance: opening A's dropdown must not open B's.
-activate(h, "menu:toggle", aTrig);
-check(A.root.BHasClass("BBTMenuOpen"), "点 A 触发器 -> A 根面板带 BBTMenuOpen");
-check(!B.root.BHasClass("BBTMenuOpen"), "A 打开下拉不改隐藏副本 B");
-activate(h, "menu:toggle", aTrig);
-check(!A.root.BHasClass("BBTMenuOpen"), "再点 A 触发器 -> A 关闭下拉");
-
-// Mode change via the 原文 menu item is per-instance.
-activate(h, "mode:orig", aMenuOrig);
-checkEq(aTrig.text, "原文", "点 A 的 原文 项 -> A 触发器显示 原文");
-checkEq(bTrig.text, "翻译", "A 点 原文 不改隐藏副本 B 的触发器");
-checkEq(bMenuOrig ? bMenuOrig.text : "", "原文", "B 的菜单项文本不受影响");
-
-// Refresh via the 刷新本页 menu item; feedback lands on A's trigger only.
-const bTrigBeforeRefresh = bTrig.text;
+// v1.9.16 (T1): the trigger's click now goes straight to the bridge batch
+// path (BBTActivate('translate') → uiGuard → translatePage). No mode menu,
+// no BBTMenuOpen. Translate is per-instance: clicking A's trigger must not
+// write anything into B's tree, and B's trigger text stays 翻译.
 h.state.writes.length = 0;
-activate(h, "refresh", A.byId.get("BBTMenuRefresh"));
-checkMatch(aTrig.text, /^已刷新 \d+ 条$/, "A 触发器显示已刷新 N 条");
-checkEq(bTrig.text, bTrigBeforeRefresh, "A 刷新不写脏隐藏副本 B 的触发器（v1.9.7 bug）");
-check(h.state.writes.length > 0, "A 刷新产生了写操作", "writes=" + h.state.writes.length);
+activate(h, "translate", aTrig);
+checkMatch(
+  aTrig.text,
+  /^正在连接桥…|已译 \d+ 条|桥未连接\(\d+ 条缺\)|无新译文\(\d+ 条缺\)$/,
+  "A 触发器点击翻译后写回实时状态反馈（翻译写的是 Label，反馈落在触发器上）"
+);
+check(!A.root.BHasClass("BBTMenuOpen"), "A 根面板不带 BBTMenuOpen（菜单类已删）");
+check(!B.root.BHasClass("BBTMenuOpen"), "B 根面板不带 BBTMenuOpen");
+checkEq(bTrig.text, "翻译", "A 点翻译不改隐藏副本 B 的触发器（v1.9.7 bug 隔离）");
+check(h.state.writes.length > 0, "A 点翻译产生了写操作", "writes=" + h.state.writes.length);
 check(
   h.state.writes.every((w) => isInTree(w.panel, A.root)),
-  "A 刷新只写 A 树",
+  "A 点翻译只写 A 树",
   h.state.writes
     .filter((w) => !isInTree(w.panel, A.root))
     .map((w) => w.prop + ":" + w.to)
     .join(" | ")
 );
 pump(h, 400);
-checkEq(aTrig.text, "原文", "刷新反馈 1.6s 后复位为当前模式（原文）");
+checkEq(aTrig.text, "翻译", "触发反馈 1.6s 后 uiResetLabel 复位为 翻译（v1.9.16 无模式菜单，统一复位）");
 
 const aTrigBeforeBRefresh = aTrig.text;
 h.state.writes.length = 0;
-activate(h, "refresh", B.byId.get("BBTMenuRefresh"));
+activate(h, "refresh", bTrig); // v1.9.16 T1: B 侧同路由
 checkMatch(bTrig.text, /^已刷新 \d+ 条$/, "B 触发器显示已刷新 N 条");
 checkEq(aTrig.text, aTrigBeforeBRefresh, "B 刷新不写脏 A 的触发器");
 check(
@@ -600,8 +586,10 @@ const h3 = newHarness();
 const C = bootTree(h3, {});
 const cTrig = C.byId.get("BBTTranslateButton2");
 
+// v1.9.16 T1: 刷新不再从下拉菜单项发起——触发器本身即刷新入口。
+// refreshPage 把“刷新中…”与结果写回触发器，1.6s 后 uiResetLabel 复位。
 h3.state.writes.length = 0;
-activate(h3, "refresh", C.byId.get("BBTMenuRefresh"));
+activate(h3, "refresh", cTrig);
 const refreshWrites = h3.state.writes.filter((w) => w.panel === cTrig);
 check(refreshWrites.length >= 2, "触发器在一次刷新里被写多次（进度 + 结果）", "writes=" + refreshWrites.length);
 checkEq(refreshWrites[0] ? refreshWrites[0].to : "", "刷新中…", "第一次写是“刷新中…”进度");
@@ -652,8 +640,13 @@ check(
   "无 SetPanelEvent 时脚本报告 0 个控件被绑定",
   h5.state.msgs.filter((m) => /wired/.test(m)).join(" | ")
 );
-activate(h5, "menu:toggle", E.byId.get("BBTTranslateButton2"));
-check(E.root.BHasClass("BBTMenuOpen"), "无 SetPanelEvent 时 XML inline 路径仍能打开下拉");
+activate(h5, "translate", E.byId.get("BBTTranslateButton2"));
+checkMatch(
+  E.byId.get("BBTTranslateButton2").text,
+  /^正在连接桥…|已译 \d+ 条|桥未连接\(\d+ 条缺\)|无新译文\(\d+ 条缺\)$/,
+  "无 SetPanelEvent 时 XML inline 路径仍能发起桥批量翻译（v1.9.16 T1 单动作）"
+);
+check(!E.root.BHasClass("BBTMenuOpen"), "无 SetPanelEvent 路径不产生 BBTMenuOpen（菜单类已删）");
 
 const h6 = newHarness();
 const F = bootTree(h6, {});
@@ -664,18 +657,21 @@ checkEq(globalOf(h6, "typeof BBTActivate"), "function", "有 SetPanelEvent 时�
 
 advanceClock(h6);
 const speHandler = fTrig._events.onactivate[0];
+const fWritesBefore = h6.state.writes.length;
 speHandler();
-check(F.root.BHasClass("BBTMenuOpen"), "直接调用 SetPanelEvent 回调也能打开下拉");
-advanceClock(h6);
-speHandler();
-check(!F.root.BHasClass("BBTMenuOpen"), "SetPanelEvent 回调第二次调用关闭下拉");
+check(
+  h6.state.writes.length > fWritesBefore,
+  "直接调用 SetPanelEvent 回调也能发起翻译（产生写操作）",
+  "writes=" + h6.state.writes.length
+);
+check(!F.root.BHasClass("BBTMenuOpen"), "SetPanelEvent 回调不产生 BBTMenuOpen（菜单类已删）");
 
 // The same button keeps BOTH the XML inline handler and the script's
 // SetPanelEvent binding: either path alone may be the one this engine delivers,
 // so both stay. A real click therefore reaches the script twice in the same
 // frame, and uiGuard's cross-path marker (BBTActMark2 in the clicked instance's
 // own tree, plus the global ledger) drops the second delivery.
-check(triggerTag !== null && /onactivate="[^"]*BBTActivate\('menu:toggle'/.test(triggerTag), "触发器同时有 XML inline handler");
+check(triggerTag !== null && /onactivate="[^"]*BBTActivate\('translate'/.test(triggerTag), "触发器同时有 XML inline handler（v1.9.16 T1 单动作 translate）");
 checkEq((fTrig._events.onactivate || []).length, 1, "触发器同时有脚本 SetPanelEvent 绑定（两条路径由 marker 去重）");
 
 /* ------------------------------------------------------------------ */
@@ -685,10 +681,11 @@ checkEq((fTrig._events.onactivate || []).length, 1, "触发器同时有脚本 Se
 console.log("== [6] full-click diagnostic (inline XML handler + SetPanelEvent) ==");
 
 // One physical click runs BOTH paths in the same frame: the layout's inline
-// onactivate (BBTActivate(...), resolved in the layout global scope) and the
-// script's SetPanelEvent("onactivate") callback. The two paths can be evaluated
-// by different booted instances (visible details + tooltip copy), so the ledger
-// lives in the clicked instance's tree (BBTActMark2) as well as on the global.
+// onactivate (BBTActivate('translate', ...), resolved in the layout global scope)
+// and the script's SetPanelEvent("onactivate") callback. The two paths can be
+// evaluated by different booted instances (visible details + tooltip copy), so
+// the ledger lives in the clicked instance's tree (BBTActMark2) as well as on
+// the global.
 const hd = newHarness();
 const XA = bootTree(hd, {});
 const XB = bootTree(hd, {});
@@ -699,53 +696,50 @@ const xTrig = XA.byId.get("BBTTranslateButton2");
 
 hd.state.ctx = XA.root;
 advanceClock(hd);
-const beforeClick = XA.root.BHasClass("BBTMenuOpen");
+const markerBefore = XA.byId.get("BBTActMark2").text;
 vm.runInContext(inlineExpr, hd.ctx);
-const afterInline = XA.root.BHasClass("BBTMenuOpen");
 const xSpe = (xTrig._events.onactivate || [])[0];
+const markerTsAfterInline = XA.byId.get("BBTActMark2").text;
 if (typeof xSpe === "function") xSpe();
-const afterSpe = XA.root.BHasClass("BBTMenuOpen");
+const markerTsAfterSpe = XA.byId.get("BBTActMark2").text;
 
 console.log(
-  "INFO  click vv: before=" + beforeClick + " -> inline=" + afterInline + " -> +SetPanelEvent=" + afterSpe
+  "INFO  click dedup: marker before=\"" + markerBefore + "\" -> +inline=\"" + markerTsAfterInline + "\" -> +SetPanelEvent=\"" + markerTsAfterSpe + "\""
 );
 check(
-  afterInline === true && afterSpe === true,
-  "一次点击只切换一次：inline 打开下拉，SetPanelEvent 第二次投递被去重丢弃（不会又关上）",
-  "before=" + beforeClick + " inline=" + afterInline + " after=" + afterSpe
+  markerTsAfterInline.indexOf("act:translate@") === 0,
+  "inline BBTActivate('translate') 点击写入 act:translate@ 去重 marker（v1.9.16 T1 单动作）",
+  "marker=" + markerTsAfterInline
 );
+checkEq(
+  markerTsAfterSpe,
+  markerTsAfterInline,
+  "SetPanelEvent 第二次投递被 marker 去重丢弃（时间戳不变，不重发桥批量请求）"
+);
+checkEq(XA.root.BHasClass("BBTMenuOpen"), false, "BBTMenuOpen 全程未出现（v1.9.16 T1 菜单类已删）");
 checkEq(XB.root.BHasClass("BBTMenuOpen"), false, "tooltip 副本的根面板不受牵连");
-checkEq(XA.byId.get("BBTActMark2").text.indexOf("act:menu:toggle@"), 0, "去重 marker 写在被点实例自己的树里");
 
 /* ------------------------------------------------------------------ */
 /* [7] v1.9.9: toolbar row on the layout root + never write a #token   */
 /* ------------------------------------------------------------------ */
 
-console.log("== [7] v1.9.15 dropdown beside the engine dropdown + no token writes ==");
+console.log("== [7] v1.9.16 single trigger beside the engine row + no token writes ==");
 
 // Panorama only hit-tests inside the parent's bounds. v1.9.8 put the toolbar
 // row inside #BuildInfo (clipped), v1.9.9 moved it to the layout root (pushed
 // below the tall .HeroBuildsExtraInfo), and v1.9.10/v1.9.11 tried an overlay
 // that compressed the overview. v1.9.13/14 tried three buttons in the control
-// row. v1.9.15 folds them into one trigger (#BBTTranslateButton2, inside the
-// engine's own #BuildControls) + a dropdown (#BBTMenu2) that is a sibling of
-// the engine's #BuildControlsContainer - the only dropdown mechanism proven to
-// survive Panorama's hit-testing/clipping.
+// row. v1.9.15/16 fold them into one single trigger (#BBTTranslateButton2,
+// inside the engine's own #BuildControls row) — v1.9.16 T1 removed the
+// #BBTMenu2 dropdown: a click goes straight to the bridge-batch translate,
+// and the trigger is hidden on overview pages (T2).
 const g7 = newHarness();
 const G7 = bootTree(g7, {}, true);
 const tBtn = G7.byId.get("BBTTranslateButton2");
 const tParent = tBtn ? tBtn.GetParent() : null;
 check(G7.byId.get("BBTControls2") === undefined, "没有 BBTControls2 包裹层");
 checkEq(tParent && tParent.id, "BuildControls", "触发器挂在引擎自己的 #BuildControls 行里");
-const menuParent = G7.byId.get("BBTMenu2") ? G7.byId.get("BBTMenu2").GetParent() : null;
-const engineParent = G7.byId.get("BuildControlsContainer") ? G7.byId.get("BuildControlsContainer").GetParent() : null;
-check(menuParent !== null && engineParent !== null && menuParent === engineParent, "BBTMenu2 与引擎 BuildControlsContainer 同级", "menu=" + (menuParent && menuParent._classes.join(".")) + " engine=" + (engineParent && engineParent._classes.join(".")));
-check(G7.byId.get("BBTRefreshButton2") === undefined, "没有 BBTRefreshButton2 独立刷新按钮");
-check(G7.byId.get("BBTModeButton2") === undefined, "没有 BBTModeButton2 模式按钮");
-check(G7.byId.get("BBTLayer2") === undefined, "没有 BBTLayer2 覆盖层");
-check(G7.byId.get("BBTBar2") === undefined, "没有 BBTBar2 独立行");
-check(G7.byId.get("BBTSlot2") === undefined, "没有 BBTSlot2 占位");
-check(G7.byId.get("BBTMenu2") !== undefined, "有 BBTMenu2 下拉");
+check(G7.byId.get("BBTMenu2") === undefined, "BBTMenu2 下拉已删（v1.9.16 T1，点击直接走桥批量翻译）");
 checkEq(G7.byId.get("BBTTranslateButton2").text, "翻译", "触发器初始为 翻译");
 
 // The in-game build page gets one extra button in the engine's own header row:
@@ -763,7 +757,7 @@ check(
   "头部按钮在 #ControlButtons 行内（信息图标左侧）"
 );
 check(headerBtnTag !== null && headerBtnTag.indexOf("onactivate=") < 0, "头部按钮无内联 onactivate（改由 wireHeaderButton 的 SetPanelEvent 绑定，rootOf 命中 CitadelShopModsBuild）");
-check(shopXml.indexOf('id="BBTMenu2"') >= 0, "游戏内出装页也有 BBTMenu2 下拉");
+check(shopXml.indexOf('id="BBTMenu2"') < 0, "游戏内布局已无 BBTMenu2 下拉（v1.9.16 T1 双端一致）");
 check(/#BBTTranslateButton3\s*\{[^}]*visibility:\s*collapse/.test(bbaCss), "头部按钮默认折叠（内嵌到出装浏览器时不重复出现）");
 check(/\.BBTShow[^}]*visibility:\s*visible/.test(bbaCss), "头部按钮用 .BBTShow 显形（行内样式 + 类两道保险）");
 

@@ -219,40 +219,30 @@ function check(name, cond, detail) {
   );
 }
 
-// ---------------------------------------------------------------- language modes
+// ---------------------------------------------------------------- language modes (T1: UI dropped)
 {
+  // v1.9.16: the three-mode dropdown (原文/翻译/中英对照) and the programmatic
+  // BBTSetLanguageMode export were dropped. Display is now fixed to zh (offline
+  // TM + bridge). The internal mode state machine was removed along with it; the
+  // stored value is read back as the default "zh".
   const ctx = boot(["Rend > Heal > Repeat."], {});
   pump(ctx, 12);
   const label = ctx.root.children[3];
-  check("mode zh shows the translation", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
-
-  ctx.sandbox.BBTSetLanguageMode("both");
-  pump(ctx, 6);
-  check("mode both shows translation + original", /撕裂 > 治疗 > 重复。\nRend > Heal > Repeat\./.test(label.text), JSON.stringify(label.text));
-  check("mode is persisted", ctx.stored.bbt_language_mode === "both", JSON.stringify(ctx.stored));
-
-  ctx.sandbox.BBTSetLanguageMode("orig");
-  pump(ctx, 6);
-  check("mode orig restores the original text", label.text === "Rend > Heal > Repeat.", JSON.stringify(label.text));
-
-  ctx.sandbox.BBTSetLanguageMode("zh");
-  pump(ctx, 6);
-  check("mode zh again", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
+  check("display is fixed to zh (no mode UI)", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
+  check("BBTSetLanguageMode is no longer exposed", typeof ctx.sandbox.BBTSetLanguageMode === "undefined");
 }
 
-// ---------------------------------------------------------------- mode cycle via dispatch
+// ---------------------------------------------------------------- dispatch: no mode:next (T1)
 {
   const ctx = boot(["Rend > Heal > Repeat."], {});
   pump(ctx, 12);
   const label = ctx.root.children[3];
   check("starts in zh", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
-  // One click advances exactly one step (zh -> orig); the full 3-step cycle and
-  // the de-dup are covered in wiring_simtest.js with a fake clock (real Date.now
-  // here would trip uiGuard's 350ms window on rapid successive clicks).
+  // mode:next was removed with the dropdown; a dispatch of it is a no-op
+  // (unknown action) and must not change the label or throw.
   ctx.sandbox.BBTActivate("mode:next", ctx.root);
   pump(ctx, 6);
-  check("BBTActivate('mode:next') cycles zh -> orig", label.text === "Rend > Heal > Repeat.", JSON.stringify(label.text));
-  check("mode:next is persisted", ctx.stored.bbt_language_mode === "orig", JSON.stringify(ctx.stored));
+  check("BBTActivate('mode:next') is a no-op (route removed)", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
 }
 
 // ---------------------------------------------------------------- overrides + language
@@ -290,7 +280,10 @@ function check(name, cond, detail) {
   const ctx = boot(["Some unknown english sentence here."], { dead: true });
   pump(ctx, 30);
   ctx.sandbox.BBTTranslatePage();
-  check("button reports the missing bridge", /重新翻译|未连接|没有需要/.test(ctx.label.text), ctx.label.text);
+  // The on-demand reprobe takes up to ~2*20 queue slots to settle both
+  // targets as dead; pump far enough for the settled fallback to run.
+  pump(ctx, 60);
+  check("button reports the missing bridge", /未连接|没有需要|重新翻译/.test(ctx.label.text), ctx.label.text);
 }
 
 // ---------------------------------------------------------------- offline translate reports numbers (S2)
@@ -298,7 +291,9 @@ function check(name, cond, detail) {
   const ctx = boot(["Rend > Heal > Repeat.", "Some totally unknown sentence here."], { dead: true });
   pump(ctx, 30);
   ctx.sandbox.BBTTranslatePage();
-  pump(ctx, 8);
+  // Wait for the on-demand reprobe to settle dead and for the 0.5s
+  // fallback to run: that is when the [BBT] translate: line is logged.
+  pump(ctx, 60);
   const line = ctx.log.find((l) => l.indexOf("translate: scanned=") >= 0);
   check(
     "offline translate logs scanned/wrote/already/miss",

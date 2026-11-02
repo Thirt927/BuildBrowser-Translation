@@ -5,7 +5,8 @@
 // mod/panorama/scripts/bba_tm.js, and long-lived rows are written back into the
 // labels they came from. Our own toolbar chrome is written by bba_translate.js,
 // not by the game, so it must never enter that pipeline:
-//   * "act:menu:toggle@<ms>" (the click de-duplication marker) has no CJK, so
+//   * "act:translate@<ms>" / "act:refresh@<ms>" (the click de-duplication
+//     marker, v1.9.16 T1 single-action routes) have no CJK, so
 //     without the guard it is harvested, translated, and then written back -
 //     the stamp stops parsing, the two activation paths of one click are no
 //     longer de-duplicated, and the menu opens twice per click;
@@ -68,32 +69,32 @@ function isNoTranslate(id) {
 }
 
 // ---- layout half: the chrome carries BBTNoTranslate ----------------------
-check("details.xml has the dropdown trigger", !!attrsOf("BBTTranslateButton2"));
+check("details.xml has the single translate trigger", !!attrsOf("BBTTranslateButton2"));
 check("BBTTranslateButton2 (trigger) is BBTNoTranslate", isNoTranslate("BBTTranslateButton2"));
-check("BBTMenu2 (dropdown) is BBTNoTranslate", isNoTranslate("BBTMenu2"));
-check("BBTMenuOrig is BBTNoTranslate", isNoTranslate("BBTMenuOrig"));
-check("BBTMenuZh is BBTNoTranslate", isNoTranslate("BBTMenuZh"));
-check("BBTMenuBoth is BBTNoTranslate", isNoTranslate("BBTMenuBoth"));
-check("BBTMenuRefresh is BBTNoTranslate", isNoTranslate("BBTMenuRefresh"));
-check("BBTMenuSave is BBTNoTranslate", isNoTranslate("BBTMenuSave"));
+// v1.9.16 T1: the v1.9.15 dropdown (BBTMenu2 + its 5 items) was removed —
+// a single trigger click goes straight to the bridge-batch translate. None of
+// the menu ids should exist in the layout anymore.
+check("BBTMenu2 (dropdown) is gone (T1)", !attrsOf("BBTMenu2"));
+check("BBTMenuOrig is gone (T1)", !attrsOf("BBTMenuOrig"));
+check("BBTMenuZh is gone (T1)", !attrsOf("BBTMenuZh"));
+check("BBTMenuBoth is gone (T1)", !attrsOf("BBTMenuBoth"));
+check("BBTMenuRefresh is gone (T1)", !attrsOf("BBTMenuRefresh"));
+check("BBTMenuSave is gone (T1)", !attrsOf("BBTMenuSave"));
 check("BBTActMark2 (dedupe marker) is BBTNoTranslate", isNoTranslate("BBTActMark2"));
 check("no BBTControls2 wrapper left", !attrsOf("BBTControls2"));
 
 // The trigger lives inside the engine's own #BuildControls row (after
-// #BuildOptionButton); the menu captions are our CJK literals, never game
-// #Token text.
+// #BuildOptionButton). Its caption is our CJK literal (翻译), never a game
+// #Token.
 var buildControlsIdx = xml.indexOf('id="BuildControls"');
 var triggerIdx = xml.indexOf('id="BBTTranslateButton2"');
-var menuIdx = xml.indexOf('id="BBTMenu2"');
 check(
   "trigger is inside #BuildControls",
   buildControlsIdx >= 0 && triggerIdx > buildControlsIdx && triggerIdx < xml.indexOf('id="BuildControlsContainer"')
 );
 check(
-  "menu captions are our literals (原文/翻译/中英对照), no #Token",
-  xml.indexOf('text="原文"', menuIdx) > menuIdx
-    && xml.indexOf('text="翻译"', menuIdx) > menuIdx
-    && xml.indexOf('text="中英对照"', menuIdx) > menuIdx
+  "trigger caption is our literal (翻译), no #Token",
+  xml.indexOf('text="翻译"', triggerIdx) > triggerIdx
 );
 
 // ---- script half: the guard exists at every write entry point ------------
@@ -121,8 +122,8 @@ check(
 
 // ---- the hover tooltip must hide every toolbar button --------------------
 check(
-  "boot() collapses the dropdown in the hover tooltip",
-  /var toolbarIds = \["BBTMenu2"/.test(js) && /tb.style.visibility = "collapse"/.test(js)
+  "boot() hides the trigger on the overview page (T2)",
+  /var toolbarIds = \["BBTTranslateButton2"/.test(js) && /trigger.style.visibility = "collapse"/.test(js)
 );
 
 // ---- harvest pipeline reminder ------------------------------------------

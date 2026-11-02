@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.15";
+  var VERSION = "1.9.16";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -451,11 +451,10 @@
     ui.lastResult = text;
   }
 
-  // Restore the trigger's caption to the current display mode. Progress
-  // feedback ("已译 N 条") overwrites it while an action runs; this puts the
-  // mode readout (翻译 / 原文 / 中英对照) back afterwards.
+  // Restore the trigger's caption. Progress feedback ("已译 N 条") overwrites it
+  // while an action runs; this puts the static "翻译" caption back.
   function uiResetLabel(root) {
-    uiSetModeText(MODE_LABELS[mode] || "翻译", root);
+    uiSetModeText("翻译", root);
   }
 
   // The widest panel the toolbar button should act on. Several layout instances
@@ -659,6 +658,8 @@
 
   var live = {
     state: "unknown", // unknown | probing | on | off
+    settled: false, // last probe finished? (on-demand re-probes wait on this)
+    settleListeners: [],
     provider: "",
     targetName: "",
     tableSize: -1,
@@ -818,6 +819,7 @@
       $.Msg("[BBT] live bridge: not available on " +
         LIVE_TARGETS.map(function (t) { return t.port; }).join("/") +
         "; offline memory only");
+      liveProbeSettled();
       return;
     }
     var t = LIVE_TARGETS[index];
@@ -838,6 +840,7 @@
           "), offline memory + live fallback" +
           (live.provider && live.provider !== "bing" ? " [note: that provider is configured in the bridge's own settings]" : ""));
         try { liveUpgradeWeakWrites(); } catch (e) {}
+        liveProbeSettled();
         return;
       }
       liveProbeTargets(index + 1);
@@ -851,8 +854,35 @@
 
   function liveProbe() {
     if (liveMode() === "off" || live.state !== "unknown") return;
+    liveReprobe();
+  }
+
+  // v1.9.16: the button probes on demand. The boot probe only runs once
+  // (state "unknown" -> settled); if the user starts the bridge later, the
+  // first translate click re-runs the port scan instead of giving up. While a
+  // probe is in flight the click hands the page to the offline pass and waits
+  // for the settled flag rather than starting a second probe.
+  function liveReprobe() {
+    if (liveMode() === "off") return false;
+    if (live.state === "on" || live.state === "probing") return true;
     live.state = "probing";
+    live.settled = false;
     liveProbeTargets(0);
+    return true;
+  }
+
+  function liveProbeSettled() {
+    live.settled = true;
+    var listeners = live.settleListeners;
+    live.settleListeners = [];
+    for (var i = 0; i < listeners.length; i += 1) {
+      try { listeners[i](); } catch (e) {}
+    }
+  }
+
+  function liveWaitSettled(fn) {
+    if (live.settled) { fn(); return; }
+    live.settleListeners.push(fn);
   }
 
   // Panels that only got glossary term substitution get a second chance now that
@@ -2006,7 +2036,9 @@
   // pair a wider window than ordinary idempotent actions (translating twice is
   // merely wasteful, opening+closing the menu looks like a dead button).
   function actionWindow(name) {
-    return name === "menu" || name === "menu:toggle" ? 600 : 350;
+    // The translate click can start a bridge round-trip (seconds); give a
+    // patient double-click a real window so the second press doesn't double-send.
+    return name === "translate" ? 600 : 350;
   }
 
   // Always-on click log: one line per user click, so the volume is negligible
@@ -2121,12 +2153,12 @@
     }
     try { btn.AddClass("BBTShow"); } catch (e) {}
     try { btn.style.visibility = "visible"; } catch (e) {}
-    // The button toggles the same dropdown as the browser trigger. bindClick
-    // passes the real button to rootOf(), which (since v1.9.15) matches
+    // The button translates the build page directly (v1.9.16, no dropdown).
+    // bindClick passes the real button to rootOf(), which matches
     // CitadelShopModsBuild on the way up; the v1.9.13 inline
     // $.GetContextPanel() returned the HUD root in game and burned the scan
     // budget on the whole HUD instead of the build page.
-    bindClick(btn, "menu:toggle", function (panel) { toggleMenu(rootOf(panel)); });
+    bindClick(btn, "translate", function (panel) { translatePage(rootOf(panel)); });
     $.Msg("[BBT] header button wired in " + instTag(scope));
     return true;
   }
@@ -2147,65 +2179,10 @@
     };
   };
 
-  function setLanguageMode(next, root) {
-    if (next !== "zh" && next !== "orig" && next !== "both") return;
-    mode = next;
-    settingsSet(MODE_KEY, mode);
-    // Everything on screen has to be re-evaluated in the new mode.
-    try {
-      var ctx = pageRoot(root);
-      if (ctx) resetMemos(ctx);
-    } catch (e) {}
-    uiSetModeText(MODE_LABELS[mode], root);
-    refreshMenuSelected(root);
-    $.Msg("[BBT] language mode -> " + mode + " " + instTag(rootOf(root)));
-  }
-
-  // The trigger reads the current display mode (翻译 / 原文 / 中英对照). The
-  // mode is a persisted, module-level setting; each toolbar copy shows it.
-  var MODE_LABELS = { zh: "翻译", orig: "原文", both: "中英对照" };
-  var MODE_ORDER = ["zh", "orig", "both"];
-
-  function cycleMode(root) {
-    var i = MODE_ORDER.indexOf(mode);
-    var next = MODE_ORDER[(i + 1) % MODE_ORDER.length];
-    setLanguageMode(next, root);
-    return next;
-  }
-
-  // ---- dropdown (BBTMenuOpen on the layout root) ----
-  // The trigger toggles the class on the layout root (CitadelBuildDetails or
-  // CitadelShopModsBuild); the CSS shows #BBTMenu2 while it is present. This
-  // mirrors the engine's own 出装选项 dropdown (ShowBuildControlsContainer),
-  // the only dropdown pattern proven to survive Panorama's hit-testing/clipping.
-  function toggleMenu(root) {
-    if (!root) return;
-    try {
-      if (panelHasClass(root, "BBTMenuOpen")) root.RemoveClass("BBTMenuOpen");
-      else { root.AddClass("BBTMenuOpen"); refreshMenuSelected(root); }
-    } catch (e) {}
-  }
-
-  function closeMenu(root) {
-    if (!root) return;
-    try { root.RemoveClass("BBTMenuOpen"); } catch (e) {}
-  }
-
-  // Highlight the item matching the current mode (翻译/原文/中英对照).
-  function refreshMenuSelected(root) {
-    if (!root) return;
-    var sel = { zh: "BBTMenuZh", orig: "BBTMenuOrig", both: "BBTMenuBoth" }[mode];
-    var ids = ["BBTMenuZh", "BBTMenuOrig", "BBTMenuBoth"];
-    for (var i = 0; i < ids.length; i += 1) {
-      var item = null;
-      try { item = uiPanelIn(root, ids[i]); } catch (e) { item = null; }
-      if (!item) continue;
-      try {
-        if (ids[i] === sel) item.AddClass("BBTMenuSelected");
-        else item.RemoveClass("BBTMenuSelected");
-      } catch (e) {}
-    }
-  }
+    // v1.9.16: the 原文/中英对照 mode UI was dropped together with the dropdown
+  // (BBTMenu2); the display now always stays in zh mode. The mode variable and
+  // the present()/applyMode() pipeline are kept so a future UI can re-add the
+  // modes without touching the scanner.
 
   function resetMemos(root) {
     var stack = [root];
@@ -2260,6 +2237,36 @@
     });
   }
 
+  // The offline leg of the translate click: re-run the memory/glossary pass
+  // over the whole page so the button visibly does something even without the
+  // bridge. Whatever is still missing cannot be translated here (the memory
+  // shipped inside the VPK is fixed) - say so on the control instead of
+  // looking dead. noBridge: the on-demand probe just failed, so the "still
+  // missing" readout names the bridge instead of the memory.
+  function offlineTranslateFallback(scope, page, counts, texts, miss, noBridge) {
+    var before = stats.translated + stats.fallback;
+    try { if (page) resetMemos(page); } catch (e) {}
+    uiSetLabel("重新翻译中…", scope);
+    uiSetStatus("翻译中", scope);
+    $.Schedule(0.5, function () {
+      var done = stats.translated + stats.fallback - before;
+      $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + done + " already=" + counts.already +
+        " miss=" + miss + " scope=" + instTag(scope) +
+        (noBridge ? " (bridge unavailable)" : (texts.length ? "" : " (no bridge configured)")));
+      if (noBridge && done === 0 && miss > 0) {
+        uiSetLabel("桥未连接(" + miss + " 条缺)", scope);
+        uiSetStatus("桥未连接", scope);
+      } else if (done > 0) {
+        uiSetLabel("已译 " + done + " 条", scope);
+        uiSetStatus("已译 " + done + " 条", scope);
+      } else {
+        uiSetLabel("无新译文(" + miss + " 条缺)", scope);
+        uiSetStatus("缺 " + miss + " 条", scope);
+      }
+    });
+    $.Schedule(3.5, function () { uiResetLabel(scope); });
+  }
+
   // The main button: "translate everything on this page that we do not know yet".
   function translatePage(root) {
     if (ui.busy) return;
@@ -2276,26 +2283,40 @@
       return;
     }
     if (live.state !== "on") {
-      // Offline: re-run the memory/glossary pass over the whole page so the
-      // button visibly does something even without the bridge. Whatever is still
-      // missing cannot be translated here (the memory shipped inside the VPK is
-      // fixed) - say so on the control instead of looking dead.
-      var before = stats.translated + stats.fallback;
-      try { if (page) resetMemos(page); } catch (e) {}
-      uiSetLabel("重新翻译中…", scope);
-      uiSetStatus("翻译中", scope);
-      $.Schedule(0.5, function () {
-        var done = stats.translated + stats.fallback - before;
-        $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + done + " already=" + counts.already + " miss=" + miss + " scope=" + instTag(scope));
-        if (done > 0) {
-          uiSetLabel("已译 " + done + " 条", scope);
-          uiSetStatus("已译 " + done + " 条", scope);
-        } else {
-          uiSetLabel("无新译文(" + miss + " 条缺)", scope);
-          uiSetStatus("缺 " + miss + " 条", scope);
-        }
-      });
-      $.Schedule(3.5, function () { uiResetLabel(scope); });
+      // v1.9.16: bridge probe on demand. The boot probe runs once; if the user
+      // started the bridge afterwards, this click re-scans 8792/8793 and the
+      // batch goes through it without restarting the game. While the probe is in
+      // flight we hand the page to the offline pass (below) and wait for the
+      // settled flag before sending the batch.
+      if (texts.length && liveMode() !== "off") {
+        liveReprobe();
+        uiSetLabel("正在连接桥…", scope);
+        uiSetStatus("连接桥中", scope);
+        liveWaitSettled(function () {
+          if (live.state === "on") {
+            uiRequestBatch(texts, function (results, err) {
+              var applied = results ? uiApplyResults(results) : 0;
+              if (err) {
+                uiSetLabel("桥不可用(" + err + ")", scope);
+              } else {
+                uiSetLabel("已翻译 " + applied + " 条", scope);
+                uiSetStatus("已翻译 " + applied + " 条", scope);
+                try { liveUpgradeWeakWrites(); } catch (e) {}
+              }
+              $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + applied +
+                " already=" + counts.already + " miss=" + Math.max(0, texts.length - applied) +
+                " scope=" + instTag(scope) + " (reprobe)");
+              $.Schedule(4.0, function () { uiResetLabel(scope); });
+            });
+          } else {
+            // Probe finished, still down: run the offline pass and tell the
+            // user plainly that the bridge is not reachable.
+            offlineTranslateFallback(scope, page, counts, texts, miss, true);
+          }
+        });
+        return;
+      }
+      offlineTranslateFallback(scope, page, counts, texts, miss);
       return;
     }
     ui.busy = true;
@@ -2420,14 +2441,11 @@
     if (!uiGuard(root, "act:" + action, actionWindow(action))) return;
     reportClick(action, root);
     try {
-      if (action === "menu:toggle") toggleMenu(root);
-      else if (action === "translate") { closeMenu(root); translatePage(root); }
-      else if (action === "refresh") { closeMenu(root); refreshPage(root); }
-      else if (action === "mode:next") cycleMode(root);
+      if (action === "translate") translatePage(root);
+      else if (action === "refresh") refreshPage(root);
       else if (action.indexOf("hover") === 0) return; // status only
-      else if (action.indexOf("mode:") === 0) { closeMenu(root); setLanguageMode(action.slice(5), root); }
       else if (action.indexOf("lang:") === 0) setTargetLang(action.slice(5), root);
-      else if (action === "save") { closeMenu(root); savePageToTable(root); }
+      else if (action === "save") savePageToTable(root);
       else if (action === "stats") showTableStats(root);
       else $.Msg("[BBT] unknown action " + action);
     } catch (e) {
@@ -2474,7 +2492,8 @@
   expose("BBTActivate", dispatch);
   expose("BBTTranslatePage", translatePage);
   expose("BBTRefreshPage", refreshPage);
-  expose("BBTSetLanguageMode", setLanguageMode);
+  // v1.9.16 removed the mode UI; the scanner stays in zh mode (see above).
+  // BBTSetLanguageMode is no longer exposed.
   expose("BBTSetTargetLang", setTargetLang);
   expose("BBTSavePageToTable", savePageToTable);
   expose("BBTShowTableStats", showTableStats);
@@ -2519,7 +2538,7 @@
         if (upt.indexOf("TooltipBuildDetails") >= 0 || upc.indexOf("BuildDetailsTooltip") >= 0) {
           // Collapse the toolbar wrapper + every button: the hover tooltip
           // reuses this layout but its buttons can never be clicked.
-          var toolbarIds = ["BBTMenu2", "BBTTranslateButton2", "BBTTranslateButton"];
+          var toolbarIds = ["BBTTranslateButton2", "BBTTranslateButton"];
           for (var ti = 0; ti < toolbarIds.length; ti += 1) {
             var tb = uiPanelIn(ctx, toolbarIds[ti]);
             if (tb && tb.style) tb.style.visibility = "collapse";
@@ -2551,13 +2570,12 @@
         $.Msg("[BBT] toolbar-geom none in this layout");
       }
     }
-    // §6 rect probe (one-shot, BBT_DEBUG-gated): actual geometry of the rows the
-    // dropdown must align to, so the static CSS can be tuned from the morning
-    // log instead of guessed (BuildControlsContainer before/after open, the
-    // trigger row, and the in-game header row).
+    // §6 rect probe (one-shot, BBT_DEBUG-gated): actual geometry of the rows
+    // the toolbar sits in, so the static CSS can be tuned from the morning log
+    // instead of guessed (the trigger row, and the in-game header row).
     if (debugOn() && !G.__BBT_RECT_DUMPED) {
       G.__BBT_RECT_DUMPED = true;
-      var rectIds = ["ControlArea", "ExtraInfo", "BuildControls", "BuildOptionButton", "BuildControlsContainer", "ControlButtons", "BuildHeader", "BBTMenu2"];
+      var rectIds = ["ControlArea", "ExtraInfo", "BuildControls", "BuildOptionButton", "BuildControlsContainer", "ControlButtons", "BuildHeader"];
       for (var ri = 0; ri < rectIds.length; ri += 1) {
         var rp = uiPanelIn(ctx, rectIds[ri]);
         if (rp) {

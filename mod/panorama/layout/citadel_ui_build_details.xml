@@ -60,16 +60,15 @@
 							</Panel>
 						</Panel>
 					</Panel>
-					<!-- BBT toolbar: one trigger button that mirrors the engine's
-					     出装选项 button (Medium Fill + DropdownArrow) and sits
-					     immediately to its right, inside the engine's own
-					     #BuildControls row. It toggles #BBTMenu2 via the
-					     BBTMenuOpen class on the layout root - the same
-					     class-toggle pattern the engine uses for its own dropdown
-					     (ShowBuildControlsContainer), the only dropdown mechanism
-					     that survives Panorama's hit-testing/clipping (the v1.9.8
-					     JS-positioned menu and the v1.9.9 root-child toolbar both
-					     failed in game).
+					<!-- BBT toolbar: one plain trigger button next to the engine's
+					     出装选项 button, inside the engine's own #BuildControls row
+					     (Medium Fill, same look; no dropdown arrow since v1.9.16).
+					     Click = translate this page: offline memory first, bridge batch
+					     when reachable (the bridge probes on demand from the click,
+					     v1.9.16). The v1.9.15 dropdown (#BBTMenu2 + the
+					     原文/翻译/中英对照 modes) was dropped - in game the static
+					     menu surfaced as a floating clipped list that looked like
+					     it appeared out of nowhere.
 					     BBTNoTranslate: our own chrome, not game text - the
 					     scanner must never harvest or rewrite it.
 					     Every handler passes $.GetContextPanel() so the action
@@ -81,9 +80,7 @@
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">
 							<Panel class="DropdownArrow" />
 						</TextButton>
-						<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;menu:toggle&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;menu:toggle&apos;, $.GetContextPanel());">
-							<Panel class="DropdownArrow" />
-						</TextButton>
+						<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
 						<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
 					</Panel>
 				</Panel>
@@ -123,19 +120,6 @@
 					<TextButton id="DeleteBuildButton" class="Medium Fill" text="#Citadel_HeroBuilds_DeleteBuildLabel" onmouseover="UIShowTextTooltipStyled( #Citadel_HeroBuilds_DeleteBuildTooltip, OptionsTooltip)" onmouseout="UIHideTextTooltip()" html="true" onmouseactivate="$.GetContextPanel().RemoveClass(&apos;ShowBuildControlsContainer&apos;); $.DispatchEvent(&apos;CitadelHudHeroBuildsDeleteSelectedBuildPressed&apos;,true)" />
 					<TextButton id="ValveBuildButton" class="Medium Fill" text="#Citadel_HeroBuilds_ValveBuildLabel" html="true" onmouseactivate="$.GetContextPanel().RemoveClass(&apos;ShowBuildControlsContainer&apos;); $.DispatchEvent(&apos;CitadelHudHeroBuildsAddToValveAuthoredBuilds&apos;)" />
 				</Panel>
-			</Panel>
-			<!-- BBT dropdown: sibling of the engine's own BuildControlsContainer
-			     (the 出装选项 menu) in .HeroBuildsExtraInfo. Shown while the layout
-			     root carries BBTMenuOpen (toggled by the 翻译 trigger). Items route
-			     through BBTActivate so a click lands in the right layout instance;
-			     BBTNoTranslate keeps the scanner off our own chrome. -->
-			<Panel id="BBTMenu2" class="BBTNoTranslate" hittest="true">
-				<TextButton id="BBTMenuOrig" class="Medium Fill BBTNoTranslate BBTMenuItem" text="原文" hittest="true" onactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:orig&apos;, $.GetContextPanel());" />
-				<TextButton id="BBTMenuZh" class="Medium Fill BBTNoTranslate BBTMenuItem" text="翻译" hittest="true" onactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:zh&apos;, $.GetContextPanel());" />
-				<TextButton id="BBTMenuBoth" class="Medium Fill BBTNoTranslate BBTMenuItem" text="中英对照" hittest="true" onactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;mode:both&apos;, $.GetContextPanel());" />
-				<Panel class="BBTMenuSeparator" />
-				<TextButton id="BBTMenuRefresh" class="Medium Fill BBTNoTranslate BBTMenuItem" text="刷新本页" hittest="true" onactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;refresh&apos;, $.GetContextPanel());" />
-				<TextButton id="BBTMenuSave" class="Medium Fill BBTNoTranslate BBTMenuItem" text="把新译文存入本地库" hittest="true" onactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;save&apos;, $.GetContextPanel());" />
 			</Panel>
 		</Panel>
 	</CitadelBuildDetails>
