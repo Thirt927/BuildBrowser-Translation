@@ -77,6 +77,12 @@ mod 启动时会先探 8792(你的 BabelTower 桥),探通就直接用它翻译,�
 ```powershell
 # 1) 生成并信任本机自签证书(装进 CurrentUser\Root,无需管理员)
 powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Trust
+
+# 2.5) 晨间 30 秒自检:桥是否可达 + 证书是否已受信(只读不改)
+node tools\bridge\check.js
+#   输出 "8792 ready" / "8793 ready" = 桥可用,游戏内触发器点击即走桥;
+#   两者都 down 时按下面第 3) 步起 8793,并确认证书已进 CurrentUser\Root
+#   (换证书/首次导入后必须完全重启 Steam,引擎只在启动时读信任库)。
 #    (脚本会先检查是否已有可复用的 BabelTower 证书;有就跳过生成)
 # 2) 完全退出 Steam(含托盘图标)再启动 —— 引擎只在启动时读取信任库
 # 3) 启动 bridge,并可选设为开机自启(无控制台窗口)
