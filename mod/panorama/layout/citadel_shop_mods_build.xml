@@ -34,6 +34,10 @@
 		</snippet>
 	</snippets>
 	<CitadelShopModsBuild class="shopModsBuild" hittest="true">
+		<!-- optional live-bridge panel: the in-game build detail page is where the
+		     user clicks 翻译; without its own <HTML> panel the misses can never
+		     reach the bridge (v1.9.18 fix) -->
+		<HTML id="BBTBridgePanelShop" class="BBTBridgePanel" hittest="false" />
 		<Panel class="BuildBG" hittest="false" />
 		<Panel id="CategoryContainer" />
 		<Panel class="BuildHeader BuildHeaderShared">

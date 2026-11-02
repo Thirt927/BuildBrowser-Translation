@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.18";
+  var VERSION = "1.9.19";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -63,7 +63,7 @@
   var LIVE_MODE_DEFAULT = "auto"; // "auto" | "off" | "on"
   // One id per layout: the details layout is instantiated *inside* the selector,
   // so reusing a single id would put two panels with the same id in one tree.
-  var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails"];
+  var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails", "BBTBridgePanelShop"];
   // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
   // it serves a page with the same technique and the same certificate, so people
   // who already use that mod need neither a second certificate nor a second
