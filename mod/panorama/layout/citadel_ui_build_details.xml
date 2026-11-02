@@ -65,8 +65,7 @@
 					     (Medium Fill, same look; no dropdown arrow since v1.9.16).
 					     Click = translate this page: offline memory first, bridge batch
 					     when reachable (the bridge probes on demand from the click,
-					     v1.9.16). The v1.9.15 dropdown (#BBTMenu2 + the
-					     原文/翻译/中英对照 modes) was dropped - in game the static
+					     v1.9.16). The v1.9.15 dropdown (原文/翻译/中英对照 modes) was dropped - in game the static
 					     menu surfaced as a floating clipped list that looked like
 					     it appeared out of nowhere.
 					     BBTNoTranslate: our own chrome, not game text - the

@@ -9,9 +9,9 @@
 
 /* v1.9.16: the toolbar is ONE plain trigger button (Medium Fill, same look as
    the engine's 出装选项 but without the dropdown arrow). Click = translate the
-   page (offline memory first, bridge batch when reachable). The v1.9.15
-   dropdown (#BBTMenu2 + 原文/翻译/中英对照 modes) is gone; its static menu
-   surfaced in game as a floating clipped list and was dropped. */
+   page (offline memory first, bridge batch when reachable). The v1.9.15 dropdown
+   (原文/翻译/中英对照 modes) is gone; its static menu surfaced in game as a
+   floating clipped list and was dropped. */
 
 /* In-game shop-page header button (citadel_shop_mods_build.xml, first child of
    #ControlButtons). Collapsed by default: the same layout is also embedded in
