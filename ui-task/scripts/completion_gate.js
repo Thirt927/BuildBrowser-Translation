@@ -76,7 +76,9 @@ check("OPEN_QUESTIONS.md 无未处理 P0", () => {
 
 // 4) 提交纪律
 check("conventional commits ≥3（feat:/fix:/perf:）", () => {
-  const r = sh("git", ["log", "--oneline", "-20"]);
+  // git log --oneline prefixes each line with the SHA, which broke the
+  // ^feat|fix|... anchor (always counted 0); use the subject only.
+  const r = sh("git", ["log", "--pretty=%s", "-20"]);
   if (r.code !== 0) throw new Error("git log 失败：" + r.err.trim());
   const conv = r.out.split("\n").filter((l) => /^(feat|fix|perf|docs|test)(\(.+\))?:/.test(l)).length;
   if (conv < 3) throw new Error("仅 " + conv + " 个 conventional commit（需 ≥3）");
