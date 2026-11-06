@@ -73,3 +73,16 @@
 4. **task-6**：取证补丁 revert（NO_FORENSICS_RESIDUE）；干净版部署 + 日志级复验（上节）；
    实机点击验证记 BLOCKED(保守) 入 OPEN_QUESTIONS P0；本文档 + `docs/buildui-report.md` +
    TODO/overnight-log 更新 → gate → commit + push。
+
+## 追加：pid 22764 geom4 取证会话（19:37–19:55，盲开 build browser 的最后一次尝试）
+
+- 临时 `geom4` 几何探针（已 revert，干净版 md5 14e2d5d7 已部署）：5s×change-capped×80 行，
+  报 BBTTranslateButton/2/3 + BBTTabBtnHost 的 `actuallayoutwidth/height/visible/GetPositionWithinWindow`。
+- 结果：shop ctx（CitadelShopModsBuild）里 button3 恒 `lw=0 lh=0 vis=false`（shop 页 parked 时
+  整子树不可见，与 11-03/15140 会话一致）；**本会话未能再触发 `CitadelHeroBuildsSelector` boot**
+  （B 键 toggle 不稳定、Tab/方向键/tab-row 坐标/build 卡片点击 20+ 次均未命中）。
+- 发现关键路径：`citadel_shop_mods_build.xml` L63 `BrowseBuildsButton`（build 页 header 行）
+  是打开 build browser（selector boot）的入口；而 build 页需先在 shop 里选中一个 build 才可见。
+  → 人工路径 30 秒：B 打开 shop → 点任意 build 卡片 → 点 header “Browse Builds” → 详情页出现，
+  点右上“翻译”按钮即验证 ②③（caption 变“原文”、全页含 BuildDescription 与类别框同翻）。
+- 该会话后 geom4 已 revert 重打（dist md5 14e2d5d7），探针行 = 0。
