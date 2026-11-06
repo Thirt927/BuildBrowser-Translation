@@ -212,3 +212,10 @@ CJK 判定不一致(前者不含 Hangul/假名)。另有 `BuildName`/`BuildDescr
   齐（0 CSS 警告 / 0 探针行 / 双态 ver 行），人工终验步骤在 `docs/buildui-report.md`。
 - 取证临时补丁（debugOn||true、FOCUS/geom3/posprobe）全部 revert；
   VPK md5 48eb5151b88e37978ee1f7db5d41fb44 重打部署（bak 惯例保留）。
+
+## 推送记录（gate PASS 后追加）
+
+- 2026-11-06 晚：v1.9.27 三 bug 修复链已推 origin/main。
+  gate 首次 PASS pre-push SHA = `5bf15d29e2f952a72207a9b5a27fd4f0633964b0`；
+  记录本行后追加 commit 并推送，最终 gate PASS 的 pre-push SHA = 该追加 commit（PUSH_OK 文件存档）。
+  推后终态 HEAD：fix(gate) conv-check 修复 + 本记录；远端与本地一致，工作区干净。
