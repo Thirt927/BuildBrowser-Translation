@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.25";
+  var VERSION = "1.9.27";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -456,22 +456,17 @@
   }
 
   // Restore the trigger's caption. Progress feedback ("已译 N 条") overwrites it
-  // while an action runs; this puts the correct resting caption back. v1.9.17
-  // two-state trigger: the resting caption names the NEXT display state -
-  // "原文" while the page is translated, "翻译" while it shows the original.
-  // The in-game header layout (no BBTTranslateButton2/1) stays at "翻译".
+  // while an action runs; this puts the correct resting caption back. v1.9.26:
+  // the caption names the NEXT action from the SHARED two-state mode - "原文"
+  // while the page is translated, "翻译" while it shows the original. The
+  // in-game header button (#BBTTranslateButton3) and the browser toolbar
+  // button both resolve through uiSetModeText's id list.
   function uiResetLabel(root) {
     var b = null;
     try { b = uiPanelIn(root || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]); } catch{ b = null; }
-    if (b) {
-      var page = null;
-      try { page = pageRoot(root); } catch{ page = null; }
-      var origOn = false;
-      try { origOn = !!(page && displayOrig.get(page)); } catch{}
-      uiSetModeText(origOn ? "翻译" : "原文", root);
-      return;
-    }
-    uiSetModeText("翻译", root);
+    var key = "";
+    try { key = tsKeyOf(b || root || contextPanel()); } catch{ key = ""; }
+    uiSetModeText(key && tsMode(key) === "zh" ? "原文" : "翻译", root);
   }
 
   // The widest panel the toolbar button should act on. Several layout instances
@@ -1939,6 +1934,12 @@
     var probes = []; // T6-3: identity-label texts recorded during the walk
     scanCtx.root = root; // v1.9.17: displayOrig gate (原文/翻译 toggle)
     scanCtx.token = 0;
+    // v1.9.26 R1/R2/R4: shared two-state gate. Build pages (selector / details /
+    // shop) start on the ORIGINAL text; the button is the only way in and out.
+    // "" = no gate (tooltips and any surface above the page tags keep auto).
+    var tsKey = "";
+    try { tsKey = tsKeyOf(root); } catch{ tsKey = ""; }
+    scanCtx.tsGate = tsKey !== "" && tsMode(tsKey) !== "zh";
     try {
       if (!scanBaselines.has(root)) scanBaselines.set(root, stats.writes);
       scanCtx.baselineWrites = scanBaselines.get(root);
@@ -1972,8 +1973,10 @@
         if (!isTextEntry(p)) {
           // v1.9.17 原文/翻译 toggle: while this page is deliberately showing
           // the original text, the scanner must not re-translate it.
+          // v1.9.26: the default state is "original" for every build page
+          // (R1/R4), gated cross-context via G (scanCtx.tsGate).
           var origOn = false;
-          try { origOn = !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
+          try { origOn = scanCtx.tsGate || !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
           if (!origOn) translatePanel(p, t);
         }
         else if (!known) remember(p, 0, t, null);
@@ -2086,6 +2089,33 @@
     } catch{
       hidden = true;
     }
+    // v1.9.26 two-state sync: the button flip is shared on G (tsSet bumps
+    // ver). Every context that owns this page - the shop-build parent AND
+    // each embedded category frame, the browser selector AND its nested
+    // details instance - must honour the new mode on its next fast tick,
+    // not only the one that got the click. That is what stops the last
+    // category frame from flicking back to the translation after a 原文
+    // click (R2). The bump resets the backoff so the flip lands ~150ms on
+    // every context. Revert runs once per flip (tsRevertDone, per context).
+    try {
+      var gts = G.__BBT_TWO_STATE;
+      if (gts && gts.ver !== tsVer) {
+        tsVer = gts.ver;
+        var tsSyncKey = "";
+        try { tsSyncKey = tsKeyOf(ctx); } catch{ tsSyncKey = ""; }
+        if (tsSyncKey) {
+          if (tsMode(tsSyncKey) === "orig" && !tsRevertDone[tsSyncKey]) {
+            try { resetMemos(ctx); } catch{}
+            tsRevertDone[tsSyncKey] = 1;
+            if (debugOn()) $.Msg("[BBT] two-state: show original on " + tsSyncKey + " in " + instTag(ctx));
+          }
+          if (tsMode(tsSyncKey) === "zh") delete tsRevertDone[tsSyncKey];
+          idleTicks = 0;
+          burstTicks = BURST_TICKS;
+          interval = FAST_INTERVAL;
+        }
+      }
+    } catch{}
     if (hidden) {
       // Nothing on screen: no reason to walk anything. Re-check rarely; the
       // panel becomes visible again long before a human notices 2s.
@@ -2125,9 +2155,19 @@
         // Non-manual page (selector list / in-game build page): a fresh page,
         // not one the user toggled - clear the gate and auto-translate.
         try { displayOrig.delete(ctx); } catch{}
-        try {
-          if (resyncAll(40)) ticksSinceRebind = 0;
-        } catch{}
+        // v1.9.26: a shared two-state page (browser / in-game build page)
+        // pinned to the ORIGINAL text must NOT auto-resync on a build
+        // switch - the user explicitly asked for the original. Only truly
+        // un-gated surfaces (tooltips, tsKey "") take the auto path.
+        var tsRebindKey = "";
+        try { tsRebindKey = tsKeyOf(ctx); } catch{ tsRebindKey = ""; }
+        if (tsRebindKey && tsMode(tsRebindKey) !== "zh") {
+          ticksSinceRebind = 0;
+        } else {
+          try {
+            if (resyncAll(40)) ticksSinceRebind = 0;
+          } catch{}
+        }
       }
     }
     ticksSinceRebind += 1;
@@ -2180,6 +2220,79 @@
   // The actual show/gate state lives in displayOrig; manualMode only tells
   // tick() to honour it instead of forcing an auto-translate.
   var manualMode = new WeakMap();
+
+  // ---------- v1.9.26 R1/R2/R4: unified two-state translate button (shared) ----------
+  // v1.9.25 armed the manual two-state inside the build-details context only;
+  // but a page is scanned by several JS contexts at once (the shop-build page
+  // parent + one context per embedded category frame, the browser details +
+  // selector), and a per-context WeakMap cannot gate the OTHER contexts'
+  // rewrites - that is why the last category frame kept flicking back to the
+  // translation after a 原文 click (user report R2). The mode now lives on G
+  // (all layout contexts share one globalThis - the __BBT_BRIDGE_PANELS /
+  // MISS-ledger pattern), keyed by the STABLE page identity: the outermost
+  // build-page instance above the panel. The button caption always names the
+  // NEXT action (翻译 | 原文) on every surface: browser toolbar, embedded
+  // trigger, in-game header button.
+  var TWO_STATE_PAGES = ["CitadelHeroBuildsSelector", "CitadelBuildDetails", "CitadelShopModsBuild"];
+  var tsVer = 0; // this context's copy of the shared version counter
+  var tsRevertDone = Object.create(null); // this context: page key -> already reverted since the last flip
+  // v1.9.27 (field bugs ②③): the two-state display is a SINGLE GLOBAL switch
+  // (on = translated, off = original), shared by every JS context through the
+  // engine-shared globalThis BBA_* store. The v1.9.26 per-key table
+  // (mode[tsKeyOf(ctx)]) split whenever nested instances carried different
+  // panel ids - the click only opened its own context's key, so sibling
+  // instances (the embedded category frames, the build description) kept the
+  // default gate and never translated, and the caption never moved to 原文.
+  // A click now flips the global; every context's tick sync picks up the new
+  // state via the shared ver bump.
+  function twoStateGlobal() {
+    try {
+      if (!G.__BBT_TWO_STATE) G.__BBT_TWO_STATE = { on: false, ver: 0 };
+      return G.__BBT_TWO_STATE;
+    } catch { return null; }
+  }
+  // Stable key of the build page owning `panel`: walk up and keep the LAST
+  // (outermost) matching page tag, so the browser's nested details instance
+  // and its selector root share one key, and every embedded category frame
+  // shares the shop page's key. A tooltip (or any surface above the
+  // topmost page tag) gets "" = no gate: hover tooltips must keep
+  // auto-translating (transient content, R3 "don't break").
+  function tsKeyOf(panel) {
+    var key = "", p = panel;
+    for (var i = 0; p && i < 40; i += 1) {
+      var tag = panelTag(p);
+      if (TWO_STATE_PAGES.indexOf(tag) >= 0) key = String(p.id || "") || tag;
+      try { p = p.GetParent ? p.GetParent() : null; } catch { p = null; }
+    }
+    return key;
+  }
+  function tsMode(key) {
+    if (!key) return "auto";
+    // v1.9.27: `key` only says this context drives a two-state surface; the
+    // display state itself is the GLOBAL switch (one value, every context).
+    var g = twoStateGlobal();
+    return g && g.on ? "zh" : "orig";
+  }
+  function tsSet(key, m) {
+    if (!key) return;
+    var g = twoStateGlobal();
+    if (!g) return;
+    var want = m === "zh";
+    if (g.on !== want) {
+      g.on = want;
+      g.ver = (g.ver || 0) + 1; // every context's tick() sees the bump on its next run
+    }
+  }
+
+  // v1.9.27: the shared global version counter of the two-state switch.
+  // (Named tsGlobalVer: `tsVer` is already the per-context copy variable.)
+  function tsGlobalVer() {
+    var g = twoStateGlobal();
+    return g ? g.ver : 0;
+  }
+  // Convenience alias used by the dispatch log lines (reads the shared
+  // global version counter of the two-state switch).
+  function tsVerNow() { return tsGlobalVer(); }
 
   function nowMs() {
     try { if (typeof Date.now === "function") return Date.now(); } catch{}
@@ -2310,12 +2423,30 @@
     // dead trigger under the engine's 出装选项 button (the v1.9.16 report).
     var trigger = uiPanelIn(scope, ["BBTTranslateButton", "BBTTranslateButton2"]);
     if (trigger && nestedInOverview(trigger)) {
-      // Overview / category surface: collapse + disable hit-testing; the page
-      // is translated by the scanner, the engine's own 出装选项 button owns the
-      // row here (our trigger would sit under it and look unclickable).
-      try { trigger.style.visibility = "collapse"; } catch{}
-      try { trigger.hittest = false; } catch{}
-      if (debugOn()) $.Msg("[BBT] trigger hidden in overview context (" + instTag(scope) + ")");
+      if (inBuildBrowser(trigger)) {
+        // v1.9.26 R1: the browser overview page carries its own two-state
+        // button. v1.9.17 T2 collapsed it there (the engine's 出装选项 button
+        // owns the row and our trigger would sit under it); the unified
+        // two-state model needs the control visible, so show + bind it.
+        // BBTOnOverview is the CSS hook to shift it clear of the engine row
+        // if the in-game geometry actually overlaps (R5: verify the click
+        // lands - a stuck button means hittest occlusion, B1/B5 §6.6).
+        try { trigger.AddClass("BBTOnOverview"); } catch{}
+        try { trigger.style.visibility = "visible"; } catch{}
+        try { trigger.hittest = true; } catch{}
+        onActivate(["BBTTranslateButton", "BBTTranslateButton2"], function () { dispatch("translate", scope); }, "translate", scope);
+        if (debugOn()) $.Msg("[BBT] trigger shown in overview context (" + instTag(scope) + ")");
+      } else {
+        // In-game embedded surfaces (category frames, embedded details page):
+        // keep the v1.9.25 collapse + disable hit-testing; the engine's own
+        // 出装选项 button owns the row there and the in-game header button
+        // (#BBTTranslateButton3) is the two-state control for that page.
+        // v1.9.17 (T2 fix): the overview/category collapse must run in EVERY
+        // context that carries a trigger, before the uiWiredOnce early return.
+        try { trigger.style.visibility = "collapse"; } catch{}
+        try { trigger.hittest = false; } catch{}
+        if (debugOn()) $.Msg("[BBT] trigger hidden in overview context (" + instTag(scope) + ")");
+      }
       uiWiredOnce = true;
       return true;
     }
@@ -2400,6 +2531,22 @@
     return false;
   }
 
+  // R1 (v1.9.26): the BROWSER-only ancestor test. The same surfaces match
+  // nestedInOverview, but only the HeroBuildsSelector chain un-collapses its
+  // trigger (the browser needs the two-state button on the overview page);
+  // the in-game category frames keep the v1.9.25 collapse (the engine's
+  // 出装选项 button owns that row, the header button #3 is the control).
+  function inBuildBrowser(panel) {
+    var p = panel;
+    for (var d = 0; p && d < 16; d += 1) {
+      var tag = "";
+      try { tag = String(p.id || "") + "|" + String(p.paneltype || p.tag || ""); } catch{ tag = ""; }
+      if (tag.indexOf("HeroBuildSelector") >= 0 || tag.indexOf("HeroBuildsSelector") >= 0) return true;
+      try { p = p.GetParent ? p.GetParent() : null; } catch{ p = null; }
+    }
+    return false;
+  }
+
   function wireHeaderButton(scope) {
     if (uiHeaderWired) return true;
     var btn = uiPanelIn(scope, "BBTTranslateButton3");
@@ -2411,12 +2558,16 @@
     }
     try { btn.AddClass("BBTShow"); } catch{}
     try { btn.style.visibility = "visible"; } catch{}
-    // The button translates the build page directly (v1.9.16, no dropdown).
-    // bindClick passes the real button to rootOf(), which matches
-    // CitadelShopModsBuild on the way up; the v1.9.13 inline
-    // $.GetContextPanel() returned the HUD root in game and burned the scan
-    // budget on the whole HUD instead of the build page.
-    bindClick(btn, "translate", function (panel) { translatePage(rootOf(panel)); });
+    // v1.9.27 (field bug ③): the header button drives the SAME two-state
+    // dispatch as the in-page trigger. It used to call translatePage(rootOf())
+    // directly - that neither flipped the switch (the caption never became
+    // 原文) nor reached the sibling category frames in their own contexts.
+    // dispatch() flips the GLOBAL switch; every context's tick sync then
+    // translates (or reverts) the whole page, and uiSetModeText() updates the
+    // caption. The comment about $.GetContextPanel() burning the HUD scan
+    // budget (v1.9.13) still applies: bindClick hands dispatch the real button
+    // panel, so pageRoot()/tsKeyOf() resolve against the build page, not the HUD.
+    bindClick(btn, "translate", function (panel) { dispatch("translate", panel); });
     $.Msg("[BBT] header button wired in " + instTag(scope));
     return true;
   }
@@ -2723,45 +2874,46 @@
     reportClick(action, root);
     try {
       if (action === "translate") {
-        // v1.9.17 two-state trigger (browser 翻译 button): the label always
-        // names the NEXT display state. 翻译 -> run the bridge-batch translate,
-        // then show 原文; 原文 -> put the original text back; then show 翻译…
-        // The in-game header button has no BBTTranslateButton2/1 in its
-        // layout, so it keeps the plain translatePage flow.
+        // v1.9.26 unified two-state button (R1/R2): the caption always names
+        // the NEXT action. 翻译 click: translate the WHOLE page - list +
+        // overview + every category frame; the shared key makes every context
+        // that owns the page honour the flip on its next fast tick - and the
+        // caption becomes 原文. 原文 click: put the original text back in
+        // place, caption becomes 翻译. All surfaces share this path (browser
+        // toolbar #2, embedded trigger, in-game header #3): the page key comes
+        // from the clicked panel, not from which button fired. This replaces
+        // the v1.9.17 text-sniffing toggle (the label was the state, lost on
+        // every 3.5s caption reset - the user's R2 "点了不切换" bug).
         var page = pageRoot(root);
-        var toggle = null;
-        try { toggle = uiPanelIn(root, ["BBTTranslateButton2", "BBTTranslateButton"]); } catch{}
-        if (toggle) {
-          var cur = "";
-          try { cur = String(toggle.text || ""); } catch{}
-          // The label is the state: "原文" -> next click shows the original;
-          // anything else (翻译 / feedback strings) -> next click translates.
-          // displayOrig is only the scanner gate, managed by both branches.
-          if (cur.indexOf("原文") === 0) {
-            resetMemos(page); // put the source text back on every translated label
-            displayOrig.set(page, 1); // stop the scanner re-translating this page
-            displayOrig.set(root, 1); // alias: the context panel of the clicked instance
-            displayOrig.set(origin, 1); // the scanner gate key (context panel)
-            uiSetModeText("翻译", root);
-            if (debugOn()) $.Msg("[BBT] trigger: show original on " + instTag(page) + " (ctx=" + instTag(root) + ")");
-            return;
-          }
-          displayOrig.delete(page);
-          displayOrig.delete(root);
-          displayOrig.delete(origin); // the scanner gate key (context panel)
-          uiSetModeText("原文", root); // resting state; the async feedback
-                                       // (正在连接桥…/已译 N 条) overrides it while running
-          // v1.9.18: re-resolve the engine labels (build title / description /
-          // annotations) for the build that is on screen NOW before the bridge
-          // batch - a hero/build switch that left the title stale is what the
-          // user sees as "点了翻译没用". refreshPage's 刷新中…/已刷新 N 条
-          // feedback is immediately followed by the translate feedback.
-          try { refreshPage(root); } catch{}
-          translatePage(root);
-          if (debugOn()) $.Msg("[BBT] trigger: translate on " + instTag(page) + " (ctx=" + instTag(root) + ")");
+        var key = "";
+        try { key = tsKeyOf(root); } catch{ key = ""; }
+        var isZht = key !== "" && tsMode(key) === "zh";
+        if (isZht) {
+          tsSet(key, "orig");
+          resetMemos(page); // my own writes now; the other contexts revert on
+          // their next tick via the shared version bump (the tick sync above)
+          displayOrig.set(page, 1); // legacy per-context scanner gates:
+          displayOrig.set(root, 1); // alias: the context panel of the clicked instance
+          if (origin) displayOrig.set(origin, 1); // the scanner gate key (context panel)
+          uiSetModeText("翻译", root); // next action = translate
+          if (debugOn()) $.Msg("[BBT] two-state global: 原文 (key=" + key + ", ctx=" + instTag(root) + ", ver=" + tsVerNow() + ")");
           return;
         }
+        if (key) tsSet(key, "zh");
+        displayOrig.delete(page);
+        displayOrig.delete(root);
+        if (origin) displayOrig.delete(origin); // the scanner gate key (context panel)
+        uiSetModeText("原文", root); // next action = show original; the async
+        // feedback (正在连接桥…/已译 N 条) overrides it while running
+        // v1.9.18: re-resolve the engine labels (build title / description /
+        // annotations) for the build that is on screen NOW before the bridge
+        // batch - a hero/build switch that left the title stale is what the
+        // user sees as "点了翻译没用". refreshPage's 刷新中…/已刷新 N 条
+        // feedback is immediately followed by the translate feedback.
+        try { refreshPage(root); } catch{}
         translatePage(root);
+        if (debugOn()) $.Msg("[BBT] two-state global: 翻译 (key=" + key + ", ctx=" + instTag(root) + ", ver=" + tsVerNow() + ")");
+        return;
       }
       else if (action === "refresh") refreshPage(root);
       else if (action.indexOf("hover") === 0) return; // status only
@@ -2931,7 +3083,20 @@
         if (bootRoot) displayOrig.set(bootRoot, 1);
         uiSetModeText("翻译", bootRoot); // resting label: next action = translate
       } catch{}
-      if (debugOn()) $.Msg("[BBT] manual two-state armed on " + instTag(bootRoot) + " (default 原文)");
+      // v1.9.27 (R1): entering the details page starts on the ORIGINAL text.
+      // The global switch is shared by every context (one per process), so a
+      // leftover 翻译 from a previous page/surface would carry over; reset it
+      // here, the only user-facing "page entry" boots (the in-game embedded
+      // frames boot once at login and must NOT reset a live switch). Every
+      // context's tick sync picks the bump up within one fast tick.
+      try {
+        var gsw = twoStateGlobal();
+        if (gsw && gsw.on) {
+          gsw.on = false;
+          gsw.ver = (gsw.ver || 0) + 1;
+        }
+      } catch{}
+      if (debugOn()) $.Msg("[BBT] manual two-state armed on " + instTag(bootRoot) + " (default 原文, global reset)");
     }
     var missing = missingHandlers();
     $.Msg(

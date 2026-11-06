@@ -75,7 +75,20 @@ function makePanel(opts) {
     set: (v) => { p._t = v; },
     configurable: true,
   });
+  // Engine panels expose GetParent() - tsKeyOf/pageRoot walk up with it to find
+  // the outermost page tag (the two-state key). A sim panel without it resolves
+  // key="" and the caption reset falls back to 翻译 (R1/R2 fidelity bug).
+  p._parent = null;
+  p.GetParent = () => p._parent || null;
   return p;
+}
+
+// children.push alone loses the parent link; attach() sets it both ways.
+function attach(parent, ...kids) {
+  for (const c of kids) {
+    c._parent = parent;
+    parent.children.push(c);
+  }
 }
 
 function boot(texts, opts) {
@@ -127,13 +140,18 @@ function boot(texts, opts) {
   };
   const label = makePanel({ id: "BBTTranslateLabel", cls: "BBTLabel", text: "翻译本页" });
   const menu = makePanel({ id: "BBTMenu" });
-  root.children.push(bridge, label, menu);
+  attach(root, bridge, label, menu);
 
-  for (const t of texts) root.children.push(makePanel({ cls: "BuildDescription", text: t }));
+  for (const t of texts) attach(root, makePanel({ cls: "BuildDescription", text: t }));
 
   const queue = [];
   const log = [];
   const stored = Object.create(null);
+  // uiGuard keys its click window on host wall-clock Date.now(); a fake clock
+  // lets tests space two deliberate clicks more than 600ms apart without
+  // sleeping (the in-game guard protects against accidental double-taps, not
+  // against spaced flips - the R1 原文 click must reach dispatch).
+  const clock = { now: 1000 };
   const sandbox = {
     console: { log() {} },
     $: {
@@ -146,12 +164,13 @@ function boot(texts, opts) {
       },
     },
   };
+  sandbox.Date = { now: () => clock.now };
   vm.createContext(sandbox);
   for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
     vm.runInContext(fs.readFileSync(path.join(SCRIPTS, f), "utf8"), sandbox, { filename: f });
   }
   vm.runInContext(fs.readFileSync(path.join(TMP, "tm.js"), "utf8"), sandbox, { filename: "tm.js" });
-  return { sandbox, queue, root, label, menu, urls, timers, log, stored };
+  return { sandbox, queue, root, label, menu, urls, timers, log, stored, advance: (ms) => { clock.now += ms; } };
 }
 
 function pump(ctx, steps) {
@@ -301,6 +320,65 @@ function check(name, cond, detail) {
     line || "(no translate line)"
   );
   check("offline translate counts the unknown sentence as missing", !!line && /miss=1\b/.test(line), line || "");
+}
+
+// ---------------------------------------------------------------- R1/R2/R4: two-state button (v1.9.26)
+{
+  // Multi-category-frame regression (RALPH Task 3): one 翻译 click must
+  // translate the annotation of EVERY category frame on the page - not just
+  // the last-generated batch - and 原文 must revert every frame back. The
+  // build page starts on the original text (R4: no auto-translation).
+  // The frames are plain subtrees here; in game each frame runs its own JS
+  // context, shared through G.__BBT_TWO_STATE (the flip is per page key).
+  const frameTexts = [
+    "Frame zero annotation about tempo.",
+    "Frame one annotation about tempo.",
+    "Frame two annotation about tempo.",
+  ];
+  frameTexts.forEach((t, i) => { NEW_TEXTS[t] = "第" + i + "框的节奏注释。"; });
+  const ctx = boot(["Key item for Drifter early game."], {});
+  ctx.root.tag = "CitadelShopModsBuild"; // outermost page tag = the two-state key
+  const frames = [];
+  frameTexts.forEach((t, i) => {
+    const frame = makePanel({ id: "BBTCatFrame" + i, cls: "BuildCategory" });
+    const ann = makePanel({ cls: "BuildDescription", text: t });
+    attach(frame, ann);
+    attach(ctx.root, frame);
+    frames.push(ann);
+  });
+  // The browser toolbar trigger: the caption source (uiSetModeText writes it).
+  const button = makePanel({ id: "BBTTranslateButton2", text: "翻译本页" });
+  attach(ctx.root, button);
+
+  pump(ctx, 12);
+  check(
+    "R4: build page starts on the ORIGINAL text (scanner is gated, nothing auto-translates)",
+    frames.every((l) => /^[A-Za-z]/.test(l.text)) && ctx.root.children[3].text === "Key item for Drifter early game.",
+    JSON.stringify(frames.map((l) => l.text)) + " / " + ctx.root.children[3].text
+  );
+
+  // One 翻译 click: every frame's annotation gets translated.
+  ctx.sandbox.BBTActivate("translate", ctx.root);
+  pump(ctx, 30);
+  check(
+    "R2: 翻译 click translates EVERY category frame's annotation (not just the last)",
+    frames.every((l, i) => l.text === "第" + i + "框的节奏注释。"),
+    JSON.stringify(frames.map((l) => l.text))
+  );
+  check("button caption names the NEXT action (原文)", button.text === "原文", button.text);
+
+  // One 原文 click: every frame reverts to the original text, round-trip.
+  // Space the flip more than the 600ms anti-double-tap guard window (fake
+  // clock) - a deliberate second press, not a duplicate of the first.
+  ctx.advance(800);
+  ctx.sandbox.BBTActivate("translate", ctx.root);
+  pump(ctx, 30);
+  check(
+    "R1: 原文 click reverts EVERY frame to the original text",
+    frames.every((l, i) => l.text === frameTexts[i]),
+    JSON.stringify(frames.map((l) => l.text))
+  );
+  check("button caption back to 翻译", button.text === "翻译", button.text);
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

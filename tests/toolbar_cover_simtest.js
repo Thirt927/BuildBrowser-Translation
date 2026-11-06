@@ -75,20 +75,19 @@ function parentOf(xml, targetId) {
     detailsFile + ": trigger uses the native Medium Fill style",
     /<TextButton id="BBTTranslateButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml)
   );
-  const triggerOpen = xml.indexOf('id="BBTTranslateButton2"');
-  const triggerClose = xml.indexOf("</TextButton>", triggerOpen);
-  const triggerBody = xml.slice(triggerOpen, triggerClose);
-  check(detailsFile + ": trigger is a bare text button (no DropdownArrow)", triggerBody.indexOf('class="DropdownArrow"') < 0);
-
-  // The trigger lives inside the engine's own #BuildControls row, right after
-  // #BuildOptionButton (not in the old 220px #BuildControls panel confusion).
+  // v1.9.27 (field bug ①): the trigger moved OUT of the engine's #BuildControls
+  // row (the Medium Fill squeeze overlapped 复制出装/BuildOptions on the browser
+  // overview) into the #BBTTabBtnHost anchor at the right edge of the
+  // .AuthoringInfo title row - the engine only puts the build name on the LEFT
+  // of that row, so the button can no longer stack over an engine control.
   const triggerHost = parentOf(xml, "BBTTranslateButton2");
-  check(detailsFile + ": trigger lives inside #BuildControls", triggerHost === "BuildControls", "host=" + triggerHost);
+  check(detailsFile + ": trigger lives in #BBTTabBtnHost", triggerHost === "BBTTabBtnHost", "host=" + triggerHost);
   check(
-    detailsFile + ": trigger sits after #BuildOptionButton",
-    xml.indexOf('id="BuildOptionButton"') < xml.indexOf('id="BBTTranslateButton2"') &&
-      xml.indexOf('id="BBTTranslateButton2"') < xml.indexOf('id="BuildControlsContainer"')
+    detailsFile + ": host sits after .AuthoringInfo's build-name label",
+    xml.indexOf('class="BuildName"') < xml.indexOf('id="BBTTabBtnHost"') &&
+      xml.indexOf('id="BBTTabBtnHost"') < xml.indexOf('id="ControlArea"')
   );
+  check(detailsFile + ": trigger no longer in #BuildControls", triggerHost !== "BuildControls");
 
   // No retired BBTButton/BBTControls styling.
   check(detailsFile + ": no BBTButton class left", xml.indexOf("BBTButton ") < 0 && xml.indexOf('class="BBTButton') < 0);
