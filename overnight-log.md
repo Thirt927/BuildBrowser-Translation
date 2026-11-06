@@ -195,3 +195,20 @@ CJK 判定不一致(前者不含 Hangul/假名)。另有 `BuildName`/`BuildDescr
 `uiApplyResults` 写回 root 不匹配——都已记录为后续修法。
 
 复测:`node --check` OK、6 个布局 `ET.parse` OK、14 个套件全 exit 0(`layout_dom_simtest` 缺反编译布局 SKIP)。
+
+## v1.9.27 实机三 bug 修复（2026-11-06 晚，ui-task GOAL 收口）
+
+决策记录：
+- ① 按钮重合：中间版 absolute+flow:none 探针实测按钮 0 宽 → 终版改 `#BBTTabBtnHost`
+  结构迁移（`.AuthoringInfo` 行右端）+ `relative + float:right + min-width:40px`；
+  判据 = 引擎 0 条 `Unknown panel type` 解析警告（干净版 pid 3368 验证）。
+- ②③ 双态点击不生效/不联动：根因 = 双态按 ctx key 分裂（内嵌页独立 JS 上下文）。
+  决策：双态**全局化**为单一开关 `G.__BBT_TWO_STATE.on`（引擎共享 globalThis BBA_*），
+  点击翻转 + 全局 ver 驱动所有 ctx 的 tick 同步；button3（游戏内 header）并入统一
+  `dispatch("translate")`。离线 `ui_button_simtest` R1/R2/R4 全绿。
+- 实机点击级终验 **BLOCKED(保守)**：模型无读图/OCR，且盲驱动（um win drive 单命令）
+  无法稳定打开出装浏览器详情页（B 键/Tab/多组坐标均不触发 `CitadelHeroBuildsSelector`
+  布局 boot；该 boot 仅在上一会话 pid 15140 特定窗口状态下出现一次）。日志级代理证据
+  齐（0 CSS 警告 / 0 探针行 / 双态 ver 行），人工终验步骤在 `docs/buildui-report.md`。
+- 取证临时补丁（debugOn||true、FOCUS/geom3/posprobe）全部 revert；
+  VPK md5 48eb5151b88e37978ee1f7db5d41fb44 重打部署（bak 惯例保留）。

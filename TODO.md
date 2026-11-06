@@ -3,7 +3,27 @@
 > 2026-10-30 代码审查整理。标记:【已修】= 本次已在仓库中修复并有测试;【待修】= 已确认的问题,尚未改;
 > 【新增】= 计划中 / 等待新增的功能。
 
-## 0. 当前行动清单(按顺序,全部完成即收口"右侧详情 + 悬停提示"问题)
+## v1.9.27（2026-11-06）— 实机三 bug 修复（ui-task GOAL 收口）
+
+实机（v1.9.26 部署后）反馈 3 个问题，全部定位 + 修复 + 离线回归 + 干净版部署：
+
+- 【已修】① **概览页按钮与引擎控件重合**：`BBTTranslateButton2` 原在引擎 `#BuildControls` 行
+  随 Medium Fill 挤压（geom3/POS 探针证实中间版 absolute+flow:none 方案下按钮 `actuallayoutwidth=0`）。
+  v1.9.27 将按钮 + BBTActMark2 迁入 `.AuthoringInfo` 标题行右端新 `#BBTTabBtnHost`，
+  CSS `position:relative + float:right + min-width:40px`。干净版 0 条 `Unknown panel type` CSS 警告。
+- 【已修】②③ **点「翻译」后顶部作者文本不翻 / 详情页点击无效 + caption 不变**：
+  根因 = 双态按 ctx key 分裂（内嵌 build 实例独立 JS 上下文，点击只翻转自己 ctx 的 key）。
+  v1.9.27 双态**全局化**：`G.__BBT_TWO_STATE = {on, ver}` 单一开关（引擎共享 globalThis），
+  `tsMode()/tsSet()` 全局读/写，tick 双态同步按全局 ver 联动所有 ctx；
+  `wireHeaderButton` 的 button3 改走统一 `dispatch("translate")`（含 caption 联动）。
+  离线 `ui_button_simtest` R1/R2/R4 段全绿（逐帧全翻/全回、caption 跟踪下一步动作、启动默认原文）。
+- 【待验】实机点击级终验（人工）：模型无读图 + 盲驱动无法稳定打开出装浏览器详情页，
+  R1 几何 / R2 点击翻转 / R4 作者说明翻中 记 BLOCKED(保守)，步骤见 `docs/buildui-report.md` §实机验证步骤；
+  日志级代理证据见 `ui-task/in-game-verification.md`（干净版 0 CSS 警告 / 0 探针行 / 双态 ver 行）。
+- 取证临时补丁（`debugOn||true`、FOCUS/geom3/posprobe 探针）已全部 revert，NO_FORENSICS_RESIDUE；
+  VPK `dist/pak13_dir.vpk`（md5 48eb5151b88e37978ee1f7db5d41fb44）重打部署。
+
+## 0. 当前行动清单(按顺序,全部完成即收口“右侧详情 + 悬停提示”问题)
 
 1. ☑ **S2V 导出布局**:已导出并随仓库生成覆盖(2026-10-30,游戏版本当日):
    - `citadel_ui_build_details` → `mod/panorama/layout/citadel_ui_build_details.xml`
