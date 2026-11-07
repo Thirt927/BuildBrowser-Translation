@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.63";
+  var VERSION = "1.9.65";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3527,18 +3527,33 @@
     return "";
   }
 
-  function prefetchBuildAnnotations(root) {
+  function prefetchBuildAnnotations(root, tries) {
     if (!root) return;
     if (live.state !== "on" || !LIVE_TARGET) return;
     // Only our bridge knows /api/v1/build; BabelTower's does not.
     if (LIVE_TARGET.tag !== "BBT") return;
+    var attempt = tries || 0;
     var id = "";
     try { id = buildIdOf(root); } catch{ id = ""; }
     if (!id) {
       // The id often sits in the category frame, not in the details root.
       try { id = buildIdOf($.GetContextPanel()); } catch{ id = ""; }
     }
-    if (!id || buildPrefetchDone[id]) return;
+    if (!id) return;
+    // v1.9.64: the click also starts the page's own batch, and only one request
+    // may be in flight (01:14:54 logged `prefetch id=411712 ok=false err=busy`).
+    // Wait our turn instead of dropping the only chance we get per build id.
+    if (live.pending && attempt < 20) {
+      var gen0 = live.gen || 0;
+      $.Schedule(0.4, function () {
+        try {
+          // A newer click supersedes this chain; it starts its own prefetch.
+          if ((live.gen || 0) === gen0) prefetchBuildAnnotations(root, attempt + 1);
+        } catch{}
+      });
+      return;
+    }
+    if (buildPrefetchDone[id]) return;
     buildPrefetchDone[id] = 1;
     liveSend(
       { kind: "build", id: id },
@@ -3824,6 +3839,21 @@
         // user sees as "点了翻译没用". refreshPage's 刷新中…/已刷新 N 条
         // feedback is immediately followed by the translate feedback.
         try { refreshPage(root); } catch{}
+        // v1.9.65 (user: "新的点击翻译就去管新的，抛弃旧的"): a fresh click owns the
+        // channel. Whatever the previous click queued is stale, and a batch still
+        // in flight must not turn the new click into a silent no-op.
+        try {
+          live.gen = (live.gen || 0) + 1;
+          if (live.queue && live.queue.length) {
+            $.Msg("[BBT] translate: dropped " + live.queue.length + " queued text(s) from the previous click");
+            live.queue.length = 0;
+          }
+          var busyAge = ui.busySince ? (nowMs() - ui.busySince) : -1;
+          if (ui.busy && busyAge > 600) {
+            $.Msg("[BBT] translate: preempting the previous click (age=" + Math.round(busyAge) + "ms)");
+            ui.busy = false;
+          }
+        } catch{}
         translatePage(root);
         if (debugOn()) $.Msg("[BBT] two-state global: 翻译 (key=" + key + ", ctx=" + instTag(root) + ", ver=" + tsVerNow() + ")");
         return;
