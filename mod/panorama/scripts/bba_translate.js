@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.45";
+  var VERSION = "1.9.46";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2252,15 +2252,17 @@
   // surface only the build author's own annotation - rendered inside the
   // engine's .NotesContainer - is translated.
   var notesOnlySurface = false;
-  function inAuthorNotes(p) {
-    var up = p;
-    for (var i = 0; i < 12 && up; i += 1) {
-      var has = false;
-      try { has = up.HasClass ? !!up.HasClass("NotesContainer") : false; } catch{ has = false; }
-      if (has) return true;
-      try { up = up.GetParent ? up.GetParent() : null; } catch{ up = null; }
+  function tooltipNeedsTranslation(t) {
+    if (typeof t !== "string" || t.length < 2) return false;
+    var hasCjk = false;
+    var hasLatin = false;
+    for (var i = 0; i < t.length; i += 1) {
+      var c = t.charCodeAt(i);
+      if (c >= 0x4E00 && c <= 0x9FFF) { hasCjk = true; break; }
+      if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) hasLatin = true;
     }
-    return false;
+    if (hasCjk) return false;   // engine copy, already localised by the game
+    return hasLatin;            // pure numbers/symbols ("800", "+2.5") are engine data
   }
 
   function scan(root) {
@@ -2324,7 +2326,7 @@
           // (R1/R4), gated cross-context via G (scanCtx.tsGate).
           var origOn = false;
           try { origOn = scanCtx.tsGate || !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
-          if (!origOn && (!notesOnlySurface || inAuthorNotes(p))) translatePanel(p, t);
+          if (!origOn && (!notesOnlySurface || tooltipNeedsTranslation(t))) translatePanel(p, t);
           // v1.9.29 (lobby stutter, the real source): a page pinned to 原文
           // never reached translatePanel, so nothing ever memoed its labels -
           // every scan counted the whole page as "fresh" and re-armed the burst
