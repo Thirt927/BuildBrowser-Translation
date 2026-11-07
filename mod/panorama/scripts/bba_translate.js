@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.46";
+  var VERSION = "1.9.47";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2416,6 +2416,39 @@
   // GetPositionWithinWindow on every build), so the log stayed empty for three
   // builds. This prints what the trigger panel actually reports, six times per
   // context, then disarms itself.
+  // v1.9.47 diagnostics: dump the panel tree of the layout that owns this
+  // context so the author-annotation label can be identified from evidence
+  // instead of guessed. BBT_DEBUG-gated, one dump per context, 240 nodes max.
+  function dumpTree(ctx, tag) {
+    if (!ctx || G.__BBT_TREE_DONE) return;
+    var budget = 240;
+    var queue = [{ p: ctx, d: 0 }];
+    var out = [];
+    while (queue.length && budget > 0) {
+      var it = queue.shift();
+      var pn = it.p;
+      budget -= 1;
+      var id = "";
+      var tg = "";
+      var tx = null;
+      try { id = pn.id || ""; } catch{}
+      try { tg = pn.tag || pn.paneltype || ""; } catch{}
+      try { tx = pn.text; } catch{}
+      if (typeof tx === "string" && tx.length) {
+        out.push("[BBT] tree " + tag + " d" + it.d + " " + tg + (id ? "#" + id : "") + ' = "' + (tx.length > 60 ? tx.slice(0, 60) + "..." : tx) + '"');
+      }
+      var n = 0;
+      try { n = pn.GetChildCount ? pn.GetChildCount() : 0; } catch{}
+      for (var i = 0; i < n; i += 1) {
+        var ch = null;
+        try { ch = pn.GetChild ? pn.GetChild(i) : null; } catch{}
+        if (ch) queue.push({ p: ch, d: it.d + 1 });
+      }
+    }
+    G.__BBT_TREE_DONE = true;
+    for (var k = 0; k < out.length; k += 1) $.Msg(out[k]);
+  }
+
   function probeRects(ctx) {
     if (!ctx) return false;
     var tries = G.__BBT_RECT_TRY || 0;
@@ -2471,6 +2504,9 @@
         // out (at boot every panel reports NaN, so the one-shot version never
         // produced a number). BBT_DEBUG-gated, self-disarming.
         if (debugOn() && !G.__BBT_RECT_DONE) { try { probeRects(ctx); } catch{} }
+        // v1.9.47: dump the tooltip tree the first time it is actually laid
+        // out (hovered), so the author-annotation label can be named.
+        if (debugOn() && notesOnlySurface && !G.__BBT_TREE_DONE) { try { if ((ctx.actuallayoutwidth || 0) > 0) dumpTree(ctx, "tooltip"); } catch{} }
         // T6-3 fast-exit: a stable root is probed, not walked — identity-label
         // texts plus the child count. Stable tick = a few .text reads, zero
         // writes, interval backoff continues unchanged. Any change drops the
