@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.51";
+  var VERSION = "1.9.53";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2351,7 +2351,14 @@
   function annotZhOn() {
     var g = null;
     try { g = twoStateGlobal(); } catch{ g = null; }
-    return !!(g && g.on);
+    if (!g) return true;
+    // Each layout runs its own JS context, so the object the user flipped on the
+    // page is a different one from the tooltip's: here `ver` stays 0 and `on`
+    // false, which is "unknown", not "off". Treating it as off is why the item
+    // annotation stopped being translated in v1.9.50. Translate by default; the
+    // page-side 原文 state is covered by reverting the tooltip on hide.
+    if (!g.ver) return true;
+    return !!g.on;
   }
 
   // Restore every label this context translated to the text it carried before.
@@ -2386,8 +2393,25 @@
     if (first) return; // nothing written yet
     try { revertAnnotCtx(root); } catch{}
   }
-  function tooltipNeedsTranslation(t) {
-    if (typeof t !== "string" || t.length < 2) return false;
+  // v1.9.52: the item tooltip is transient. Once we write Chinese into the
+  // author-annotation label, the engine's SetDialogVariable for the next hover
+  // has nowhere to land, so hovering after selecting another build kept showing
+  // the previous (activated) build's note - and it looked untranslated because
+  // the leftover text was already CJK and the tooltip gate skips CJK. When the
+  // tooltip hides, put the English back so every hover starts from the engine's
+  // own text.
+  var annotShown = false;
+  function annotWatchVisibility(root) {
+    var vis = false;
+    try { vis = (root.actuallayoutwidth || 0) > 0; } catch{ vis = false; }
+    if (annotShown && !vis) {
+      try { revertAnnotCtx(root); } catch{}
+      if (debugOn()) { try { $.Msg("[BBT] annot revert on hide"); } catch{} }
+    }
+    annotShown = vis;
+  }
+
+  function tooltipNeedsTranslation(t) {    if (typeof t !== "string" || t.length < 2) return false;
     var hasCjk = false;
     var hasLatin = false;
     for (var i = 0; i < t.length; i += 1) {
@@ -2404,7 +2428,10 @@
     // it translated unconditionally, so with the page back on 原文 the annotation
     // bubble stayed Chinese and there was no way to read the author's original
     // wording - the user's "物品注释不显示原文了".
-    if (notesOnlySurface) { try { syncAnnotMode(root); } catch{} }
+    if (notesOnlySurface) {
+      try { syncAnnotMode(root); } catch{}
+      try { annotWatchVisibility(root); } catch{}
+    }
     // T6 chunking: a walk is a persistent cycle. When carry is empty this is the
     // first tick of a cycle (push root); otherwise we resume mid-walk. A panel
     // has exactly one parent, so nothing is re-pushed; disposed panels die on the
