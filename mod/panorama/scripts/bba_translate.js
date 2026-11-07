@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.50";
+  var VERSION = "1.9.51";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -1856,6 +1856,12 @@
     var target = translationFor(raw);
     if (target) {
       target = present(raw, target);
+      // v1.9.51: the label may already show exactly this target (repeat
+      // resync of an unchanged page) - skip the write and its binding crossing.
+      if (cur === target) {
+        remember(p, 1, raw, target);
+        return;
+      }
       if (writeText(p, target)) stats.writes += 1;
       remember(p, 1, raw, target);
       return;
@@ -1913,6 +1919,13 @@
     if (fresh) {
       stats.resyncOk = (stats.resyncOk || 0) + 1;
       if (debugOn() && cands.length > 1) $.Msg("[BBT] resync-localized " + usedTok);
+      // v1.9.51: only report a change when the engine value really differs
+      // from what is on screen. resyncAll() feeds ticksSinceRebind, so a
+      // per-tick "true" here kept the rebind gate open forever: on the item
+      // tooltip (tsKey "", always the auto path) that became a write storm
+      // (211 annotations / 2469 labels in one session) and the label kept
+      // flipping between the engine's new note and our stale translation.
+      if (prev === fresh) return false;
       applyResync(p, fresh);
       return true;
     }
@@ -1945,7 +1958,9 @@
     if (debugOn()) {
       $.Msg("[BBT] resync-unresolved " + cands.join(",") + " text=" + JSON.stringify(String(prev).slice(0, 24)));
     }
-    return true;
+    // v1.9.51: nothing changed on screen -> do not count as a resync, or the
+    // caller keeps resetting ticksSinceRebind and we never settle.
+    return false;
   }
 
   // Re-resolve every visible engine label under the page root. This is walked
