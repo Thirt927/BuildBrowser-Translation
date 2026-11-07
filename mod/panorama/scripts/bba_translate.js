@@ -27,10 +27,10 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.71";
+  var VERSION = "1.9.74";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
-  var DEBUG = false;
+  var DEBUG = true;
   function debugOn() {
     return DEBUG || !!G.BBT_DEBUG;
   }
@@ -416,40 +416,16 @@
   }
 
   // Write the status text onto a panel inside `root` (default: our own instance).
-  function uiWriteCaption(p, text) {
-    if (!p) return false;
-    try { p.text = text; if (p.text === text) return true; } catch{}
-    try { if (p.SetText) { p.SetText(text); if (!p.text || p.text === text) return true; } } catch{}
-    // A CitadelButton keeps its caption on an inner label; write that too.
-    var stack = [p];
-    var budget = 40;
-    while (stack.length && budget > 0) {
-      budget -= 1;
-      var q = stack.shift();
-      if (q !== p) {
-        try { if (typeof q.text === "string") { q.text = text; if (q.text === text) return true; } } catch{}
-      }
-      var n = 0;
-      try { n = q.GetChildCount ? q.GetChildCount() : 0; } catch{ n = 0; }
-      for (var i = 0; i < n; i += 1) { try { var c = q.GetChild(i); if (c) stack.push(c); } catch{} }
-    }
-    return false;
-  }
-
   function uiSetText(ids, text, root) {
     var scope = root || contextPanel();
     var p = uiPanelIn(scope, ids);
-    if (!p) {
-      // v1.9.67: the caption used to fail silently, which reads as "clicked and
-      // nothing happened". Say which side lost it.
-      try { $.Msg("[BBT] caption: control not found (", text, ") in " + instTag(scope)); } catch{}
+    if (!p) return false;
+    try {
+      p.text = text;
+      return true;
+    } catch{
       return false;
     }
-    if (!uiWriteCaption(p, text)) {
-      try { $.Msg("[BBT] caption: could not set '", text, "' on #", p.id || "?"); } catch{}
-      return false;
-    }
-    return true;
   }
 
   // Names of layout handlers that failed to export (normally empty). Kept so the
@@ -1600,11 +1576,11 @@
     TERM_PROTECT_RE = new RegExp("(^|[^A-Za-z0-9])(" + terms.map(escapeRe).join("|") + ")(?![A-Za-z0-9])", "gi");
   }
 
-  // v1.9.70: category headers are often a glossary term on their own ("Slot Capped",
-  // "Counter Items", "Mid Game"). Sending those to the model returned nonsense
-  // ("柜", "柜台") because a two-word label carries no context, and the stale entry
-  // then stuck in the bridge's table. A label that IS a term is answered here, in
-  // front of every cache.
+  // v1.9.74: category headers are often a glossary term on their own ("Slot Capped",
+  // "Counter Items", "Mid Game"). Sent alone to the bridge they came back as
+  // nonsense ("柜", "柜台") because a two-word label carries no context, and the
+  // bad entry then stuck in the bridge table. A label that IS a term is answered
+  // here, in front of every cache.
   function wholeTermTranslation(raw) {
     if (!raw) return null;
     var t = String(raw).trim().replace(/\s+/g, " ").toLowerCase();
@@ -2095,41 +2071,10 @@
     return translated;
   }
 
-  // v1.9.67: the value of these labels does not live in `.text` - the layout
-  // carries a token whose localization template is `{s:var}` and the engine
-  // renders the variable. Writing `.text` wipes the template, and then every
-  // category header falls back to whichever `SetDialogVariable` ran last (the
-  // user's "多了一个奇怪的翻译": all headers showing one category's description).
-  // Writing the variable keeps each panel's own binding.
-  // v1.9.71: DISABLED. Writing these variables leaked across builds - the engine
-  // keeps one variable store per shop instance, so a value set for one build's
-  // category frame showed up in another's (user: "分类注释看起来是覆盖的维克托的某一个
-  // 分类的注释"). Until the page owns a probe label per header (engine drives the
-  // probe, we write the visible one), these labels stay engine-owned English.
-  var DLG_VARS = {};
-  function dlgVarFor(panel) {
-    var tk = null;
-    try { tk = tokenFor(panel); } catch { tk = null; }
-    if (!tk) return null;
-    return DLG_VARS[tk] || null;
-  }
-  var dlgLast = new WeakMap();
-
   function writeText(panel, value) {
     var current;
     try { current = panel.text; } catch{ return false; }
     if (typeof current === "string" && current === value) return false;
-    var v = dlgVarFor(panel);
-    if (v) {
-      var prev = dlgLast.get(panel);
-      if (prev === value) return false;
-      try {
-        panel.SetDialogVariable(v, String(value));
-        dlgLast.set(panel, value);
-        if (written.length < 400 && written.indexOf(panel) < 0) written.push(panel);
-        return true;
-      } catch{}
-    }
     try {
       panel.text = value;
       if (written.length < 400 && written.indexOf(panel) < 0) written.push(panel);
@@ -2208,6 +2153,10 @@
   var tokenStamp = new WeakMap();
   var TOKEN_REREAD_MS = 1500;
 
+  // v1.9.73: the in-game shop header is a combo-box display label: the engine
+  // rewrites it whenever the selected build changes. Writing .text there kills
+  // the template, so the header kept the previous build's name for good. Leave
+  // it to the engine on that surface (details page keeps translating).
   function translatePanel(panel, preRead) {
     // Defence in depth: the scan already skips our own chrome, but every write
     // entry point funnels through here (resyncAll, refresh, live bridge).
@@ -2221,6 +2170,15 @@
       return;
     }
     if (typeof raw !== "string" || raw.length < 2) return;
+
+    // v1.9.73: on the in-game shop the header label is the combo-box display:
+    // the engine rewrites it on every build switch. Our .text write removes its
+    // template, so the header stays on the previous build's name (the bug the
+    // user keeps hitting). Leave that one label to the engine.
+    if (bootLayoutTag === "CitadelShopModsBuild" && panelHasClass(panel, "SelectedBuildName")) {
+      remember(panel, 0, raw, null);
+      return;
+    }
 
     if (mode === "orig") {
       // "show the original": never write; if we had written before, put it back.
@@ -2307,9 +2265,6 @@
         }
       } else if (seen.k === 1) {
         if (raw === seen.out) return;
-        // A template label never reports the rendered value in .text, so the
-        // comparison above cannot fire; its last write is the authority.
-        if (dlgLast.get(panel) === seen.out) return;
       }
     }
     if (HAS_CJK.test(raw) && !COPY_SUFFIX.test(raw)) {
@@ -2825,13 +2780,9 @@
     // click (R2). The bump resets the backoff so the flip lands ~150ms on
     // every context. Revert runs once per flip (tsRevertDone, per context).
     try {
-      // v1.9.68: the switch is shared through a class on the topmost panel, so a
-      // context learns about a flip from that class - its own `G.__BBT_TWO_STATE`
-      // copy never changes, and before this every context except the one that was
-      // clicked kept its stale memos and its slow interval.
-      var tsOnNow = tsSharedOn();
-      if (tsOnNow !== tsOnLast) {
-        tsOnLast = tsOnNow;
+      var gts = G.__BBT_TWO_STATE;
+      if (gts && gts.ver !== tsVer) {
+        tsVer = gts.ver;
         var tsSyncKey = "";
         try { tsSyncKey = tsKeyOf(ctx); } catch{ tsSyncKey = ""; }
         if (tsSyncKey) {
@@ -3025,7 +2976,7 @@
   // NEXT action (翻译 | 原文) on every surface: browser toolbar, embedded
   // trigger, in-game header button.
   var TWO_STATE_PAGES = ["CitadelHeroBuildsSelector", "CitadelBuildDetails", "CitadelShopModsBuild"];
-  var tsOnLast = null; // this context's last seen value of the shared switch (null = never synced)
+  var tsVer = 0; // this context's copy of the shared version counter
   var tsRevertDone = Object.create(null); // this context: page key -> already reverted since the last flip
   // v1.9.27 (field bugs ②③): the two-state display is a SINGLE GLOBAL switch
   // (on = translated, off = original), shared by every JS context through the
@@ -3041,49 +2992,6 @@
       if (!G.__BBT_TWO_STATE) G.__BBT_TWO_STATE = { on: false, ver: 0 };
       return G.__BBT_TWO_STATE;
     } catch { return null; }
-  }
-
-  // v1.9.66: the switch must be shared across JS contexts. Each layout gets its
-  // own globalThis, so `G.__BBT_TWO_STATE` was per-context: clicking in the
-  // details pane flipped it there while the shop context's tick kept repainting
-  // the same button's caption as 翻译 (user: "按钮的字没变"). The shared panel is
-  // the topmost ancestor every context can reach - a CSS class on it is a real
-  // cross-context channel.
-  var TS_CLASS = "BBT_ZH";
-  var tsRootCache = null;
-  function tsRootPanel() {
-    if (tsRootCache) {
-      try { if (tsRootCache.GetParent || tsRootCache.BHasClass) return tsRootCache; } catch { tsRootCache = null; }
-    }
-    var p = null;
-    try { p = contextPanel(); } catch { p = null; }
-    for (var i = 0; p && i < 16; i += 1) {
-      var par = null;
-      try { par = p.GetParent ? p.GetParent() : null; } catch { par = null; }
-      if (!par) break;
-      p = par;
-    }
-    tsRootCache = p;
-    return p;
-  }
-  function tsSharedOn() {
-    var r = null;
-    try { r = tsRootPanel(); } catch { r = null; }
-    if (r) {
-      try { return !!r.BHasClass(TS_CLASS); } catch {}
-    }
-    var g = twoStateGlobal();
-    return !!(g && g.on);
-  }
-  function tsSharedSet(on) {
-    var r = null;
-    try { r = tsRootPanel(); } catch { r = null; }
-    if (!r) return false;
-    try {
-      if (on) r.AddClass(TS_CLASS);
-      else r.RemoveClass(TS_CLASS);
-      return true;
-    } catch { return false; }
   }
   // Stable key of the build page owning `panel`: walk up and keep the LAST
   // (outermost) matching page tag, so the browser's nested details instance
@@ -3104,15 +3012,15 @@
     if (!key) return "auto";
     // v1.9.27: `key` only says this context drives a two-state surface; the
     // display state itself is the GLOBAL switch (one value, every context).
-    // v1.9.66: that switch now lives on the shared root panel.
-    return tsSharedOn() ? "zh" : "orig";
+    var g = twoStateGlobal();
+    return g && g.on ? "zh" : "orig";
   }
   function tsSet(key, m) {
     if (!key) return;
     var g = twoStateGlobal();
     if (!g) return;
     var want = m === "zh";
-    if (tsSharedOn() !== want) {
+    if (g.on !== want) {
       // v1.9.33: one physical click can reach two contexts (the details pane
       // and the selector it is embedded in both carry a trigger). Each flipped
       // the shared switch, so the pair cancelled out and the caption snapped
@@ -3122,7 +3030,6 @@
       try { t0 = nowMs() || 0; } catch{ t0 = 0; }
       if (t0 > 0 && g.flipAt && (t0 - g.flipAt) < 400) return;
       g.flipAt = t0;
-      tsSharedSet(want);
       g.on = want;
       g.ver = (g.ver || 0) + 1; // every context's tick() sees the bump on its next run
     }
