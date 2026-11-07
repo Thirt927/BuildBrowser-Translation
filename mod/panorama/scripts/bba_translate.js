@@ -30,7 +30,7 @@
   var VERSION = "1.9.71";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
-  var DEBUG = true;
+  var DEBUG = false;
   function debugOn() {
     return DEBUG || !!G.BBT_DEBUG;
   }
