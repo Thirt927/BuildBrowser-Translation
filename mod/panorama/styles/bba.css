@@ -56,7 +56,12 @@
 	   dropped but kept overlapping the 出装选项 row and still had its right
 	   edge (the "翻译 53" badge) past the pane border. One more row down and
 	   further in: 62 -> 92px, 110 -> 160px. */
-	transform: translate(-160px, 92px);
+	/* Panorama's parser takes the function forms only - `translate(x, y)`, the
+	   two-argument shorthand, is dropped silently. That is why v1.9.36-v1.9.39
+	   (translate / translate(-70px,30px) / (-110px,62px) / (-160px,92px)) all
+	   rendered at the same spot: only v1.9.35's single-argument translatey()
+	   ever took effect. Use translate3d. */
+	transform: translate3d(-160px, 62px, 0px);
 }
 /* The wrapper that was cutting the trigger off (v1.9.35/36 field reports: a
    sliver of 翻译 above the row, then nothing at all once it moved). `noclip`

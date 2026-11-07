@@ -3524,16 +3524,27 @@
     // instead of guessed (the trigger row, and the in-game header row).
     if (debugOn() && !G.__BBT_RECT_DUMPED) {
       G.__BBT_RECT_DUMPED = true;
-      var rectIds = ["ControlArea", "ExtraInfo", "BuildControls", "BuildOptionButton", "BuildControlsContainer", "ControlButtons", "BuildHeader"];
+      var rectIds = ["ControlArea", "BBTTabBtnHost", "BBTTranslateButton2", "BuildControls", "BuildOptionButton", "ControlButtons", "BuildHeader"];
+      var paneForRect = layoutRoot(ctx);
+      if (paneForRect) {
+        try {
+          var pp = paneForRect.GetPositionWithinWindow();
+          $.Msg("[BBT] rect <layoutRoot> x=" + Math.round(pp.x) + " y=" + Math.round(pp.y) + " w=" + Math.round(pp.w) + " h=" + Math.round(pp.h));
+        } catch{}
+      }
       for (var ri = 0; ri < rectIds.length; ri += 1) {
         var rp = uiPanelIn(ctx, rectIds[ri]);
         if (rp) {
+          // v1.9.40: `actualx/actualy` do not exist on Panorama panels (they
+          // logged undefined since v1.9.x), so the trigger position could never
+          // be tuned from the log. GetPositionWithinWindow() is the real API.
+          var rq = null;
+          try { rq = rp.GetPositionWithinWindow(); } catch{}
           $.Msg(
             "[BBT] rect " + rectIds[ri] +
-              " x=" + (function () { try { return rp.actualx; } catch{ return "?"; } })() +
-              " y=" + (function () { try { return rp.actualy; } catch{ return "?"; } })() +
-              " w=" + (function () { try { return rp.actualwidth; } catch{ return "?"; } })() +
-              " h=" + (function () { try { return rp.actualheight; } catch{ return "?"; } })()
+              (rq
+                ? " x=" + Math.round(rq.x) + " y=" + Math.round(rq.y) + " w=" + Math.round(rq.w) + " h=" + Math.round(rq.h)
+                : " (no GetPositionWithinWindow)")
           );
         }
       }
