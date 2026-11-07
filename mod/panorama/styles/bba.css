@@ -56,12 +56,12 @@
 	   dropped but kept overlapping the 出装选项 row and still had its right
 	   edge (the "翻译 53" badge) past the pane border. One more row down and
 	   further in: 62 -> 92px, 110 -> 160px. */
-	/* Panorama's parser takes the function forms only - `translate(x, y)`, the
-	   two-argument shorthand, is dropped silently. That is why v1.9.36-v1.9.39
-	   (translate / translate(-70px,30px) / (-110px,62px) / (-160px,92px)) all
-	   rendered at the same spot: only v1.9.35's single-argument translatey()
-	   ever took effect. Use translate3d. */
-	transform: translate3d(-160px, 62px, 0px);
+	/* v1.9.41: transform removed. Panorama silently drops the two-argument
+	   `translate(x, y)` shorthand, so v1.9.36-v1.9.39 never moved anything;
+	   once v1.9.40 switched to translate3d the offset really applied and pushed
+	   the trigger out of the pane entirely (field: "你这次给我改没了"). Until the
+	   real rects are known (probeRects in bba_translate.js), keep the host in
+	   its natural flow slot: immediately left of the engine's 出装选项 control. */
 }
 /* The wrapper that was cutting the trigger off (v1.9.35/36 field reports: a
    sliver of 翻译 above the row, then nothing at all once it moved). `noclip`
