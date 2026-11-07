@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.59";
+  var VERSION = "1.9.60";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -1539,6 +1539,9 @@
     push(GLOSS.items, false);
     push(GLOSS.heroes, true);
     push(GLOSS.ranks, true);
+    // v1.9.60: curated genre vocabulary (lane -> 线上). The official localisation
+    // files have no such words, so a literal machine translation says 车道.
+    push(GLOSS.terms, false);
     if (!terms.length) return;
     terms.sort(function (a, b) {
       return b.length - a.length;

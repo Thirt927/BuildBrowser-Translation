@@ -56,11 +56,23 @@ function collect() {
       const text = tk[1];
       // Only tokens (the game fills them) and {s:var} templates matter.
       if (!(text.startsWith("#") || /\{[sgd]:/.test(text))) continue;
-      const cls = usableClass((/class="([^"]*)"/.exec(attrs) || [])[1]);
+      const classAttr = (/class="([^"]*)"/.exec(attrs) || [])[1];
+      const cls = usableClass(classAttr);
       const id = (/id="([^"]*)"/.exec(attrs) || [])[1];
+      // v1.9.60: a label may carry several classes ("FavoriteBuildEntryLabel
+      // SelectedBuildName"). The runtime matches class tokens one by one, so the
+      // candidate lists (all) must know each token - keeping only the first class
+      // is why SelectedBuildName was missing and its token could not be audited.
+      // `table` stays single-class only: it resolves one token per class.
+      if (classAttr) {
+        for (const token of classAttr.split(/\s+/).filter(Boolean)) {
+          if (!/^[A-Za-z][A-Za-z0-9_]{2,}$/.test(token)) continue;
+          if (token !== cls && /^(Fill|Small|Large|Medium|NoHover|Hide|Show)/.test(token)) continue;
+          all[token] = all[token] || [];
+          if (all[token].indexOf(text) < 0) all[token].push(text);
+        }
+      }
       if (cls) {
-        all[cls] = all[cls] || [];
-        if (all[cls].indexOf(text) < 0) all[cls].push(text);
         if (table[cls] && table[cls] !== text) conflicts.push(cls + ": " + table[cls] + " vs " + text);
         else table[cls] = text;
       }

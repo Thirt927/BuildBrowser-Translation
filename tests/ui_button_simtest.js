@@ -204,8 +204,10 @@ function check(name, cond, detail) {
 // ---------------------------------------------------------------- button
 {
   const texts = ["Key item for Drifter early game.", "Buy two more copies later.", "Rend > Heal > Repeat."];
-  const ctx = boot(texts, {});
-  pump(ctx, 30); // boot + probe + first scans
+  // v1.9.59: our bridge is preferred now, so pin BabelTower's port to keep this
+  // block exercising the per-text compatibility path it is about.
+  const ctx = boot(texts, { port: 8792 });
+  pump(ctx, 200); // boot + probe (8793 dead first, then 8792) + first scans
   check("boot announced the bridge", ctx.log.some((l) => l.indexOf("live bridge: connected") >= 0), JSON.stringify(ctx.log.slice(0, 2)));
 
   // The background channel translates what it sees; introduce brand new content

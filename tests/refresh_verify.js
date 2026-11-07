@@ -487,8 +487,8 @@ check(
     }
   }
   check(
-    "[I] RESYNC_TOKENS has the five build-content entries",
-    entries.length === 5,
+    "[I] RESYNC_TOKENS has the six build-content entries (v1.9.57 added SelectedBuildName)",
+    entries.length === 6,
     String(entries.length),
   );
   // Load the generated table the same way the game would (it only sets
