@@ -232,6 +232,21 @@ function check(name, cond, detail) {
   check("terms: the official Chinese name is restored into the answer", label.text === "现在拿灵力灌注。", JSON.stringify(label.text));
 }
 
+// ------------------------------------------------------------------
+// 1c. curated genre vocabulary rides the same protection (v1.9.60)
+// ------------------------------------------------------------------
+{
+  // "lane" has no entry in the game's own localisation files, so without the
+  // curated list it reaches the model and comes back as the literal 车道.
+  const label = makeLabel("Push the lane before you farm the jungle camp.", "ModifiesLabel");
+  const opts = { urls: [], timers: [], dead: false, port: 8793 };
+  const ctx = boot([label], opts);
+  pump(ctx, 200);
+  const sent = opts.urls.map((u) => decodeURIComponent(u)).join("\n");
+  check("terms: genre words are hidden from the model too", sent.indexOf("lane") < 0 && sent.indexOf("jungle") < 0, sent.slice(0, 400));
+  check("terms: genre words are placeholders like item names", sent.indexOf("⟦") >= 0, sent.slice(0, 400));
+}
+
 // second label with the same text must be served from the session cache
   const l2 = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
   const ctx2 = boot([l2], { urls: [], timers: [], dead: false });
