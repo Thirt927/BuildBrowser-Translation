@@ -3415,7 +3415,8 @@
     $.Schedule(0.5, function () {
       var done = stats.translated + stats.fallback - before;
       $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + done + " already=" + counts.already +
-        " miss=" + miss + " scope=" + instTag(scope) + " ms=" + Math.round(nowMs() - tPage) +
+        " miss=" + miss + " scope=" + instTag(scope) +
+        " ms=" + (ui.busySince ? Math.round(nowMs() - ui.busySince) : -1) +
         (noBridge ? " (bridge unavailable)" : (texts.length ? "" : " (no bridge configured)")));
       if (noBridge && done === 0 && miss > 0) {
         uiSetLabel("桥未连接(" + miss + " 条缺)", scope);
@@ -3433,10 +3434,6 @@
 
   // The main button: "translate everything on this page that we do not know yet".
   function translatePage(root) {
-    // v1.9.54 timing: total wall time from the click to the write-back, so the
-    // "page translation feels slow" report can be split into engine-side scan
-    // cost, serial bridge requests, or one slow batch.
-    var tPage = nowMs();
     if (ui.busy) {
       // v1.9.18 self-heal: a lost bridge callback must not block the button
       // forever - the lock expires after 15s.
