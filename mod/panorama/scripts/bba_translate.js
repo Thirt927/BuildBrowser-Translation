@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.65";
+  var VERSION = "1.9.66";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2954,6 +2954,49 @@
       return G.__BBT_TWO_STATE;
     } catch { return null; }
   }
+
+  // v1.9.66: the switch must be shared across JS contexts. Each layout gets its
+  // own globalThis, so `G.__BBT_TWO_STATE` was per-context: clicking in the
+  // details pane flipped it there while the shop context's tick kept repainting
+  // the same button's caption as 翻译 (user: "按钮的字没变"). The shared panel is
+  // the topmost ancestor every context can reach - a CSS class on it is a real
+  // cross-context channel.
+  var TS_CLASS = "BBT_ZH";
+  var tsRootCache = null;
+  function tsRootPanel() {
+    if (tsRootCache) {
+      try { if (tsRootCache.GetParent || tsRootCache.BHasClass) return tsRootCache; } catch { tsRootCache = null; }
+    }
+    var p = null;
+    try { p = contextPanel(); } catch { p = null; }
+    for (var i = 0; p && i < 16; i += 1) {
+      var par = null;
+      try { par = p.GetParent ? p.GetParent() : null; } catch { par = null; }
+      if (!par) break;
+      p = par;
+    }
+    tsRootCache = p;
+    return p;
+  }
+  function tsSharedOn() {
+    var r = null;
+    try { r = tsRootPanel(); } catch { r = null; }
+    if (r) {
+      try { return !!r.BHasClass(TS_CLASS); } catch {}
+    }
+    var g = twoStateGlobal();
+    return !!(g && g.on);
+  }
+  function tsSharedSet(on) {
+    var r = null;
+    try { r = tsRootPanel(); } catch { r = null; }
+    if (!r) return false;
+    try {
+      if (on) r.AddClass(TS_CLASS);
+      else r.RemoveClass(TS_CLASS);
+      return true;
+    } catch { return false; }
+  }
   // Stable key of the build page owning `panel`: walk up and keep the LAST
   // (outermost) matching page tag, so the browser's nested details instance
   // and its selector root share one key, and every embedded category frame
@@ -2973,15 +3016,15 @@
     if (!key) return "auto";
     // v1.9.27: `key` only says this context drives a two-state surface; the
     // display state itself is the GLOBAL switch (one value, every context).
-    var g = twoStateGlobal();
-    return g && g.on ? "zh" : "orig";
+    // v1.9.66: that switch now lives on the shared root panel.
+    return tsSharedOn() ? "zh" : "orig";
   }
   function tsSet(key, m) {
     if (!key) return;
     var g = twoStateGlobal();
     if (!g) return;
     var want = m === "zh";
-    if (g.on !== want) {
+    if (tsSharedOn() !== want) {
       // v1.9.33: one physical click can reach two contexts (the details pane
       // and the selector it is embedded in both carry a trigger). Each flipped
       // the shared switch, so the pair cancelled out and the caption snapped
@@ -2991,6 +3034,7 @@
       try { t0 = nowMs() || 0; } catch{ t0 = 0; }
       if (t0 > 0 && g.flipAt && (t0 - g.flipAt) < 400) return;
       g.flipAt = t0;
+      tsSharedSet(want);
       g.on = want;
       g.ver = (g.ver || 0) + 1; // every context's tick() sees the bump on its next run
     }
