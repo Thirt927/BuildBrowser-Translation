@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.69";
+  var VERSION = "1.9.71";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -1600,6 +1600,18 @@
     TERM_PROTECT_RE = new RegExp("(^|[^A-Za-z0-9])(" + terms.map(escapeRe).join("|") + ")(?![A-Za-z0-9])", "gi");
   }
 
+  // v1.9.70: category headers are often a glossary term on their own ("Slot Capped",
+  // "Counter Items", "Mid Game"). Sending those to the model returned nonsense
+  // ("柜", "柜台") because a two-word label carries no context, and the stale entry
+  // then stuck in the bridge's table. A label that IS a term is answered here, in
+  // front of every cache.
+  function wholeTermTranslation(raw) {
+    if (!raw) return null;
+    var t = String(raw).trim().replace(/\s+/g, " ").toLowerCase();
+    if (!t) return null;
+    return TERM_MAP[t] || null;
+  }
+
   function protectTerms(raw) {
     if (!TERM_RE) return null;
     buildProtectRegex();
@@ -2089,12 +2101,12 @@
   // category header falls back to whichever `SetDialogVariable` ran last (the
   // user's "多了一个奇怪的翻译": all headers showing one category's description).
   // Writing the variable keeps each panel's own binding.
-  var DLG_VARS = {
-    "#Citadel_HeroBuilds_CategoryName": "category_name",
-    "#Citadel_HeroBuilds_CategoryDescription": "category_description",
-    "#Citadel_HeroBuilds_BuildName": "selected_hero_build_name",
-    "#Citadel_HeroBuilds_BuildDescription": "selected_hero_build_description",
-  };
+  // v1.9.71: DISABLED. Writing these variables leaked across builds - the engine
+  // keeps one variable store per shop instance, so a value set for one build's
+  // category frame showed up in another's (user: "分类注释看起来是覆盖的维克托的某一个
+  // 分类的注释"). Until the page owns a probe label per header (engine drives the
+  // probe, we write the visible one), these labels stay engine-owned English.
+  var DLG_VARS = {};
   function dlgVarFor(panel) {
     var tk = null;
     try { tk = tokenFor(panel); } catch { tk = null; }
@@ -2302,6 +2314,20 @@
     }
     if (HAS_CJK.test(raw) && !COPY_SUFFIX.test(raw)) {
       remember(panel, 0, raw, null);
+      return;
+    }
+
+    // A label that is nothing but a glossary term is answered from the table,
+    // before the pak TM / caches can hand back an older machine translation.
+    var wholeTerm = wholeTermTranslation(raw);
+    if (wholeTerm) {
+      var wholeShown = present(raw, wholeTerm);
+      if (writeText(panel, wholeShown)) {
+        stats.translated += 1;
+        stats.writes += 1;
+        if (debugOn()) logWrite(panel, raw, wholeShown, "term-whole");
+      }
+      remember(panel, 1, raw, wholeShown);
       return;
     }
 

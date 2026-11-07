@@ -720,12 +720,14 @@
     "urn": "骨灰瓮",
     "buff": "增益",
     "camp": "野区营地",
+    "core": "核心",
     "crit": "暴击",
     "deny": "反补",
     "farm": "刷钱",
     "gank": "抓人",
     "kite": "拉扯",
     "lane": "线上",
+    "late": "后期",
     "poke": "消耗",
     "proc": "触发",
     "roam": "游走",
@@ -754,6 +756,8 @@
     "duo lane": "双人线",
     "guardian": "守护者",
     "last hit": "补刀",
+    "mid game": "中期",
+    "optional": "可选",
     "snowball": "滚雪球",
     "cooldowns": "冷却",
     "disengage": "撤退",
@@ -761,7 +765,15 @@
     "lifesteal": "吸血",
     "solo lane": "单人线",
     "split push": "分推",
-    "penetration": "穿透"
+    "if you want": "可选",
+    "penetration": "穿透",
+    "situational": "情境可选",
+    "slot capped": "插槽上限",
+    "counter item": "反制装备",
+    "luxury items": "后期豪华装备",
+    "slots capped": "插槽上限",
+    "counter items": "反制装备",
+    "only when needed": "仅在需要时"
   },
-  "extra_updated_at": "2026-11-07T16:49:47.458Z"
+  "extra_updated_at": "2026-11-07T17:56:35.307Z"
 }

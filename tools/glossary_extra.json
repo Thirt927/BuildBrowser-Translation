@@ -47,6 +47,18 @@
     "debuff": "减益",
     "stun": "眩晕",
     "proc": "触发",
-    "warding": "插眼"
+    "warding": "插眼",
+    "core": "核心",
+    "mid game": "中期",
+    "late": "后期",
+    "slot capped": "插槽上限",
+    "slots capped": "插槽上限",
+    "counter items": "反制装备",
+    "counter item": "反制装备",
+    "luxury items": "后期豪华装备",
+    "situational": "情境可选",
+    "only when needed": "仅在需要时",
+    "if you want": "可选",
+    "optional": "可选"
   }
 }
