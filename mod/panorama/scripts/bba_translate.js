@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.61";
+  var VERSION = "1.9.62";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3453,6 +3453,29 @@
   var buildIdTried = 0;
 
   function buildIdOf(root) {
+    // v1.9.62: the in-game shop layout has no BuildID label at all (only
+    // citadel_ui_build_details.xml does), but the engine sets
+    // selected_hero_build_id on the page and the token #Citadel_HeroBuilds_BuildID
+    // renders it. Asking the engine directly therefore still yields the id.
+    var probePanels = [root];
+    try { probePanels.push($.GetContextPanel()); } catch{}
+    for (var pi = 0; pi < probePanels.length; pi += 1) {
+      var pp = probePanels[pi];
+      if (!pp) continue;
+      try {
+        var loc = $.Localize("#Citadel_HeroBuilds_BuildID", pp);
+        if (typeof loc === "string" && loc && loc.indexOf("Citadel_HeroBuilds_BuildID") < 0) {
+          var lm = /([0-9]{5,9})/.exec(loc);
+          if (lm) {
+            if (buildIdTried !== "loc:" + lm[1]) {
+              buildIdTried = "loc:" + lm[1];
+              $.Msg("[BBT] build id via Localize: '" + loc + "'");
+            }
+            return lm[1];
+          }
+        }
+      } catch{}
+    }
     var stack = [root];
     var budget = 1200;
     var samples = [];
