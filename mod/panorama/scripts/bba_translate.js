@@ -2175,7 +2175,10 @@
     // the engine rewrites it on every build switch. Our .text write removes its
     // template, so the header stays on the previous build's name (the bug the
     // user keeps hitting). Leave that one label to the engine.
-    if (shopSurface) {
+    // v1.9.73/75: the in-game shop hands two engine-driven labels back to the
+    // engine - the combo-box header and the category description. Both carry a
+    // template the engine rewrites, so our .text write would freeze them.
+    if (bootLayoutTag === "CitadelShopModsBuild") {
       // v1.9.75: the category description is engine-driven as well. The shop keeps
       // one variable store per instance, so whatever we write for one category's
       // frame surfaces in another's - the boxed row showed a previous build's
@@ -2416,9 +2419,6 @@
   // surface only the build author's own annotation - rendered inside the
   // engine's .NotesContainer - is translated.
   var notesOnlySurface = false;
-  // v1.9.73/75: the in-game shop hands two engine-driven labels back to the
-  // engine (the combo-box header and the category description). Set in boot().
-  var shopSurface = false;
 
   // v1.9.50: the tooltip surface shares the one physical two-state switch. It
   // reads it every scan (each layout has its own JS context, so a module var is
@@ -4005,7 +4005,6 @@
     } catch{}
     bootLayoutTag = layoutTag;
     notesOnlySurface = layoutTag === "CitadelTooltipModDetails";
-    shopSurface = layoutTag === "CitadelShopModsBuild";
     // v1.9.55 diag: the item tooltip must reach the shop page through GetParent()
     // for the ancestor-class switch to work; print the chain once per context.
     if (notesOnlySurface) {
