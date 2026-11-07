@@ -1416,3 +1416,28 @@ v1.9.17/18 引入的扫描器回归,再重新上双态按钮。
 部署被"用户正在对局、VPK 被锁"挡住。重启后看三行：
 `[BBT] v1.9.29 loaded (…, offline=off)`、`[BBT] live bridge: connected to … (localhost:8792, provider=…)`、
 点「翻译」后的 `requested/wrote/miss` 计数。
+
+## 十八、v1.9.30 —— 「按钮点了没反应」的静默死锁修复（2026-11-07 18:55，goal mw608qwg）
+
+用户反馈（逐字）：「之前概览页的翻译按钮是有功能的，现在你给我改的不行了」「有翻译按钮但是点击无反应」。
+
+### 逐函数 diff 结论（谁改坏了）
+- `dispatch` / `tsKeyOf` / `tsMode` / `uiSetModeText` / `refreshPage` / `tsSet` 与 `d8b3019`
+  （用户认可能用的 v1.9.28）**逐字节相同**：决策逻辑没动。
+- v1.9.29 真正碰过按钮路径的只有两处：`bindClick` 增加 `onmouseactivate` 绑定（实机证明按钮走这个
+  事件）+ 点击日志；翻译链路改桥优先，`translatePage()` 发出批次后 `ui.busy = true`。
+
+### 静默死锁（本次修复）
+`ui.busy` 在桥批次回调里复位。回调丢失（超时/批次取消）时锁会撑满 15s 窗口，而 `translatePage()`
+在锁未过期时是**完全静默 return**——不进、不写、不打一行日志，外观就是「按钮在、点了没反应」。
+修复：8s 起在下次点击自愈，并且两条分支都留痕：
+
+```
+[BBT] translate: busy lock healed (age=18342ms)
+[BBT] translate: skipped, batch already in flight (age=900ms)
+```
+
+### 仍待实机确认
+- 点一次「翻译」后的 caption 序列（翻译 → 原文 → 翻译）与作者概览长文是否整段变中文；
+- 大厅帧率（memo 修复前后 `[BBT] PERF ... fps=` 对照）。
+以上都需要用户自己启动游戏（本轮用户明确要求不再代开）。
