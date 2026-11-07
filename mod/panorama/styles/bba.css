@@ -52,11 +52,11 @@
 	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
-	/* v1.9.38 (user feedback 11/07 20:13 "只有半个翻字，能不能放到出装选项下面那行"):
-	   one row further down (30 -> 62px) and further left (70 -> 110px) so the
-	   whole button sits on the line under the engine's 出装选项 control instead
-	   of being clipped by the pane's right edge. */
-	transform: translate(-110px, 62px);
+	/* v1.9.39 (user feedback 11/07 20:20 "还是这样"): with 62px the trigger
+	   dropped but kept overlapping the 出装选项 row and still had its right
+	   edge (the "翻译 53" badge) past the pane border. One more row down and
+	   further in: 62 -> 92px, 110 -> 160px. */
+	transform: translate(-160px, 92px);
 }
 /* The wrapper that was cutting the trigger off (v1.9.35/36 field reports: a
    sliver of 翻译 above the row, then nothing at all once it moved). `noclip`
