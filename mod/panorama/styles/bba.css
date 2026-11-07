@@ -32,12 +32,8 @@
 #BBTTranslateButton3 { visibility: collapse; margin-right: 6px; }
 /* bba_translate.js adds .BBTShow on the standalone (in-game) instance only. */
 #BBTTranslateButton3.BBTShow { visibility: visible; }
-/* v1.9.34 (user feedback 11/07 19:45 "有遮挡，可以再往下调整一行"): the trigger
-   shared the engine's top row and its lower edge was clipped by the header
-   band. A transform moves the button (and its hit box) down one row without
-   reflowing the engine's row - margin would grow the row and push the info
-   icon with it. */
-#BBTTranslateButton3.BBTShow { transform: translatey(30px); }
+/* v1.9.35: the 30px nudge belongs to the OVERVIEW trigger (#BBTTabBtnHost),
+   not to this in-game header button - see the rule there. */
 
 /* v1.9.28 (user feedback 11/06 21:31): the two-state trigger no longer shares
    the build-details title row (a long build name squeezed it off the edge).
@@ -56,6 +52,12 @@
 	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
+	/* v1.9.35 (user feedback 11/07 20:02, screenshot: only the top of 翻译
+	   shows above 快速购买/出装浏览器): this is the OVERVIEW page's trigger, and
+	   what clipped it was the pane's top edge, not the row. Moving the host
+	   itself down one row keeps the button and its hit box together; a
+	   margin-top would grow #ControlArea and push the whole header. */
+	transform: translatey(30px);
 }
 #BBTTranslateButton2 {
 	min-width: 52px;

@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.33";
+  var VERSION = "1.9.35";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -99,11 +99,11 @@
   var LIVE_CACHE_MAX = 600; // session-only memory of live translations
 
   function realGlobal() {
-    // v1.9.34: the Function("return this") fallback is gone. It was the only
-    // way to reach the global object on builds without globalThis, but this
-    // engine has it (the BabelTower/BBA_* handshake and the mod's own shared
-    // two-state store both go through it in game), and a dynamic-code call in
-    // a mod that ships to players is not worth keeping for a build nobody runs.
+    // v1.9.34: the eval fallback is gone. It was the only way to reach the
+    // global object on builds without globalThis, but this engine has it (the
+    // BabelTower/BBA_* handshake and the mod's own shared two-state store both
+    // go through it in game), and a dynamic-code call in a mod that ships to
+    // players is not worth keeping for a build nobody runs.
     try { if (typeof globalThis !== "undefined" && globalThis) return globalThis; } catch{}
     return {};
   }
