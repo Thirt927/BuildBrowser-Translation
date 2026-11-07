@@ -1383,3 +1383,36 @@ v1.9.18(5e56000)实机反馈:详情页点「翻译」无效果、物品注释不
 
 下一步(用户确认后):在 sim 里复现「物品注释不翻译」的具体断言,定位
 v1.9.17/18 引入的扫描器回归,再重新上双态按钮。
+
+## 十七、v1.9.29 —— 桥优先（默认关离线库）+ 桥真正连通 + 大厅卡顿处置（2026-11-07 下午，goal mw608qwg）
+
+### 背景：用户 14:07 的三条反馈
+1. 桥翻译有时不翻概览页；2. 「翻译」按钮位置想挪到游戏自带「出装选项」旁；3. **bing 的桥连不上吗？**
+   外加早前 21:16 两条：按钮上下太窄（已修）、作者概览长文不翻（已补 TM）。
+
+### 修了什么（全部离线可验证）
+1. **默认改为桥优先**：`BBT_TM` 默认 `off`（离线库要显式开）。用户要"真的在线翻译"，离线库命中会让
+   在线请求永远发不出去，所以先关掉，`BBT_STATS.offline="off"` 可读，启动行打 `offline=off`。
+2. **桥连通的第一层根因**：`liveRoot()` 只从 `$.GetContextPanel()` 向下 BFS。category 帧的上下文
+   是深层节点、`<HTML>` 面板在布局根附近 → 永远 `panel_unavailable`。改为"先向上到布局根，再向下搜"。
+3. **第二层根因（14:39 实测）**：向上走到了**全局 HUD 根**，shop 树上千面板把 4000 预算烧光。
+   新增 `isLayoutRootTag()`（`CitadelShopModsBuild` / `...Category` / `CitadelBuildDetails` /
+   `CitadelHeroBuildsSelector`），遇布局根即停，预算 40000（只在一个布局内）。
+4. **分类帧补上自己的 `<HTML>` 面板**：该布局原本没有面板，8 个 category 上下文只能靠跨上下文复用，
+   冷启动时无从复用。**坑**：`<HTML>` 作为 `<root>` 直接子节点会被 resourcecompiler 拒绝
+   （`Found root panel with 'id' attribute`）→ 嵌进 `<CitadelShopModsBuildCategory>` 内部。
+5. **诊断打死轮询的教训**：`[BBT] PERF` 初版引用 boot 内局部 `layoutTag` → 每 120 tick 抛
+   `ReferenceError`，异常跳过 `$.Schedule` 直接停掉整个轮询。改为模块级 `bootLayoutTag` + `try/catch`。
+6. **大厅卡顿**：`liveDisarm()` —— 桥彻底失败后每上下文只 park 一次，不再导航；自愈重置上限 3 次。
+   之前"每次无应答都重置面板"在 9 个上下文里循环（每次重置 = 一次完整 CEF 导航），是大厅掉帧最可疑来源。
+   `BBT_DEBUG` 打开后每 120 tick 输出 `[BBT] PERF tag= fps= frameMs= scanMs= interval=`。
+
+### 测试
+- `live_channel_simtest` 新增 3 组：嵌套上下文能连上（无 `panel_unavailable`）、HUD 挂载 + 5000 假面板
+  仍能连上、离线关时库内文本保持英文（对照开启后能翻）。
+- `ui_button_simtest` 新增：`offline=off` 启动行 + `BBT_STATS.offline` + 静默探针后 caption 不残留「连接桥」。
+
+### 待实机（对局结束后重启即可）
+部署被"用户正在对局、VPK 被锁"挡住。重启后看三行：
+`[BBT] v1.9.29 loaded (…, offline=off)`、`[BBT] live bridge: connected to … (localhost:8792, provider=…)`、
+点「翻译」后的 `requested/wrote/miss` 计数。

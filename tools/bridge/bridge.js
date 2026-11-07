@@ -418,6 +418,21 @@ function start() {
   console.log("bridge: certificate " + chosen.pfx);
 
   const server = https.createServer({ pfx, passphrase }, async (req, res) => {
+    // `--trace` is for wiring up the in-game <HTML> panel: it shows whether the
+    // engine reaches the socket at all (no line = the WebView never navigated;
+    // a line with no matching request = the TLS handshake was rejected).
+    if (arg("trace")) {
+      console.log("req " + req.method + " " + req.url + " ua=" + String(req.headers["user-agent"] || "").slice(0, 60));
+    }
+    // Connection-level tracing has to be attached after createServer (before the
+    // declaration is a temporal-dead-zone ReferenceError: the 17:49 start failed
+    // that way).
+    if (arg("trace")) {
+      server.once("listening", () => {
+        server.on("connection", (sock) => console.log("conn from " + sock.remoteAddress + ":" + sock.remotePort));
+        server.on("tlsClientError", (err, sock) => console.log("tls error from " + (sock && sock.remoteAddress) + ": " + (err && err.code) + " " + (err && err.message)));
+      });
+    }
     const url = new URL(req.url || "/", "https://127.0.0.1");
     const p = url.pathname;
     const send = (code, type, body) => {

@@ -58,6 +58,7 @@ function boot(root) {
   const queue = [];
   const sandbox = {
     console: { log() {} },
+    BBT_TM: "on", // v1.9.29: offline memory is opt-in (bridge-first default)
     $: { GetContextPanel: () => root, Schedule: (d, fn) => queue.push(fn), Msg: () => {} },
   };
   vm.createContext(sandbox);

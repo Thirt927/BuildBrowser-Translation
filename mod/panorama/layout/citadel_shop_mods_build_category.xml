@@ -18,7 +18,19 @@
 		<include src="s2r://panorama/scripts/bba_translate.vjs_c" />
 	</scripts>
 
+	<!-- v1.9.29: the live-bridge <HTML> panel. This layout is the one that is
+	     actually instantiated inside the shop/browser surfaces, and until now it
+	     had no panel of its own: liveRoot() logged `panel_unavailable` from every
+	     category context (11/07 14:02:53) and cross-context reuse could not cover
+	     a cold start (nothing had registered a panel yet). 1px + opacity 0.01 so
+	     the page still loads - a collapsed HTML panel never renders, and an
+	     unrendered page never answers. -->
 	<CitadelShopModsBuildCategory hittest="true">
+		<!-- v1.9.29: the panel must sit INSIDE a panel, not be <root>'s own
+		     child - the resource compiler refuses a root-level panel that
+		     carries an id ("Found root panel with 'id' attribute"), and this
+		     layout has no other top-level panel to host it. -->
+		<HTML id="BBTBridgePanelCategory" class="BBTBridgePanel" />
 		<Panel id="BuildCategoryHeader" class="BuildCategory" hittest="true">
 			<!-- category name / description are engine-owned ({s:category_name},
 			     {s:category_description}); translated in place, re-resolved on every build switch -->

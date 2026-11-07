@@ -27,10 +27,10 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.28";
+  var VERSION = "1.9.29";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
-  var DEBUG = false;
+  var DEBUG = true;
   function debugOn() {
     return DEBUG || !!G.BBT_DEBUG;
   }
@@ -61,9 +61,24 @@
   // session and the mod behaves exactly like a pure offline build.
   // Runtime override: set `BBT_LIVE = "off"` (or "on") in the game console.
   var LIVE_MODE_DEFAULT = "auto"; // "auto" | "off" | "on"
+  // v1.9.29 (user 11/07): "先不要用离线翻译容易误导我，就把用桥翻译做好再加离线翻译".
+  // The shipped memory answers a lot of the page, so when the bridge is down the
+  // result looks half-translated and there is no way to tell which half came from
+  // where. Bridge-first is now the default: the memory / fragment / glossary
+  // paths stay in the code but are OFF until BBT_TM="on" (runtime switch, no
+  // repack). Overrides still apply - they are explicit local corrections.
+  var OFFLINE_MODE_DEFAULT = "off"; // "off" | "on"
+  // G is assigned further down, so the override is read at call time.
+  function offlineOn() {
+    var m = null;
+    try { m = G.BBT_TM; } catch{ m = null; }
+    if (m === "on" || m === "auto" || m === true) return true;
+    if (m === "off" || m === false) return false;
+    return OFFLINE_MODE_DEFAULT === "on";
+  }
   // One id per layout: the details layout is instantiated *inside* the selector,
   // so reusing a single id would put two panels with the same id in one tree.
-  var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails", "BBTBridgePanelShop"];
+  var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails", "BBTBridgePanelShop", "BBTBridgePanelCategory"];
   // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
   // it serves a page with the same technique and the same certificate, so people
   // who already use that mod need neither a second certificate nor a second
@@ -201,6 +216,7 @@
     if (ov) return { text: ov, wasCopy: false, via: "override" };
 
     // 2. the shipped memory (Chinese only).
+    if (!offlineOn()) return null;
     if (TARGET_LANG !== "zh-Hans") return null;
     if (typeof G.BBA_TM_GET !== "function" && !G.BBA_TM) return null;
     // Candidates: [text, wasCopySuffixStripped]. The stripped-suffix variant
@@ -358,7 +374,7 @@
     var top = panel;
     for (var i = 0; cur && i < 40; i += 1) {
       var pt = panelTag(cur);
-      if (pt === "CitadelBuildDetails" || pt === "CitadelHeroBuildsSelector" || pt === "CitadelShopModsBuild") return cur;
+      if (isLayoutRootTag(pt)) return cur;
       top = cur;
       var up = null;
       try { up = cur.GetParent ? cur.GetParent() : null; } catch{ up = null; }
@@ -366,6 +382,15 @@
       cur = up;
     }
     return top;
+  }
+
+  // The layouts this mod injects into. A category frame boots with its own
+  // context panel but lives INSIDE the shop layout, so both tags count as a
+  // layout root; walking past them lands in the shared HUD tree, where a panel
+  // search has thousands of irrelevant nodes in front of ours (v1.9.29).
+  function isLayoutRootTag(tag) {
+    return tag === "CitadelBuildDetails" || tag === "CitadelHeroBuildsSelector" ||
+      tag === "CitadelShopModsBuild" || tag === "CitadelShopModsBuildCategory";
   }
 
   function rootOf(origin) {
@@ -435,7 +460,15 @@
     return uiSetText(["BBTTranslateButton2", "BBTTranslateButton", "BBTTranslateButton3"], text, root);
   }
 
-  function uiSetLabel(text, root) {
+  function uiSetLabel(text, root, ttlSec) {
+    var scope = root || null;
+    // v1.9.29: every progress/feedback caption gets a deadline. The bridge probe
+    // can hang without ever calling back (a destroyed context stops its
+    // $.Schedule chain), and the old code then left "正在连接桥…" on the button
+    // forever - the user's "连接桥这几个字会一直保留而不是变成原文" report. The
+    // tick loop enforces the deadline, so the resting caption always comes back
+    // even when no callback ever runs.
+    ui.captionDeadline = (nowMs() || 0) + (typeof ttlSec === "number" ? ttlSec : 4.0) * 1000;
     var scope = root || null;
     var l = uiPanelIn(scope || contextPanel(), ["BBTTranslateLabel", "BBTTranslateLabel2"]);
     if (l) {
@@ -462,6 +495,7 @@
   // in-game header button (#BBTTranslateButton3) and the browser toolbar
   // button both resolve through uiSetModeText's id list.
   function uiResetLabel(root) {
+    ui.captionDeadline = 0;
     var b = null;
     try { b = uiPanelIn(root || contextPanel(), ["BBTTranslateButton2", "BBTTranslateButton"]); } catch{ b = null; }
     var key = "";
@@ -690,14 +724,64 @@
     cacheKeys: [],
     hardFails: 0,
     translated: 0,
+    resets: 0, // v1.9.29: self-heal navigations, capped (each one is a CEF reload)
+    disarmed: false, // v1.9.29: given up in this context - stop navigating entirely
   };
+
+  // v1.9.29 (lobby stutter): every SetURL is a full CEF navigation. A dead
+  // endpoint that still accepts the connection, plus the "reset to about:blank"
+  // self-heal, used to re-navigate the panel many times per second in EVERY
+  // layout context (the shop, the browser, each category frame). That churn is
+  // felt as heavy stutter in the lobby while the out-of-match shop is open, and
+  // it buys nothing once the bridge has answered nothing at all. Disarming is
+  // per context and reversible: a click on 翻译 re-probes (liveReprobe clears
+  // the flag), so the user can still bring the channel back at will.
+  function liveDisarm(reason) {
+    if (live.disarmed) return;
+    live.disarmed = true;
+    live.state = "off";
+    live.pending = null;
+    var p = null;
+    try { p = livePanel(); } catch{ p = null; }
+    if (p && typeof p.SetURL === "function") { try { p.SetURL("about:blank"); } catch{} }
+    $.Msg("[BBT] live channel disarmed (" + reason + "); panel parked, no further navigation from this context");
+  }
 
   function liveRoot() {
     var ctx = null;
     try { ctx = $.GetContextPanel(); } catch{ return null; }
     // The <HTML> panel is declared in the layout; find it by id once.
-    var stack = [ctx];
-    var budget = 4000;
+    //
+    // v1.9.29 fix (the real reason the bridge never connected): the old walk was
+    // DOWN-ONLY from $.GetContextPanel(). Our script also boots inside nested
+    // layouts (CitadelShopModsBuildCategory, BuildDetails_Overview, the embedded
+    // HeroBuildSelector) whose context panel is a deep node - the layout's
+    // <HTML> panel is a SIBLING of that subtree, near the layout root, so a
+    // downward BFS can never reach it. That is the `panel_unavailable` we logged
+    // from every shop context on 11/07 14:02:53. Walk up to the layout root
+    // first (checking each ancestor), then search downward from there.
+    var top = ctx;
+    for (var up = 0; up < 48; up += 1) {
+      if (top.id && LIVE_PANEL_IDS.indexOf(String(top.id)) >= 0) {
+        registerBridgePanel(top);
+        return top;
+      }
+      // Stop at the layout root, NOT at the global HUD root: the shop tree has
+      // thousands of panels, so a search from the top of the game UI burns out
+      // before it ever reaches our layout (that was the 14:39:16 in-game
+      // `panel_unavailable`, logged from 8 category contexts).
+      if (isLayoutRootTag(panelTag(top))) break;
+      var parent = null;
+      try { parent = top.GetParent ? top.GetParent() : null; } catch{ parent = null; }
+      if (!parent) break;
+      top = parent;
+    }
+    if (top.id && LIVE_PANEL_IDS.indexOf(String(top.id)) >= 0) {
+      registerBridgePanel(top);
+      return top;
+    }
+    var stack = [top];
+    var budget = 40000; // one layout, not the whole UI: this is enough and cheap
     while (stack.length && budget > 0) {
       budget -= 1;
       var p = stack.pop();
@@ -746,9 +830,43 @@
     return null;
   }
 
+  // v1.9.29: a WebView is only created for an <HTML> panel that really gets
+  // laid out. Closed shop frames / a hidden tooltip report width=height=0, so
+  // "pick the first panel that exists" silently parked the channel on a dead
+  // panel (in-game 17:39: 152 x `live probe deferred ... actuallayoutwidth=0`
+  // with the shop open). Rank candidates by laid-out area instead.
+  function panelArea(p) {
+    if (!p) return 0;
+    var w = 0;
+    var h = 0;
+    try { w = p.actuallayoutwidth || 0; } catch{}
+    try { h = p.actuallayoutheight || 0; } catch{}
+    return (w > 0 && h > 0) ? w * h : 0;
+  }
+
   function livePanel() {
-    if (live.panel && live.panel.IsValid && live.panel.IsValid()) return live.panel;
-    live.panel = liveRoot() || liveRegistryPanel();
+    var cache = live.panel;
+    try {
+      if (cache && cache.IsValid && cache.IsValid() && panelArea(cache) > 0) return cache;
+    } catch{}
+    var best = null;
+    var bestArea = 0;
+    try {
+      var reg = G.__BBT_BRIDGE_PANELS;
+      for (var i = 0; reg && i < reg.length; i += 1) {
+        var rp = reg[i];
+        var ok = false;
+        try { ok = !!(rp && rp.IsValid && rp.IsValid()); } catch{ ok = false; }
+        if (!ok) continue;
+        var ra = panelArea(rp);
+        if (ra > bestArea) { bestArea = ra; best = rp; }
+      }
+    } catch{}
+    if (best) { live.panel = best; return best; }
+    var found = null;
+    try { found = liveRoot(); } catch{ found = null; }
+    if (found) { live.panel = found; return found; }
+    live.panel = liveRegistryPanel();
     return live.panel;
   }
 
@@ -786,13 +904,29 @@
       cb(false, "busy", null);
       return null;
     }
+    // Parked for good in this context (see liveDisarm): never navigate again.
+    if (live.disarmed) {
+      cb(false, "disarmed", null);
+      return null;
+    }
     var panel = livePanel();
     var tj = target || LIVE_TARGET;
+    liveBindEvents();
     if (!panel || typeof panel.SetURL !== "function") {
       if (debugOn()) $.Msg("[BBT] live probe: panel unavailable on " + (tj ? tj.port : "?") + " (no HTML panel found from this context)");
       cb(false, "panel_unavailable", null);
       return null;
     }
+    // Distinguish "no panel in this layout" from "panel exists but is not being
+    // rendered" (closed shop surface): the second one silently produces an empty
+    // title for 4s, which is indistinguishable from a dead bridge in the log.
+    // Log-only: actuallayoutwidth can read 0 in cases we have not mapped yet, and
+    // refusing to navigate on a guess would break a working channel.
+    try {
+      if (debugOn() && !(Number(panel.actuallayoutwidth) > 0)) {
+        $.Msg("[BBT] live probe: panel reports actuallayoutwidth=0 on " + (tj ? tj.port : "?") + " (surface closed? still navigating)");
+      }
+    } catch{}
     if (!tj) {
       cb(false, "no_target", null);
       return null;
@@ -801,7 +935,12 @@
     var job = {
       id: id,
       tag: tj.tag,
+      port: tj.port,
       url: liveRequestUrl(tj, id, req),
+      panel: panel, // v1.9.29: poll the panel we navigated, not "whichever is
+                    // first in the registry" - with several bridge panels the
+                    // trace showed the request leaving one panel while the poll
+                    // read another one's (always empty) title.
       cb: cb,
       startedAt: 0,
       polls: 0,
@@ -834,9 +973,100 @@
     return "";
   }
 
+  // v1.9.29 fallback channel: if the engine never surfaces the page title, the
+  // panel's own src attribute is the next thing it must remember (it is what
+  // SetURL writes). The bridge page can put its answer in the URL instead
+  // (`/done?d=<payload>`), so "can we read src back?" decides whether that
+  // channel is available at all.
+  function liveSrcOf(panel) {
+    var keys = ["src", "url", "href"];
+    for (var i = 0; i < keys.length; i++) {
+      try {
+        var v = panel.GetAttributeString ? panel.GetAttributeString(keys[i], "") : "";
+        if (v) return String(v);
+      } catch{}
+    }
+    return "";
+  }
+
+  // v1.9.29 (18:24 in-game): the engine does NOT surface the page title as a
+  // property on these panels - .title, GetAttributeString("title") and the src
+  // attribute all read "" while the page is demonstrably running (the bridge
+  // logged the page's own /api/v1/health fetches). BabelTower's in-game reader
+  // gets the title through a *panel event* (`HTMLChangedTitle` etc. registered
+  // with $.RegisterForUnhandledEvent); its .title polling is only a fallback.
+  // That event is the missing channel here.
+  var LIVE_EVENT_NAMES = [
+    "HTMLChangedTitle", "HTMLTitle", "HTMLContentLoaded",
+    "HTMLURLChanged", "HTMLLoadPage", "HTMLStartRequest", "HTMLFinishRequest"
+  ];
+  var liveEventsBound = false;
+
+  function liveEventText(arg) {
+    if (arg == null) return "";
+    try { if (typeof arg === "string") return arg; } catch{}
+    try { if (typeof arg.title === "string" && arg.title) return arg.title; } catch{}
+    try { if (typeof arg.text === "string" && arg.text) return arg.text; } catch{}
+    try { if (typeof arg.url === "string" && arg.url) return arg.url; } catch{}
+    try {
+      if (typeof arg.GetAttributeString === "function") {
+        return String(arg.GetAttributeString("title", "") || arg.GetAttributeString("url", "") || "");
+      }
+    } catch{}
+    return "";
+  }
+
+  // Returns true when the text carried this job's answer (payload handled).
+  function liveAccept(job, title) {
+    if (!job || job.done || !title) return false;
+    var prefix = (job.tag || "BBT") + job.id;
+    if (title.indexOf(prefix) !== 0) return false;
+    var payload = null;
+    try { payload = JSON.parse(title.slice(prefix.length)); } catch{ payload = null; }
+    if (!payload) return false;
+    if (payload.translation && !payload.translations) {
+      // BabelTower answers with a single {translation}; normalise it.
+      payload = { ok: payload.ok !== false, translations: [String(payload.translation)] };
+    }
+    job.done = true;
+    live.pending = null;
+    job.cb(true, null, payload);
+    return true;
+  }
+
+  function liveOnEvent(a, b, c, d) {
+    try {
+      var job = live.pending;
+      if (!job) return;
+      var args = [a, b, c, d];
+      for (var i = 0; i < args.length; i++) {
+        var t = liveEventText(args[i]);
+        if (!t) continue;
+        if (liveAccept(job, t)) return;
+      }
+    } catch (eEv){ try { if (debugOn()) $.Msg("[BBT] live event handler error: " + eEv); } catch{} }
+  }
+
+  function liveBindEvents() {
+    if (liveEventsBound) return;
+    liveEventsBound = true;
+    if (!$.RegisterForUnhandledEvent) return;
+    var n = 0;
+    for (var i = 0; i < LIVE_EVENT_NAMES.length; i++) {
+      try { $.RegisterForUnhandledEvent(LIVE_EVENT_NAMES[i], liveOnEvent); n += 1; } catch{}
+    }
+    if (debugOn()) { try { $.Msg("[BBT] live events registered: " + n + "/" + LIVE_EVENT_NAMES.length); } catch{} }
+  }
+
   function livePoll(job) {
     if (!live.pending || live.pending !== job || job.done) return;
-    var panel = livePanel();
+    var panel = job.panel || null;
+    if (panel) {
+      var still = true;
+      try { still = !!(panel.IsValid && panel.IsValid()); } catch{ still = true; }
+      if (!still) panel = null;
+    }
+    if (!panel) panel = livePanel();
     var title = "";
     try { title = liveTitleOf(panel); } catch{ title = ""; }
     var prefix = (job.tag || "BBT") + job.id;
@@ -866,9 +1096,37 @@
         var lastTitle = "(no panel)";
         try {
           var lp = livePanel();
-          if (lp) { lastTitle = liveTitleOf(lp).slice(0, 80); if (!lastTitle) lastTitle = "(empty title)"; }
+          if (lp) {
+            lastTitle = liveTitleOf(lp).slice(0, 80);
+            if (!lastTitle) lastTitle = "(empty title)";
+            // Can the panel remember what it navigated to? If yes, the bridge
+            // page can answer through the URL instead of document.title.
+            var srcNow = "";
+            try { srcNow = String(liveSrcOf(lp) || "").slice(0, 120); } catch{ srcNow = ""; }
+            lastTitle += " src=" + JSON.stringify(srcNow) + " want=" + JSON.stringify(String(job.url || "").slice(0, 120));
+          }
         } catch{}
         $.Msg("[BBT] live probe timeout on " + (job.tag || "") + " " + job.id + ": polls=" + job.polls + " lastTitle=" + JSON.stringify(lastTitle));
+        // v1.9.29 (empty title on every surface, 17:16:43): an <HTML> panel that
+        // is not laid out never renders, so the page never runs and the title can
+        // never arrive. Report the panel's own geometry so that case is not
+        // confused with a certificate problem.
+        try {
+          var dp = livePanel();
+          if (dp) {
+            $.Msg("[BBT] live panel geometry: id=" + dp.id +
+              " visible=" + (dp.BIsVisible ? dp.BIsVisible() : "?") +
+              " w=" + dp.actuallayoutwidth + " h=" + dp.actuallayoutheight +
+              " x=" + dp.actualxoffset + " y=" + dp.actualyoffset +
+              " parent=" + panelTag(dp.GetParent ? dp.GetParent() : null));
+          }
+        } catch (eGeo){ try { $.Msg("[BBT] live panel geometry failed: " + eGeo); } catch{} }
+        // v1.9.29: carry the last title into the summary line too, so one log
+        // line separates "the page never loaded" ((no panel)/(empty title)) from
+        // "the page answered something we do not parse" (protocol skew).
+        if (lastTitle !== "(no panel)" && lastTitle !== "(empty title)") {
+          liveProbeNotes.push((job.port || "?") + ":title=" + JSON.stringify(lastTitle.slice(0, 40)));
+        }
       }
       // v1.9.22 panel self-heal (fork-verified recipe): an HTML panel that
       // failed to navigate can stay dead forever - SetURL stops producing
@@ -878,10 +1136,19 @@
       live.noAnswerStreak = (live.noAnswerStreak || 0) + 1;
       if (live.noAnswerStreak >= 2) {
         live.noAnswerStreak = 0;
+        live.resets = (live.resets || 0) + 1;
+        // Each reset is a full navigation. Three is plenty to recover a
+        // genuinely wedged page; past that the endpoint is simply not there
+        // and reloading it forever only costs frames.
+        if (live.resets > 3) {
+          job.cb(false, "timeout", null);
+          liveDisarm("repeated timeouts");
+          return;
+        }
         var hp = livePanel();
         if (hp && typeof hp.SetURL === "function") {
           try { hp.SetURL("about:blank"); } catch{}
-          if (debugOn()) $.Msg("[BBT] live panel reset to about:blank after repeated no-answer probes (self-heal)");
+          if (debugOn()) $.Msg("[BBT] live panel reset to about:blank after repeated no-answer probes (self-heal " + live.resets + "/3)");
         }
       }
       job.cb(false, "timeout", null);
@@ -893,8 +1160,8 @@
   function liveMarkFailure(reason) {
     live.hardFails += 1;
     if (live.hardFails >= LIVE_HARD_FAILS_MAX) {
-      live.state = "off";
       $.Msg("[BBT] live bridge disabled after " + live.hardFails + " failures (" + reason + "); offline memory only");
+      liveDisarm("hard failures");
     }
   }
 
@@ -950,6 +1217,25 @@
 
   function liveProbe() {
     if (liveMode() === "off" || live.state !== "unknown") return;
+    // v1.9.29 (the 15:00:55 `lastTitle="(empty title)"` session): a panel that
+    // is not on screen never renders, so the page never runs and the title can
+    // never arrive - the boot probe from a CLOSED shop surface can only burn 4s
+    // and then park the channel. Defer instead: the click path (dispatch) probes
+    // again once the page the user is reading is actually visible.
+    var w = -1; // -1 = the engine did not report a width: do not guess, probe.
+    try {
+      var bp = livePanel();
+      if (bp && typeof bp.actuallayoutwidth === "number") w = bp.actuallayoutwidth;
+    } catch{ w = -1; }
+    // v1.9.29 (18:29 in-game): `actuallayoutwidth` came back 0 even with the shop
+    // surface open and the page demonstrably running (the bridge logged the
+    // page's own fetches), so it is not a usable gate - and gating on it parked
+    // every probe. Navigate anyway; the readback channel now comes from the
+    // engine's HTML panel events rather than from the title property.
+    if (w === 0 && !live.deferLogged) {
+      live.deferLogged = true;
+      if (debugOn()) $.Msg("[BBT] live probe: actuallayoutwidth=0 (surface closed or not laid out yet); probing anyway");
+    }
     liveReprobe();
   }
 
@@ -961,6 +1247,9 @@
   function liveReprobe() {
     if (liveMode() === "off") return false;
     if (live.state === "on" || live.state === "probing") return true;
+    live.disarmed = false; // an explicit click always gets one more chance
+    live.resets = 0;
+    live.hardFails = 0;
     live.state = "probing";
     live.settled = false;
     liveProbeTargets(0);
@@ -1272,6 +1561,7 @@
     tableEntries: 0,
     tableAliases: 0,
     stableSkips: 0, // T6-3: ticks where the stable-root probe skipped the walk
+    offline: "off", // v1.9.29: "on"|"off" - bridge-first mode ships with "off"
   };
   // Labels that were seen carrying a #token before the engine filled them in.
   var tokenOf = new WeakMap();
@@ -1456,6 +1746,7 @@
   // ONE assignment: writing the English first and the Chinese a moment later is
   // a visible two-step repaint (the "translation is flickering" report).
   function translationFor(raw) {
+    if (!offlineOn()) return null;
     var hit = lookup(raw);
     if (hit) return hit.wasCopy ? hit.text + " 的副本" : hit.text;
     var frag = fragmentTranslate(raw);
@@ -1848,7 +2139,7 @@
     }
 
     // Sentence-level: new builds mostly reuse sentences from older ones.
-    var frag = fragmentTranslate(raw);
+    var frag = offlineOn() ? fragmentTranslate(raw) : null;
     if (frag) {
       frag = present(raw, frag); // "both" mode appends the source text
       if (writeText(panel, frag)) {
@@ -1865,7 +2156,7 @@
     noteMiss(raw, panel);
 
     var mixed = null;
-    if (normalize(raw).length <= TERM_FALLBACK_MAX) {
+    if (offlineOn() && normalize(raw).length <= TERM_FALLBACK_MAX) {
       mixed = substituteTerms(raw);
       // Quality gate: a glossary pass that leaves most of the sentence English
       // (or a run of >=4 English words) would render a confusing mix. Keep the
@@ -2006,6 +2297,13 @@
           var origOn = false;
           try { origOn = scanCtx.tsGate || !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
           if (!origOn) translatePanel(p, t);
+          // v1.9.29 (lobby stutter, the real source): a page pinned to 原文
+          // never reached translatePanel, so nothing ever memoed its labels -
+          // every scan counted the whole page as "fresh" and re-armed the burst
+          // forever (in-game 17:11: 9 contexts at 0.08s, scanned=1,027,320 in
+          // one context, stableSkips=0). Remember the panel as seen so an
+          // unchanged page goes quiet; flipping to 翻译 clears the memos.
+          else if (!known) remember(p, 0, t, null);
         }
         else if (!known) remember(p, 0, t, null);
       } else if (!known) {
@@ -2074,6 +2372,9 @@
   var interval = POLL_INTERVAL;
   var idleTicks = 0;
   var burstTicks = 0;
+  var perfTicks = 0; // v1.9.29: BBT_DEBUG PERF sampling cadence (per context)
+  var noWriteTicks = 0; // v1.9.29: consecutive ticks that found panels but wrote none
+  var bootLayoutTag = ""; // set in boot(); tick() logs it (must be module scope)
   var ticksSinceRebind = 99;
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
@@ -2199,9 +2500,37 @@
       }
     }
     ticksSinceRebind += 1;
+    // v1.9.29 caption watchdog: a progress string must never be the resting
+    // state. If the action's callback never arrives, restore 翻译/原文 here.
+    try {
+      if (ui.captionDeadline && !ui.busy) {
+        var capNow = nowMs();
+        if (capNow && capNow > ui.captionDeadline) {
+          ui.captionDeadline = 0;
+          uiResetLabel(ctx);
+        }
+      }
+    } catch{ ui.captionDeadline = 0; }
     try { liveDrainQueue(); } catch{}
     try { liveDrainUpgrades(); } catch{}
-    var worked = stats.translated + stats.fallback > before || fresh > 0;
+    // v1.9.29 (lobby stutter, measured): "fresh" alone is NOT progress. Panels that were
+    // never memoed (a tree the engine rebuilds, a page kept on 原文) make every
+    // tick look productive, which re-armed the burst forever: 9 contexts sat at
+    // 0.08s and re-walked 2000+ panels each time (in-game 17:05: scanned=
+    // 378600/context, stableSkips=0, nothing written). Only real writes, or a
+    // walk that finished with new panels, may keep the fast cadence.
+    var carryLeft = scanCarry.length;
+    var wrote = stats.translated + stats.fallback > before;
+    var worked = wrote || (fresh > 0 && carryLeft === 0);
+    if (worked) {
+      noWriteTicks = 0;
+    } else {
+      noWriteTicks += 1;
+      // Fresh panels with no write at all for this many ticks is the churn case
+      // (engine-rebuilt tree / page pinned to 原文), not progress: drop the
+      // burst and let the idle backoff take the cadence down to 1s.
+      if (noWriteTicks > 8) burstTicks = 0;
+    }
     if (worked) {
       idleTicks = 0;
       // New panels (opened tooltip, freshly rendered build page) deserve a
@@ -2221,6 +2550,38 @@
     }
     if (t0) stats.ms = (Date.now ? Date.now() : 0) - t0;
     stats.interval = interval;
+    // v1.9.29: the boot probe defers while the shop surface is closed (its
+    // <HTML> panel has no layout width, so the page never runs). Keep offering
+    // it once per tick until it happens: state leaves "unknown" the first time a
+    // probe really starts, so this is one cheap property read per idle tick.
+    if (live.state === "unknown" && !live.disarmed) {
+      try { liveProbe(); } catch{}
+    }
+    // v1.9.29 (lobby stutter report): a number the user can quote back. "The
+    // lobby is extremely laggy" cannot be worked on without knowing whether the
+    // cost is our scan (scanMs) or the frame itself (fps), so log both when
+    // BBT_DEBUG is on: `BBT_PERF` samples every 120 ticks of this context.
+    perfTicks += 1;
+    if (debugOn() && perfTicks >= 120) {
+      perfTicks = 0;
+      // Never let diagnostics kill the poll loop: an exception here used to skip
+      // the reschedule below (in-game 14:39:28, "layoutTag is not defined").
+      try {
+      var fms = -1;
+      try { if (G.Game && typeof G.Game.GetFrameTime === "function") fms = Number(G.Game.GetFrameTime()); } catch{ fms = -1; }
+      $.Msg("[BBT] PERF tag=" + bootLayoutTag +
+        " fps=" + (fms > 0 ? (1 / fms).toFixed(1) : "?") +
+        " frameMs=" + (fms > 0 ? (fms * 1000).toFixed(2) : "?") +
+        " scanMs=" + stats.ms +
+        " scanned=" + stats.scanned +
+        " translated=" + stats.translated +
+        " fallback=" + stats.fallback +
+        " misses=" + stats.misses +
+        " interval=" + interval +
+        " stableSkips=" + stats.stableSkips +
+        " live=" + live.state + (live.disarmed ? "(disarmed)" : ""));
+      } catch (ePerf){ try { $.Msg("[BBT] PERF log failed: " + ePerf); } catch{} }
+    }
     $.Schedule(interval, tick);
   }
 
@@ -2418,9 +2779,19 @@
     if (!panel) return false;
     try {
       if (typeof panel.SetPanelEvent !== "function") return false;
-      panel.SetPanelEvent("onactivate", function () {
+      var handler = function (evName) {
         var root = rootOf(panel);
-        if (!uiGuard(root, "act:" + name, actionWindow(name))) return;
+        // v1.9.29 (18:43 in-game "有翻译按钮但点击无反应"): the click had no
+        // log line at all, so the handler never ran. Log the event name before
+        // the guard - otherwise "event never arrived" and "guard swallowed it"
+        // look identical from the outside.
+        if (debugOn()) {
+          try { $.Msg("[BBT] click " + name + " via " + evName + " root=" + (root ? instTag(root) : "(null)")); } catch{}
+        }
+        if (!uiGuard(root, "act:" + name, actionWindow(name))) {
+          if (debugOn()) { try { $.Msg("[BBT] click " + name + " blocked by uiGuard"); } catch{} }
+          return;
+        }
         reportClick(name, root);
         try {
           fn(panel);
@@ -2428,7 +2799,22 @@
           $.Msg("[BBT] handler " + name + " threw: " + e);
           uiSetStatus("错误:" + name, root);
         }
-      });
+      };
+      panel.SetPanelEvent("onactivate", function () { handler("onactivate"); });
+      // CitadelButton in the engine's own rows is wired with `onmouseactivate`
+      // (see the neighbouring BrowseBuildsButton etc. in the layout), and the
+      // engine's activate path is what the game's buttons actually use. Bind
+      // both: the uiGuard window absorbs the duplicate when they both fire.
+      try { panel.SetPanelEvent("onmouseactivate", function () { handler("onmouseactivate"); }); } catch{}
+      // Hit-test proof: if hovering does not log either, a sibling panel is
+      // covering the button and no click can ever reach it.
+      try {
+        panel.SetPanelEvent("onmouseover", function () {
+          if (uiWired["hov:" + name]) return;
+          uiWired["hov:" + name] = true;
+          if (debugOn()) { try { $.Msg("[BBT] hover " + name + " (hittest reaches the button)"); } catch{} }
+        });
+      } catch{}
       uiWired[name] = true;
       return true;
     } catch{
@@ -2512,6 +2898,18 @@
     uiWiredOnce = true;
     var n = Object.keys(uiWired).length;
     $.Msg("[BBT] toolbar wired: " + n + " control(s) in " + instTag(scope));
+    // Debug aid for blind in-game verification: report where the manual button
+    // actually sits in window coordinates, so the harness can click it directly.
+    try {
+      var posIds = ["BBTTranslateButton", "BBTTranslateButton2"];
+      for (var pi = 0; pi < posIds.length; pi++) {
+        var bp = scope.FindChildTraverse ? scope.FindChildTraverse(posIds[pi]) : null;
+        if (!bp) continue;
+        var pos = bp.GetPositionWithinWindow ? bp.GetPositionWithinWindow() : null;
+        $.Msg("[BBT] button pos " + posIds[pi] + " " + (pos ? (pos.x + "," + pos.y) : "-") +
+          " " + bp.actuallayoutwidth + "x" + bp.actuallayoutheight);
+      }
+    } catch (ePos) { try { $.Msg("[BBT] button pos failed: " + ePos); } catch {} }
     return true;
   }
 
@@ -2685,6 +3083,17 @@
   // looking dead. noBridge: the on-demand probe just failed, so the "still
   // missing" readout names the bridge instead of the memory.
   function offlineTranslateFallback(scope, page, counts, texts, miss, noBridge) {
+    // v1.9.29 bridge-first: with the memory disabled there is nothing this leg
+    // can write. Say so plainly instead of running a pass that cannot change a
+    // single label (that pass was the "翻了一部分" illusion).
+    if (!offlineOn()) {
+      $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=0 already=" + counts.already +
+        " miss=" + miss + " scope=" + instTag(scope) + " (offline memory off; bridge not connected)");
+      uiSetLabel("桥未连接(" + miss + " 条缺)", scope);
+      uiSetStatus("桥未连接", scope);
+      $.Schedule(3.0, function () { uiResetLabel(scope); });
+      return;
+    }
     var before = stats.translated + stats.fallback;
     try { if (page) resetMemos(page); } catch{}
     uiSetLabel("重新翻译中…", scope);
@@ -2732,7 +3141,7 @@
     // v1.9.25: 800 (was 160) so every category's description + the item
     // annotations across all categories are collected, not truncated to the
     // last few cards. The batch sender still chunks at UI_BATCH / LIVE_BATCH_CHARS.
-    var texts = collectMisses(800, page, counts);
+    var texts = collectMisses(2000, page, counts);
     var miss = texts.length;
     if (!texts.length) {
       uiSetLabel("没有需要翻译的文本", scope);
@@ -2749,7 +3158,7 @@
       // settled flag before sending the batch.
       if (texts.length && liveMode() !== "off") {
         liveReprobe();
-        uiSetLabel("正在连接桥…", scope);
+        uiSetLabel("正在连接桥…", scope, 1.6);
         uiSetStatus("连接桥中", scope);
         liveWaitSettled(function () {
           if (live.state === "on") {
@@ -3023,6 +3432,7 @@
       if (ctx && ctx.tag) layoutTag = String(ctx.tag);
       if (!layoutTag && ctx && ctx.paneltype) layoutTag = String(ctx.paneltype);
     } catch{}
+    bootLayoutTag = layoutTag;
     // The build-details layout is reused as a hover tooltip (hittest=false).
     // A toolbar there can never be clicked, it would only sit on top of the
     // tooltip, so hide it.
@@ -3127,10 +3537,16 @@
       if (debugOn()) $.Msg("[BBT] manual two-state armed on " + instTag(bootRoot) + " (default 原文, global reset)");
     }
     var missing = missingHandlers();
+    stats.offline = offlineOn() ? "on" : "off";
     $.Msg(
       "[BBT] v" + VERSION + " loaded (tm=" + tmCount + ", glossary=" + (GLOSS ? 1 : 0) +
-        ") in layout: " + (layoutTag || "?") + " root=" + instTag(bootRoot)
+        ", offline=" + (offlineOn() ? "on" : "off") + ") in layout: " + (layoutTag || "?") + " root=" + instTag(bootRoot)
     );
+    if (!offlineOn()) {
+      // One line so a "nothing is translated" report is immediately attributable
+      // to the bridge rather than to the shipped memory.
+      $.Msg("[BBT] offline memory: disabled (bridge-first mode); set BBT_TM=\"on\" to re-enable");
+    }
     if (missing.length) {
       // This is the "button is not defined" failure: the layout will call a name
       // that does not exist, and the click dies before any of our code runs.

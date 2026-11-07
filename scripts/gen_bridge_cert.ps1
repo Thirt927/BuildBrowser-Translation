@@ -1,31 +1,31 @@
-// BuildBrowser Translation - generate the local certificate for the optional
-// live translation bridge (tools/bridge/bridge.js).
-//
-// Why a certificate: the game renders our <HTML id="BBTBridgePanel"> through
-// WebKit. It refuses plain http and refuses an untrusted https page
-// (ERR_CERT_AUTHORITY_INVALID / neterror -202), so the page must be served over
-// HTTPS with a certificate the engine trusts.
-//
-// What this script creates in -OutDir (default config/certs, gitignored):
-//   bbt.pfx    PKCS#12 bundle with the private key, read by tools/bridge/bridge.js
-//   bbt.pass   the passphrase for that pfx (plain text)
-//   bbt.cer    DER certificate, this is what -Trust installs
-//
-// Certificate shape (same layout the engine accepts):
-//   CN  = BBT-localhost
-//   SAN = DNS:localhost + IP:127.0.0.1 + IP:::1   (the IPs must be IP SANs)
-//   EKU = serverAuth, KU = DigitalSignature + KeyEncipherment
-//
-// Usage:
-//   powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Trust
-//   powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Untrust
-//
-// Trust is opt-in and needs no administrator rights (CurrentUser\Root). Windows
-// may show a security warning; confirm it. After adding/removing the certificate
-// Steam must be fully restarted (tray icon too), not just the game.
-//
-// This file is ASCII-only on purpose (Windows PowerShell 5.1 would mis-read a
-// UTF-8 file without a BOM).
+# BuildBrowser Translation - generate the local certificate for the optional
+# live translation bridge (tools/bridge/bridge.js).
+#
+# Why a certificate: the game renders our <HTML id="BBTBridgePanel"> through
+# WebKit. It refuses plain http and refuses an untrusted https page
+# (ERR_CERT_AUTHORITY_INVALID / neterror -202), so the page must be served over
+# HTTPS with a certificate the engine trusts.
+#
+# What this script creates in -OutDir (default config/certs, gitignored):
+#   bbt.pfx    PKCS#12 bundle with the private key, read by tools/bridge/bridge.js
+#   bbt.pass   the passphrase for that pfx (plain text)
+#   bbt.cer    DER certificate, this is what -Trust installs
+#
+# Certificate shape (same layout the engine accepts):
+#   CN  = BBT-localhost
+#   SAN = DNS:localhost + IP:127.0.0.1 + IP:::1   (the IPs must be IP SANs)
+#   EKU = serverAuth, KU = DigitalSignature + KeyEncipherment
+#
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Trust
+#   powershell -ExecutionPolicy Bypass -File scripts\gen_bridge_cert.ps1 -Untrust
+#
+# Trust is opt-in and needs no administrator rights (CurrentUser\Root). Windows
+# may show a security warning; confirm it. After adding/removing the certificate
+# Steam must be fully restarted (tray icon too), not just the game.
+#
+# This file is ASCII-only on purpose (Windows PowerShell 5.1 would mis-read a
+# UTF-8 file without a BOM).
 
 [CmdletBinding()]
 param(
@@ -130,15 +130,19 @@ if ($needGenerate) {
         $sha,
         $pad)
     $req.CertificateExtensions.Add($sanBuilder.Build())
+    # EKU serverAuth: build the collection first and hand it to the extension.
+    # (Looking the extension back up by Oid.Value returns null under Windows
+    # PowerShell 5.1 - that is what threw InvokeMethodOnNull on 11/07 17:24.)
+    $ekuOids = New-Object System.Security.Cryptography.OidCollection
+    $ekuOids.Add((New-Object System.Security.Cryptography.Oid("1.3.6.1.5.5.7.3.1"))) | Out-Null
     $req.CertificateExtensions.Add(
-        (New-Object System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
-            (New-Object System.Security.Cryptography.OidCollection), $false)))
-    $eku = $req.CertificateExtensions | Where-Object { $_.Oid.Value -eq "2.5.29.37" }
-    $eku.OidCollection.Add((New-Object System.Security.Cryptography.Oid("1.3.6.1.5.5.7.3.1"))) | Out-Null
+        (New-Object System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension($ekuOids, $false)))
+    # -bor across a line break is not parsed by Windows PowerShell 5.1 (it looks
+    # for an op_BitwiseOr method on the enum); combine as ints on one line.
+    $kuFlags = [int][System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature -bor [int][System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
     $req.CertificateExtensions.Add(
         (New-Object System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
-            [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature -bor
-            [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment, $false)))
+            [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]$kuFlags, $false)))
 
     $cert = $req.CreateSelfSigned([System.DateTimeOffset]::UtcNow.AddDays(-1), [System.DateTimeOffset]::UtcNow.AddDays($Days))
 

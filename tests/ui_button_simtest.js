@@ -165,6 +165,9 @@ function boot(texts, opts) {
     },
   };
   sandbox.Date = { now: () => clock.now };
+  // v1.9.29: the shipped memory is opt-in (bridge-first default). Suites that
+  // exercise the offline engine pass { offline: true } or nothing at all.
+  if (opts.offline !== false) sandbox.BBT_TM = "on";
   vm.createContext(sandbox);
   for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
     vm.runInContext(fs.readFileSync(path.join(SCRIPTS, f), "utf8"), sandbox, { filename: f });
@@ -379,6 +382,64 @@ function check(name, cond, detail) {
     JSON.stringify(frames.map((l) => l.text))
   );
   check("button caption back to 翻译", button.text === "翻译", button.text);
+}
+
+// ------------------------------------------- v1.9.29 bridge-first + watchdog
+{
+  // (a) Default build: the shipped memory is OFF, so text only the memory knows
+  // stays English and the log says why. This is the deliberate "do not mislead
+  // me with offline results" default.
+  const ctx = boot(["Key item for Drifter early game."], { offline: false, dead: true });
+  pump(ctx, 12);
+  const lines = ctx.log.join("\n");
+  check("bridge-first: boot line announces offline=off", /offline=off\)/.test(lines), lines.slice(0, 200));
+  check(
+    "bridge-first: offline memory reported disabled",
+    /offline memory: disabled \(bridge-first mode\)/.test(lines),
+    lines.slice(0, 300)
+  );
+  check("bridge-first: stats.offline is 'off'", ctx.sandbox.BBT_STATS.offline === "off", String(ctx.sandbox.BBT_STATS.offline));
+  const desc = ctx.root.children.filter((c) => c.classList.contains("BuildDescription"))[0];
+  check("bridge-first: a memory-known text stays English", desc && /^[A-Za-z]/.test(desc.text), desc && desc.text);
+
+  // (b) The same fixture with the switch on still translates: the opt-in path
+  // is intact, so the default flip is a policy change, not a regression.
+  const ctxOn = boot(["Key item for Drifter early game."], { offline: true });
+  pump(ctxOn, 30);
+  const descOn = ctxOn.root.children.filter((c) => c.classList.contains("BuildDescription"))[0];
+  check(
+    "bridge-first: BBT_TM=on still translates from the memory",
+    descOn && descOn.text === "孤猎前期的重要装备。",
+    descOn && descOn.text
+  );
+}
+
+{
+  // (c) Caption watchdog: a bridge that never answers must not leave
+  // "正在连接桥…" on the control. The panel has no BBTTranslateLabel here, so
+  // the transient caption lands on the button exactly like the in-game header
+  // button (#BBTTranslateButton3) whose context has no status label.
+  const ctx = boot(["Key item for Drifter early game."], { dead: true, offline: true });
+  ctx.root.tag = "CitadelShopModsBuild";
+  const btn = makePanel({ id: "BBTTranslateButton2", text: "翻译" });
+  attach(ctx.root, btn);
+  // Detach the status label so uiSetLabel writes to the button (the on-screen
+  // control the user was reading).
+  const li = ctx.root.children.indexOf(ctx.label);
+  if (li >= 0) ctx.root.children.splice(li, 1);
+  pump(ctx, 6);
+  ctx.sandbox.BBTActivate("translate", ctx.root);
+  pump(ctx, 3);
+  // The click may already have settled the caption to its resting mode name
+  // (dispatch rewrites it after the action starts); what must never survive is
+  // the bridge wording, so assert on the settled state below.
+  ctx.advance(2500);
+  pump(ctx, 40);
+  check(
+    "watchdog: a silent probe never leaves 连接桥 as the resting caption",
+    (btn.text === "翻译" || btn.text === "原文") && btn.text.indexOf("连接") < 0,
+    btn.text
+  );
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

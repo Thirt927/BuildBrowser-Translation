@@ -55,6 +55,9 @@ const sandbox = {
     Msg: (msg) => sandbox.__log.push(String(msg)),
   },
 };
+// v1.9.29: the shipped memory is opt-in now (bridge-first default). These
+// suites exercise the offline engine, so they switch it on explicitly.
+sandbox.BBT_TM = "on";
 sandbox.__queue = [];
 sandbox.__log = [];
 vm.createContext(sandbox);

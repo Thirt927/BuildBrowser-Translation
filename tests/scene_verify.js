@@ -88,7 +88,8 @@ function walk(panel, fn) {
 // ---- run bba_translate.js against a panel tree (like translate_simtest) ----
 
 function runScript(root) {
-  const sandbox = { console };
+  // v1.9.29: offline memory is opt-in (bridge-first default); this suite tests it.
+  const sandbox = { console, BBT_TM: "on" };
   const log = [];
   sandbox.$ = {
     GetContextPanel: () => root,

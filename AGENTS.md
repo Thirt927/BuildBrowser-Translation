@@ -123,6 +123,15 @@ dist/                         gitignore：pak13_dir.vpk 等产物
 11. **BTIPC 那套位信道是 BabelTower 仓库的，本仓库没有**——别把两个项目的实现混淆。
 12. 游戏大版本更新 → 布局结构变化 → 覆盖文件失效：重跑 S2V 反编译 + `tools/inject_scripts.js`
     重新注入（`tools/get_layouts.ps1` 支持 `-Names "*build*"` 通配符批量），再重打 VPK。
+13. **`<HTML>` 面板不能是 `<root>` 的直接子节点**：resourcecompiler 报
+    `Found root panel with 'id' attribute, which is not permitted.`（布局里只有它一个顶层带 id 的面板时，
+    它就被当成"根面板"）。出装分类帧那份要嵌进 `<CitadelShopModsBuildCategory>` 内部（v1.9.29 修）。
+14. **找 `<HTML>` 面板要停在"布局根"，不是 HUD 根**：shop 树有上千面板，从全局根 BFS 的预算会先烧完
+    ——`isLayoutRootTag()` 判布局根（`CitadelShopModsBuild` / `...Category` / `CitadelBuildDetails` /
+    `CitadelHeroBuildsSelector`），否则就是 14:39 那次 9 个上下文齐刷刷 `panel_unavailable`（v1.9.29）。
+15. **诊断代码绝不写进主循环裸奔**：`[BBT] PERF` 初版引用 boot 内局部变量 `layoutTag`，抛
+    `ReferenceError: layoutTag is not defined`，异常跳过 `$.Schedule(interval, tick)` → 整个轮询停摆
+    （14:39:28 实机）。任何日志行一律 `try/catch` 包裹。
 
 ## 7. 代码规范（什么该改、什么不该碰）
 

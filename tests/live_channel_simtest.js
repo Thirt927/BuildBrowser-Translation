@@ -51,6 +51,10 @@ function makeLabel(text, cls) {
     contains: (n) => p._cls.split(/\s+/).indexOf(n) >= 0,
   };
   p._t = text;
+  // Engine panels expose GetParent(); liveRoot() (v1.9.29) walks UP to the
+  // layout root before searching, so the sim needs the same link.
+  p._parent = null;
+  p.GetParent = () => p._parent || null;
   Object.defineProperty(p, "text", {
     get: () => p._t,
     set: (v) => { p._t = v; },
@@ -62,7 +66,7 @@ function makeLabel(text, cls) {
 // The hidden <HTML id="BBTBridgePanel"> stand-in.
 function makeHtmlPanel(opts) {
   const panel = {
-    id: "BBTBridgePanel",
+    id: opts.id || "BBTBridgePanel",
     children: [],
     IsValid: () => true,
     BIsVisible: () => true,
@@ -71,6 +75,13 @@ function makeHtmlPanel(opts) {
     _title: "",
   };
   Object.defineProperty(panel, "title", { get: () => panel._title, configurable: true });
+  // v1.9.29: on-screen geometry. `width: 0` models a closed shop surface (the
+  // panel exists but never renders, so its page never runs); leaving it out
+  // models an engine that does not report the attribute at all.
+  Object.defineProperty(panel, "actuallayoutwidth", {
+    get: () => (typeof opts.width === "number" ? opts.width : undefined),
+    configurable: true,
+  });
   panel.SetURL = (url) => {
     opts.urls.push(url);
     const u = new URL(url);
@@ -79,14 +90,23 @@ function makeHtmlPanel(opts) {
     const op = u.searchParams.get("op") || "translate";
     const tag = port === 8792 ? "LCT" : "BBT";
     if (opts.dead || (opts.port && port !== opts.port)) return; // nothing listening
+    const deliver = (str) => {
+      if (opts.eventChannel) {
+        // Real engine behaviour (18:21 in-game): the page title is never
+        // readable as a property, it only arrives as an HTML panel event.
+        if (opts.emit) opts.emit("HTMLChangedTitle", str);
+        return;
+      }
+      panel._title = str;
+    };
     opts.timers.push(() => {
       if (op === "health") {
-        panel._title = tag + id + JSON.stringify({
+        deliver(tag + id + JSON.stringify({
           ok: true,
           version: "1.0.0",
           name: tag === "LCT" ? "DeadlockLingua Bridge" : "bbt-bridge",
           provider: tag === "LCT" ? "openai" : "",
-        });
+        }));
         return;
       }
       let text = u.searchParams.get("text") || "";
@@ -96,11 +116,11 @@ function makeHtmlPanel(opts) {
       }
       const out = FAKE_TRANSLATIONS[text];
       // BabelTower answers with a bare {translation}; our bridge with an array.
-      panel._title = tag + id + JSON.stringify(
+      deliver(tag + id + JSON.stringify(
         out
           ? (tag === "LCT" ? { ok: true, translation: out } : { ok: true, translations: [out] })
           : { ok: false, translations: [null] },
-      );
+      ));
     });
   };
   return panel;
@@ -109,16 +129,34 @@ function makeHtmlPanel(opts) {
 function boot(labels, htmlOpts) {
   const root = makeLabel(undefined, "CitadelHeroBuildsSelector");
   const bridgePanel = makeHtmlPanel(htmlOpts);
+  bridgePanel._parent = root;
   root.children.push(bridgePanel, ...labels);
+  for (const l of labels) l._parent = root;
+  // A nested layout boots this script with its own (deep) context panel while
+  // the <HTML> panel sits near the layout root: that is the 11/07
+  // panel_unavailable case. htmlOpts.context lets a suite reproduce it.
+  const context = htmlOpts.context || root;
   const queue = [];
   const log = [];
   const sandbox = {
     console: { log() {} },
+    BBT_TM: "on", // v1.9.29: offline memory is opt-in (bridge-first default)
     $: {
-      GetContextPanel: () => root,
+      GetContextPanel: () => context,
       Schedule: (delay, fn) => queue.push({ delay, fn }),
       Msg: (m) => log.push(String(m)),
+      // v1.9.29: the engine delivers the page title as a panel event; the sim
+      // records the handlers so a suite can fire them the way CEF does.
+      RegisterForUnhandledEvent: (name, fn) => {
+        htmlOpts.handlers = htmlOpts.handlers || {};
+        htmlOpts.handlers[name] = fn;
+      },
     },
+  };
+  htmlOpts.handlers = htmlOpts.handlers || {};
+  htmlOpts.emit = (name, text) => {
+    const h = htmlOpts.handlers[name];
+    if (h) h(text);
   };
   vm.createContext(sandbox);
   for (const f of ["bba_glossary.js", "bba_tm.js", "bba_layout_tokens.js", "bba_translate.js"]) {
@@ -219,6 +257,28 @@ function check(name, cond, detail) {
 }
 
 // ------------------------------------------------------------------
+// 2c. real engine: the title property reads "" and the answer only arrives
+//     as an HTML panel event (the 18:21 in-game symptom), plus a panel that
+//     reports actuallayoutwidth=0 even while its page runs.
+// ------------------------------------------------------------------
+{
+  const label = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
+  const opts = { urls: [], timers: [], dead: false, width: 0, eventChannel: true };
+  const ctx = boot([label], opts);
+  pump(ctx, 200);
+  check(
+    "events: title stays empty but HTMLChangedTitle delivers the answer",
+    label.text === "孤猎前期的重要装备。",
+    JSON.stringify({ text: label.text, log: ctx.log.slice(0, 3) }),
+  );
+  check(
+    "events: a zero-width panel still gets probed",
+    opts.urls.some((u) => u.indexOf("op=health") > 0),
+    JSON.stringify(opts.urls.slice(0, 2)),
+  );
+}
+
+// ------------------------------------------------------------------
 // 3. offline memory still wins (live channel must not re-translate it)
 // ------------------------------------------------------------------
 {
@@ -228,6 +288,96 @@ function check(name, cond, detail) {
   pump(ctx, 200);
   check("memory: offline hit still translated", label.text === "撕裂 > 治疗 > 重复。", JSON.stringify(label.text));
   check("memory: no translate request for known text", !opts.urls.some((u) => u.indexOf("op=translate") > 0), JSON.stringify(opts.urls));
+}
+
+// ------------------------------------------------------------------
+// 4. v1.9.29: a NESTED layout context still reaches the bridge panel
+//    (the 11/07 14:02:53 `panel_unavailable` failure)
+// ------------------------------------------------------------------
+{
+  const opts = { urls: [], timers: [], dead: false, id: "BBTBridgePanelCategory" };
+  // Context panel is two levels below the layout root; the <HTML> panel is a
+  // sibling of that subtree, right under the root (what the engine does for
+  // CitadelShopModsBuildCategory / BuildDetails_Overview).
+  const deep = makeLabel(undefined, "BuildCategory");
+  const mid = makeLabel(undefined, "BuildDetails_Overview");
+  deep._parent = mid;
+  mid.children.push(deep);
+  // The translatable text lives INSIDE the frame's context (that is what scan()
+  // walks); only the <HTML> panel sits up at the layout root.
+  const label = makeLabel("Key item for Drifter early game.", "BuildDescription");
+  label._parent = deep;
+  deep.children.push(label);
+  opts.context = deep;
+  const ctx = boot([], opts);
+  mid._parent = ctx.root;
+  ctx.root.children.push(mid);
+  pump(ctx, 200);
+  check(
+    "nested context: probe reaches the layout's <HTML> panel (walk up, then search)",
+    opts.urls.some((u) => u.indexOf("op=health") > 0),
+    JSON.stringify(opts.urls.slice(0, 2)),
+  );
+  check(
+    "nested context: no panel_unavailable line",
+    !ctx.log.some((l) => l.indexOf("panel_unavailable") >= 0),
+    JSON.stringify(ctx.log.filter((l) => l.indexOf("panel") >= 0).slice(0, 3)),
+  );
+  check("nested context: text translated through the bridge", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
+}
+
+// ------------------------------------------------------------------
+// 5. v1.9.29: the search must stay INSIDE the layout. In game the layouts are
+//    mounted under the HUD root, which holds thousands of unrelated panels; a
+//    walk-up-then-search from there never reached our <HTML> panel (14:39:16).
+// ------------------------------------------------------------------
+{
+  const opts = { urls: [], timers: [], dead: false, id: "BBTBridgePanelShop" };
+  const label = makeLabel("Key item for Drifter early game.", "BuildDescription");
+  const ctx = boot([label], opts);
+  // Put the layout root under a HUD-like root stuffed with junk siblings.
+  const hud = makeLabel(undefined, "CitadelHud");
+  hud.children.push(ctx.root);
+  ctx.root._parent = hud;
+  for (let i = 0; i < 5000; i += 1) {
+    const junk = makeLabel("", "HudJunk");
+    junk._parent = hud;
+    hud.children.push(junk);
+  }
+  pump(ctx, 200);
+  check(
+    "hud-mounted layout: bridge reached without walking into the HUD tree",
+    opts.urls.some((u) => u.indexOf("op=health") > 0),
+    JSON.stringify(opts.urls.slice(0, 2)),
+  );
+  check("hud-mounted layout: text translated through the bridge", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
+}
+
+// ------------------------------------------------------------------
+// 6. v1.9.29: a CLOSED surface must not navigate. The panel exists but never
+//    renders, so the page never runs and the title stays empty for the whole
+//    timeout (in-game 15:00:55). The boot probe defers; the click on 翻译 (page
+//    now visible) probes and connects.
+// ------------------------------------------------------------------
+{
+  const opts = { urls: [], timers: [], dead: false, width: 0 };
+  const label = makeLabel("Key item for Drifter early game.", "BuildDescription");
+  const ctx = boot([label], opts);
+  pump(ctx, 80);
+  check(
+    "closed surface: a zero-width panel is still probed (width is a hint, not a gate)",
+    opts.urls.some((u) => u.indexOf("op=health") > 0),
+    JSON.stringify(opts.urls),
+  );
+  opts.width = 2; // the user opened the page
+  ctx.sandbox.BBTActivate("translate", ctx.root);
+  pump(ctx, 300);
+  check(
+    "closed surface: click probes once the page is visible",
+    opts.urls.some((u) => u.indexOf("op=health") > 0),
+    JSON.stringify(opts.urls.slice(0, 2)),
+  );
+  check("closed surface: text translated after the click", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

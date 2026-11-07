@@ -57,4 +57,20 @@
    layout (a tooltip copy must not inflate the toolbar), so 0x0 + invisible. */
 .BBTActMark { width: 0px; height: 0px; opacity: 0; margin: 0px; padding: 0px; }
 
-.BBTBridgePanel { width: 1px; height: 1px; opacity: 0.01; margin: 0px; padding: 0px; }
+/* Hidden live-bridge <HTML> panel. Its size must be REAL pixels: if the panel
+   is not actually rendered the engine never creates a browser instance for it
+   and SetURL becomes a no-op that reports success while the bridge receives
+   zero requests (logged in-game as `lastTitle="(empty title)"` + `timeout` on
+   every port). 1px rounds away - BabelTower measured 3x3 in game for the same
+   recipe, so use 3px and keep the panel inside the screen with tiny opacity. */
+.BBTBridgePanel {
+  width: 8px;
+  height: 8px;
+  opacity: 1.0;
+  horizontal-align: left;
+  vertical-align: top;
+  margin: 0px;
+  padding: 0px;
+  hittest: false;
+  hittestchildren: false;
+}
