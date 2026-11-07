@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.29";
+  var VERSION = "1.9.31";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2794,7 +2794,11 @@
         }
         reportClick(name, root);
         try {
-          fn(panel);
+          // v1.9.31: tell dispatch() the guard is already satisfied for this
+          // click (it re-checks under the same ledger key), otherwise the click
+          // is swallowed with no log at all.
+          G.__BBT_IN_HANDLER = name;
+          try { fn(panel); } finally { G.__BBT_IN_HANDLER = null; }
         } catch (e){
           $.Msg("[BBT] handler " + name + " threw: " + e);
           uiSetStatus("错误:" + name, root);
@@ -3125,10 +3129,16 @@
       var stale = 0;
       try { stale = nowMs(); } catch{}
       // No clock, or no busy timestamp, or a stale lock -> release. Only a
-      // *live* lock (<15s, with a working clock) keeps the button quiet.
-      if (!ui.busySince || stale <= 0 || stale - ui.busySince > 15000) {
+      // *live* lock (with a working clock) keeps the button quiet.
+      // v1.9.31: 15s of a silently-locked button is what the user experiences as
+      // "clicked, nothing happened, not even a log line". Heal after 8s and
+      // always leave a trace so the branch can never be silent again.
+      var age = ui.busySince ? (stale - ui.busySince) : -1;
+      if (!ui.busySince || stale <= 0 || age > 8000) {
+        try { $.Msg("[BBT] translate: busy lock healed (age=" + age + "ms)"); } catch{}
         ui.busy = false;
       } else {
+        try { $.Msg("[BBT] translate: skipped, batch already in flight (age=" + age + "ms)"); } catch{}
         return;
       }
     }
@@ -3307,7 +3317,13 @@
   function dispatch(action, origin) {
     if (!action) return;
     var root = rootOf(origin);
-    if (!uiGuard(root, "act:" + action, actionWindow(action))) return;
+    // v1.9.31: bindClick() already ran the guard for THIS click, under the same
+    // ledger key ("act:"+action). Running it a second time always saw the
+    // timestamp the handler had just written, so every click died here without
+    // a single log line - the user's "按钮在那、点了没反应".
+    var inHandler = null;
+    try { inHandler = G.__BBT_IN_HANDLER; } catch{ inHandler = null; }
+    if (inHandler !== action && !uiGuard(root, "act:" + action, actionWindow(action))) return;
     reportClick(action, root);
     try {
       if (action === "translate") {

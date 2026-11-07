@@ -80,6 +80,14 @@ function makePanel(opts) {
   // key="" and the caption reset falls back to 翻译 (R1/R2 fidelity bug).
   p._parent = null;
   p.GetParent = () => p._parent || null;
+  // v1.9.31: the engine hands our handlers to SetPanelEvent. Without it
+  // bindClick() bails out, so the sim could never reproduce the real click
+  // path - which is exactly how the double-guard regression slipped through.
+  p._events = {};
+  p.SetPanelEvent = (event, fn) => {
+    p._events[event] = p._events[event] || [];
+    p._events[event].push(fn);
+  };
   return p;
 }
 
@@ -382,6 +390,28 @@ function check(name, cond, detail) {
     JSON.stringify(frames.map((l) => l.text))
   );
   check("button caption back to 翻译", button.text === "翻译", button.text);
+
+  // v1.9.31 regression - "有翻译按钮但点击无反应，日志一行都没有".
+  // bindClick() runs uiGuard("act:"+name) and only then calls dispatch(), which
+  // used to run the SAME guard key again. The second check always saw the
+  // timestamp the handler had just written, so the click died inside dispatch
+  // with no log line at all. Simulate exactly that: prime the ledger by firing
+  // once, then dispatch again while flagged as "inside the handler".
+  ctx.sandbox.BBT_DEBUG = true;
+  const before = ctx.log.filter((l) => l.indexOf("two-state global") >= 0).length;
+  ctx.sandbox.__BBT_ACT = {}; // clear the click ledger the earlier clicks wrote
+  ctx.sandbox.BBTActivate("translate", ctx.root); // primes act:translate
+  const primed = ctx.log.filter((l) => l.indexOf("two-state global") >= 0).length;
+  ctx.sandbox.__BBT_IN_HANDLER = "translate"; // what bindClick sets around fn()
+  ctx.sandbox.BBTActivate("translate", ctx.root); // the click itself
+  ctx.sandbox.__BBT_IN_HANDLER = null;
+  const after = ctx.log.filter((l) => l.indexOf("two-state global") >= 0).length;
+  check(
+    "v1.9.31: a click that already passed bindClick's guard still reaches dispatch",
+    primed === before + 1 && after === primed + 1,
+    "before=" + before + " primed=" + primed + " after=" + after
+  );
+  ctx.sandbox.BBT_DEBUG = false;
 }
 
 // ------------------------------------------- v1.9.29 bridge-first + watchdog
