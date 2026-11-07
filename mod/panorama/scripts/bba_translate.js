@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.41";
+  var VERSION = "1.9.42";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2387,6 +2387,42 @@
   var noWriteTicks = 0; // v1.9.29: consecutive ticks that found panels but wrote none
   var bootLayoutTag = ""; // set in boot(); tick() logs it (must be module scope)
   var ticksSinceRebind = 99;
+  // §6 rect probe (BBT_DEBUG-gated): real geometry of the rows the toolbar
+  // sits in, so a position can be computed from the log instead of guessed.
+  // v1.9.41: the one-shot version ran during boot, when every panel still
+  // reports NaN (nothing is laid out yet), so it never produced a usable
+  // number. It now re-runs from tick() until the trigger has a real width.
+  function probeRects(ctx) {
+    var rectIds = ["ControlArea", "BBTTabBtnHost", "BBTTranslateButton2", "BuildControls", "BuildOptionButton", "ControlButtons", "BuildHeader"];
+    var hostRect = null;
+    var hp = uiPanelIn(ctx, "BBTTabBtnHost");
+    if (hp) { try { hostRect = hp.GetPositionWithinWindow(); } catch{ hostRect = null; } }
+    if (!hostRect || !(hostRect.w > 0)) return false; // not laid out yet (NaN fails >)
+    G.__BBT_RECT_DONE = true;
+    var paneForRect = layoutRoot(ctx);
+    if (paneForRect) {
+      try {
+        var pp = paneForRect.GetPositionWithinWindow();
+        if (pp && pp.w > 0) $.Msg("[BBT] rect <layoutRoot> x=" + Math.round(pp.x) + " y=" + Math.round(pp.y) + " w=" + Math.round(pp.w) + " h=" + Math.round(pp.h));
+      } catch{}
+    }
+    for (var ri = 0; ri < rectIds.length; ri += 1) {
+      var rp = uiPanelIn(ctx, rectIds[ri]);
+      if (!rp) continue;
+      // Panorama panels have no actualx/actualy (that logged undefined since
+      // this probe was added); GetPositionWithinWindow() is the real API.
+      var rq = null;
+      try { rq = rp.GetPositionWithinWindow(); } catch{}
+      $.Msg(
+        "[BBT] rect " + rectIds[ri] +
+          (rq && rq.w > 0
+            ? " x=" + Math.round(rq.x) + " y=" + Math.round(rq.y) + " w=" + Math.round(rq.w) + " h=" + Math.round(rq.h)
+            : " (no rect)")
+      );
+    }
+    return true;
+  }
+
   function tick() {
     var t0 = Date.now ? Date.now() : 0;
     var before = stats.translated + stats.fallback;
@@ -2398,7 +2434,7 @@
         // v1.9.41: retry the rect dump from the tick until the trigger is laid
         // out (at boot every panel reports NaN, so the one-shot version never
         // produced a number). BBT_DEBUG-gated, self-disarming.
-        if (debugOn() && !G.__BBT_RECT_DONE) { try { probeRects(); } catch{} }
+        if (debugOn() && !G.__BBT_RECT_DONE) { try { probeRects(ctx); } catch{} }
         // T6-3 fast-exit: a stable root is probed, not walked — identity-label
         // texts plus the child count. Stable tick = a few .text reads, zero
         // writes, interval backoff continues unchanged. Any change drops the
@@ -3523,42 +3559,7 @@
         $.Msg("[BBT] toolbar-geom none in this layout");
       }
     }
-    // §6 rect probe (BBT_DEBUG-gated): real geometry of the rows the toolbar
-    // sits in, so a position can be computed from the log instead of guessed.
-    // v1.9.41: the one-shot version ran during boot, when every panel still
-    // reports NaN (nothing is laid out yet), so it never produced a usable
-    // number. It now re-runs from tick() until the trigger has a real width.
-    function probeRects() {
-      var rectIds = ["ControlArea", "BBTTabBtnHost", "BBTTranslateButton2", "BuildControls", "BuildOptionButton", "ControlButtons", "BuildHeader"];
-      var hostRect = null;
-      var hp = uiPanelIn(ctx, "BBTTabBtnHost");
-      if (hp) { try { hostRect = hp.GetPositionWithinWindow(); } catch{ hostRect = null; } }
-      if (!hostRect || !(hostRect.w > 0)) return false; // not laid out yet (NaN fails >)
-      G.__BBT_RECT_DONE = true;
-      var paneForRect = layoutRoot(ctx);
-      if (paneForRect) {
-        try {
-          var pp = paneForRect.GetPositionWithinWindow();
-          if (pp && pp.w > 0) $.Msg("[BBT] rect <layoutRoot> x=" + Math.round(pp.x) + " y=" + Math.round(pp.y) + " w=" + Math.round(pp.w) + " h=" + Math.round(pp.h));
-        } catch{}
-      }
-      for (var ri = 0; ri < rectIds.length; ri += 1) {
-        var rp = uiPanelIn(ctx, rectIds[ri]);
-        if (!rp) continue;
-        // Panorama panels have no actualx/actualy (that logged undefined since
-        // this probe was added); GetPositionWithinWindow() is the real API.
-        var rq = null;
-        try { rq = rp.GetPositionWithinWindow(); } catch{}
-        $.Msg(
-          "[BBT] rect " + rectIds[ri] +
-            (rq && rq.w > 0
-              ? " x=" + Math.round(rq.x) + " y=" + Math.round(rq.y) + " w=" + Math.round(rq.w) + " h=" + Math.round(rq.h)
-              : " (no rect)")
-        );
-      }
-      return true;
-    }
-    if (debugOn() && !G.__BBT_RECT_DONE) probeRects();
+    if (debugOn() && !G.__BBT_RECT_DONE) probeRects(ctx);
     // The tag tells you WHICH layout actually carries the scanner; use it with
     // -condebug to check that every layout surface that shows player text is
     // really covered (e.g. a game update may spawn a new out-of-tree layout).
