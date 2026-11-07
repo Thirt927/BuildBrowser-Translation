@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.58";
+  var VERSION = "1.9.59";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -79,13 +79,14 @@
   // One id per layout: the details layout is instantiated *inside* the selector,
   // so reusing a single id would put two panels with the same id in one tree.
   var LIVE_PANEL_IDS = ["BBTBridgePanel", "BBTBridgePanelDetails", "BBTBridgePanelShop", "BBTBridgePanelCategory"];
-  // Try an already running Babel Tower bridge first (DeadlockLingua, port 8792):
-  // it serves a page with the same technique and the same certificate, so people
-  // who already use that mod need neither a second certificate nor a second
-  // process. Our own bridge listens on 8793.
+  // v1.9.59: our own bridge (8793) goes first. BabelTower's bridge is a plain
+  // per-text API: one request in flight at a time, 1-2 s per string, which is
+  // what made a page of annotations crawl. Our bridge answers a whole batch and
+  // also serves /api/v1/build, so the build's annotations can be fetched up
+  // front. DeadlockLingua stays as the fallback for people who only run that.
   var LIVE_TARGETS = [
-    { port: 8792, tag: "LCT", name: "BabelTower" },
     { port: 8793, tag: "BBT", name: "bbt-bridge" },
+    { port: 8792, tag: "LCT", name: "BabelTower" },
   ];
   var LIVE_TARGET = null; // { port, tag, name } once the probe succeeded
   var LIVE_PROBE_TIMEOUT = 4.0; // seconds to wait for the health answer (v1.9.21: page load + API round trip)
@@ -3481,6 +3482,8 @@
         try {
           var items = (res && res.items) || [];
           var texts = [];
+          var desc = res && res.description ? String(res.description) : "";
+          if (desc.length > 12 && !liveCacheGet(desc)) texts.push(desc);
           for (var i = 0; i < items.length; i += 1) {
             var a = items[i] && items[i].annotation;
             if (a && !liveCacheGet(a)) texts.push(a);

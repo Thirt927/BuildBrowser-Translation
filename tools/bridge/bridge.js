@@ -472,14 +472,25 @@ function start() {
           }
         };
         if (row) {
-          walk(row.items);
-          const d = row.details || null;
+          // The API wraps everything in hero_build; details.mod_categories[*].mods
+          // is where the author's per-item annotations live.
+          const hb = row.hero_build || row;
+          walk(hb.items);
+          const d = hb.details || null;
           if (d) {
             walk(d.items);
             for (const sec of d.mod_categories || []) walk(sec.mods || sec.items);
           }
+          return send(200, "application/json", JSON.stringify({
+            ok: true,
+            id: Number(id),
+            count: items.length,
+            name: hb.name || "",
+            description: hb.description || "",
+            items,
+          }));
         }
-        return send(200, "application/json", JSON.stringify({ ok: true, id: Number(id), count: items.length, items }));
+        return send(200, "application/json", JSON.stringify({ ok: true, id: Number(id), count: 0, items: [] }));
       } catch (e) {
         return send(200, "application/json", JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
       }

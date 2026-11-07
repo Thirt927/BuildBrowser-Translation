@@ -193,7 +193,9 @@ function check(name, cond, detail) {
 // ------------------------------------------------------------------
 {
   const label = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
-  const opts = { urls: [], timers: [], dead: false };
+  // v1.9.59: 8793 is preferred, so this block pins the LCT bridge to keep
+  // covering the fallback path (its answer shape differs: bare {translation}).
+  const opts = { urls: [], timers: [], dead: false, port: 8792 };
   const ctx = boot([label], opts);
   pump(ctx, 200);
   check("live: health probe issued", opts.urls.some((u) => u.indexOf("op=health") > 0), JSON.stringify(opts.urls.slice(0, 2)));
@@ -209,9 +211,9 @@ function check(name, cond, detail) {
     JSON.stringify(ctx.sandbox.BBT_STATS.liveProvider),
   );
   check(
-    "live: prefers an already running BabelTower bridge (8792) so no second cert is needed",
-    opts.urls[0].indexOf(":8792/") > 0,
-    opts.urls[0],
+    "live: our bridge is probed first, BabelTower's is the fallback",
+    opts.urls[0].indexOf(":8793/") > 0 && opts.urls.some((u) => u.indexOf(":8792/") > 0),
+    JSON.stringify(opts.urls.slice(0, 3)),
   );
   check("live: stat counted", ctx.sandbox.BBT_STATS.live >= 1, String(ctx.sandbox.BBT_STATS.live));
   check("live: log announces the channel", ctx.log.some((l) => l.indexOf("live bridge: connected") >= 0), JSON.stringify(ctx.log.slice(0, 3)));
@@ -263,7 +265,7 @@ function check(name, cond, detail) {
   const opts = { urls: [], timers: [], dead: false, port: 8793 };
   const ctx = boot([label], opts);
   pump(ctx, 200);
-  check("fallback: probed 8792 then 8793", opts.urls[0].indexOf(":8792/") > 0 && opts.urls.some((u) => u.indexOf(":8793/") > 0), JSON.stringify(opts.urls.slice(0, 3)));
+  check("fallback: our bridge alone is enough (8793, no 8792 probe)", opts.urls[0].indexOf(":8793/") > 0 && !opts.urls.some((u) => u.indexOf(":8792/") > 0), JSON.stringify(opts.urls.slice(0, 3)));
   if (label.text !== "团战前先买这个。") {
     console.log("   urls:", JSON.stringify(opts.urls, null, 1));
     console.log("   stats:", JSON.stringify(ctx.sandbox.BBT_STATS));
