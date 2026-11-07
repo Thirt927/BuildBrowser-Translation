@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.75";
+  var VERSION = "1.9.77";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -1395,22 +1395,33 @@
   function liveFetchOverrides(attempt) {
     attempt = attempt || 0;
     if (!LIVE_TARGET || LIVE_TARGET.tag !== "BBT") return; // only our bridge has it
-    liveSend({ kind: "overrides", target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, res) {
-      if (!ok || !res || !res.overrides) {
-        // "busy" just means a translation is in flight: try again later.
-        if (attempt < 3) {
-          $.Schedule(err === "busy" ? 1.0 : 3.0, function () { liveFetchOverrides(attempt + 1); });
+    // v1.9.76: the full override list is ~80 kB and the reply travels through
+    // document.title (~6 kB), so the old one-shot fetch always failed. The bridge
+    // pages it three rows at a time; walk the pages and merge.
+    var map = Object.create(null);
+    var n = 0;
+    function page(ci, depth) {
+      if (depth > 80) { apply(); return; }
+      liveSend({ kind: "overrides", target: TARGET_LANG, chunk: ci }, LIVE_REQUEST_TIMEOUT, function (ok, err, res) {
+        if (!ok || !res || !res.overrides) {
+          // "busy" just means a translation is in flight: try again later.
+          if (attempt < 3) {
+            $.Schedule(err === "busy" ? 1.0 : 3.0, function () { liveFetchOverrides(attempt + 1); });
+          }
+          return;
         }
-        return;
-      }
-      var map = Object.create(null);
-      var n = 0;
-      for (var i = 0; i < res.overrides.length; i += 1) {
-        var row = res.overrides[i];
-        if (!row || !row.k || !row.tr) continue;
-        map[row.k] = String(row.tr);
-        n += 1;
-      }
+        var rows = res.overrides;
+        for (var i = 0; i < rows.length; i += 1) {
+          var row = rows[i];
+          if (!row || !row.k || !row.tr) continue;
+          map[row.k] = String(row.tr);
+          n += 1;
+        }
+        if (res.next) { page(ci + 1, depth + 1); return; }
+        apply();
+      }, LIVE_TARGET, "/api/v1/tm/overrides?target=" + encodeURIComponent(TARGET_LANG) + "&chunk=" + ci);
+    }
+    function apply() {
       var changed = false;
       if (overrides) {
         var oldKeys = Object.keys(overrides);
@@ -1430,7 +1441,8 @@
       // No timer: the bridge reports its table size on every response, and a
       // change there (new translations, new corrections) triggers a refetch. See
       // noteTableSize().
-    }, LIVE_TARGET, "/api/v1/tm/overrides?target=" + encodeURIComponent(TARGET_LANG));
+    }
+    page(0, 0);
   }
 
   function liveCacheGet(text) {
@@ -2184,12 +2196,33 @@
       // frame surfaces in another's - the boxed row showed a previous build's
       // breakdown (user screenshot, 03:31). Leave it to the engine until a probe
       // label per header exists.
-      var engineOwned = panelHasClass(panel, "SelectedBuildName");
-      if (!engineOwned) {
-        try { engineOwned = tokenFor(panel) === "#Citadel_HeroBuilds_CategoryDescription"; } catch{}
-      }
-      if (engineOwned) {
+      if (panelHasClass(panel, "SelectedBuildName")) {
         remember(panel, 0, raw, null);
+        return;
+      }
+      var tok0 = "";
+      try { tok0 = tokenFor(panel); } catch{ tok0 = ""; }
+      if (tok0 === "#Citadel_HeroBuilds_CategoryDescription") {
+        // v1.9.77: write this frame's own blurb from the prefetched page instead of
+        // freezing whatever the engine last showed. The engine cannot update the
+        // label once we wrote it, so self-heal on every pass: the value for the
+        // current build id always wins.
+        var bid0 = "";
+        try { bid0 = buildIdOf($.GetContextPanel()); } catch{ bid0 = ""; }
+        var want0 = "";
+        try { want0 = buildPageText(bid0, catFrameIndex(panel), "desc"); } catch{ want0 = ""; }
+        if (!want0) {
+          remember(panel, 0, raw, null);
+          return;
+        }
+        if (raw !== want0) {
+          try {
+            writeText(panel, want0);
+            remember(panel, 1, raw, want0);
+            stats.writes += 1;
+            logWrite(panel, raw, want0, "build-page");
+          } catch{}
+        }
         return;
       }
     }
@@ -3503,6 +3536,12 @@
   // translated in a single batch, so the first hover hits the cache instead of
   // paying a round trip while the tooltip is already on screen.
   var buildPrefetchDone = {};
+  // v1.9.77: the bridge tags every prefetched text with where it came from
+  // ("n" build name, "d" overview, "cn<i>"/"cd<i>" category i header/blurb), so a
+  // category frame can be rewritten by index. The shop's category blurb is an
+  // engine-driven template label: our .text write freezes it, and the engine then
+  // keeps showing the previous build's text (user screenshot, 04:05).
+  var buildPages = {};
   var buildIdTried = 0;
 
   function buildIdOf(root) {
@@ -3580,6 +3619,70 @@
     return "";
   }
 
+  function noteBuildPage(id, tag, orig, zh) {
+    if (!id || !tag) return;
+    var pg = buildPages[id];
+    if (!pg) { pg = { d: null, c: {} }; buildPages[id] = pg; }
+    if (tag === "d") { pg.d = { orig: orig, zh: zh }; return; }
+    var m = /^c([nd])([0-9]+)$/.exec(String(tag));
+    if (!m) return;
+    var i = parseInt(m[2], 10);
+    if (!(i >= 0)) return;
+    var e = pg.c[i];
+    if (!e) { e = {}; pg.c[i] = e; }
+    if (m[1] === "n") e.name = { orig: orig, zh: zh };
+    else e.desc = { orig: orig, zh: zh };
+  }
+
+  function buildPageText(id, idx, kind) {
+    if (!id || !(idx >= 0)) return "";
+    var pg = buildPages[id];
+    if (!pg) return "";
+    var e = pg.c[idx];
+    if (!e) return "";
+    var v = kind === "desc" ? e.desc : e.name;
+    if (!v) return "";
+    return v.zh || v.orig || "";
+  }
+
+  // Which category frame does this blurb belong to? The frames are siblings, so
+  // count siblings that own a blurb label up to ours (the shop renders the API's
+  // mod_categories in order, which is the order we tagged them with).
+  function catFrameIndex(panel) {
+    var frame = null;
+    try { frame = panel.GetParent(); } catch{ return -1; }
+    if (!frame) return -1;
+    var cont = null;
+    try { cont = frame.GetParent(); } catch{ return -1; }
+    if (!cont) return -1;
+    var kids = null;
+    try { kids = cont.Children(); } catch{ return -1; }
+    if (!kids) return -1;
+    var idx = 0;
+    for (var i = 0; i < kids.length; i += 1) {
+      var k = kids[i];
+      if (k === frame) return idx;
+      if (hasCatBlurb(k)) idx += 1;
+    }
+    return -1;
+  }
+
+  function hasCatBlurb(p) {
+    var stack = [p];
+    var n = 0;
+    while (stack.length > 0 && n < 80) {
+      var cur = stack.pop();
+      n += 1;
+      try {
+        if (tokenFor(cur) === "#Citadel_HeroBuilds_CategoryDescription") return true;
+      } catch{}
+      var kids = null;
+      try { kids = cur.Children(); } catch{ kids = null; }
+      if (kids) for (var i = 0; i < kids.length; i += 1) stack.push(kids[i]);
+    }
+    return false;
+  }
+
   function prefetchBuildAnnotations(root, tries) {
     if (!root) return;
     if (live.state !== "on" || !LIVE_TARGET) return;
@@ -3608,45 +3711,51 @@
     }
     if (buildPrefetchDone[id]) return;
     buildPrefetchDone[id] = 1;
-    liveSend(
-      { kind: "build", id: id },
-      12,
-      function (ok, err, res) {
-        try {
-          var items = (res && res.items) || [];
-          var cats = (res && res.categories) || [];
-          var texts = [];
-          var desc = res && res.description ? String(res.description) : "";
-          if (desc.length > 12 && !liveCacheGet(desc)) texts.push(desc);
-          // v1.9.69: the page body is not only item annotations - the build name and
-          // every category header/description ride in the same payload, so prefetch
-          // them together instead of making the user click and wait for each.
-          var bname = res && res.name ? String(res.name) : "";
-          if (bname && !liveCacheGet(bname)) texts.push(bname);
-          for (var ci = 0; ci < cats.length; ci += 1) {
-            var cn = cats[ci] && cats[ci].name ? String(cats[ci].name) : "";
-            var cd = cats[ci] && cats[ci].description ? String(cats[ci].description) : "";
-            if (cn && !liveCacheGet(cn)) texts.push(cn);
-            if (cd && !liveCacheGet(cd)) texts.push(cd);
+    // v1.9.76: the reply travels through document.title (~6 kB) and the raw build
+    // payload is 6-12 kB, so the one-shot fetch always timed out (03:47:32
+    // `build prefetch id=731832 ok=false err=timeout`) and nothing was cached.
+    // The bridge now resolves the texts itself and answers three translated
+    // pairs per call; we walk the chunks and cache every pair.
+    var gen1 = live.gen || 0;
+    var got = 0;
+    function fetchChunk(chunk, depth) {
+      if ((live.gen || 0) !== gen1) return; // a newer click owns the page now
+      if (depth > 60) return;
+      liveSend(
+        { kind: "build", id: id, chunk: chunk },
+        25,
+        function (ok, err, res) {
+          try {
+            if ((live.gen || 0) !== gen1) return;
+            if (!ok || !res) {
+              $.Msg("[BBT] build prefetch id=" + id + " chunk=" + chunk + " ok=false" +
+                (err ? " err=" + err : "") + " cached=" + got);
+              return;
+            }
+            var items = res.items || [];
+            for (var i = 0; i < items.length; i += 1) {
+              var pair = items[i];
+              if (!pair || !pair[0] || !pair[1]) continue;
+              liveCachePut(String(pair[0]), String(pair[1]));
+              try { noteBuildPage(id, pair[2], String(pair[0]), String(pair[1])); } catch{}
+              got += 1;
+            }
+            if (res.next) { fetchChunk(chunk + 1, depth + 1); return; }
+            $.Msg("[BBT] build prefetch id=" + id + " total=" + (res.total || 0) +
+              " cached=" + got + " chunks=" + (chunk + 1));
+            // The freshly cached texts are not on screen yet: drop the memos and
+            // re-run the page so they get written now instead of on the next click.
+            try { resetMemos(root); } catch{}
+            try { refreshPage(root); } catch{}
+          } catch (e) {
+            $.Msg("[BBT] build prefetch failed: " + e);
           }
-          for (var i = 0; i < items.length; i += 1) {
-            var a = items[i] && items[i].annotation;
-            if (a && !liveCacheGet(a)) texts.push(a);
-          }
-          $.Msg("[BBT] build prefetch id=" + id + " ok=" + ok + " annotations=" + items.length +
-            " categories=" + cats.length + " todo=" + texts.length + (err ? " err=" + err : ""));
-          if (texts.length) {
-            uiRequestBatch(texts, function (results) {
-              var n = results ? Object.keys(results).length : 0;
-              $.Msg("[BBT] build prefetch cached " + n + "/" + texts.length);
-            });
-          }
-        } catch (e) {
-          $.Msg("[BBT] build prefetch failed: " + e);
-        }
-      },
-      LIVE_TARGET,
-    );
+        },
+        LIVE_TARGET,
+        "/api/v1/build?build_id=" + id + "&chunk=" + chunk,
+      );
+    }
+    fetchChunk(0, 0);
   }
 
   // The main button: "translate everything on this page that we do not know yet".

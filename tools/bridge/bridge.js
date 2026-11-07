@@ -262,6 +262,9 @@ function bridgePage(query) {
   const id = String(query.get("id") || "x").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) || "x";
   const text = String(query.get("text") || "");
   const target = String(query.get("target") || TARGET);
+  // v1.9.76: the build prefetch resolves up to five texts per call and needs more
+  // than the default 8s budget; callers may ask for up to 25s.
+  const tlimit = Math.max(1000, Math.min(25000, parseInt(query.get("to") || "8000", 10) || 8000));
   let d = null;
   const rawD = query.get("d");
   if (rawD) {
@@ -328,7 +331,8 @@ function bridgePage(query) {
     "try{document.title=s;}catch(e){}",
     "try{location.hash='#'+encodeURIComponent(s);}catch(e){}}",
     "try{document.title='bbt-alive';}catch(e){}",
-    "var t=setTimeout(function(){if(!done){done=true;out({ok:false,error:'bridge_timeout'});}},8000);",
+    "var tlimit=" + tlimit + ";",
+    "var t=setTimeout(function(){if(!done){done=true;out({ok:false,error:'bridge_timeout'});}},tlimit);",
     "var op=" + JSON.stringify(op) + ";",
     "var body=" + JSON.stringify(reqBody) + ";",
     "var url=" + JSON.stringify(apiPath) + ";",
@@ -377,7 +381,59 @@ function offlineMemory(lg) {
   return offlineZh;
 }
 
-/** Local rows whose translation differs from what the VPK ships. */
+/* Local rows whose translation differs from what the VPK ships. */
+// ---- the texts a build's page shows (v1.9.76) ----
+// The prefetch used to ship the whole build JSON to the game (~6-12 kB), which
+// does not fit through the title channel, so it always timed out. The bridge now
+// resolves the texts itself and hands them over three at a time, already
+// translated, so the client only has to cache them and re-scan.
+const buildCache = new Map();
+async function buildTexts(id) {
+  const now = Date.now();
+  const hit = buildCache.get(id);
+  if (hit && now - hit.t < 600000) return hit.texts;
+  const r = await fetch("https://api.deadlock-api.com/v1/builds?build_id=" + id + "&limit=1", {
+    signal: AbortSignal.timeout(8000),
+  });
+  const j = await r.json();
+  const row = Array.isArray(j) ? j[0] : j;
+  const out = [];
+  const seen = new Set();
+  // v1.9.77: every text carries where it comes from ("n" name, "d" overview,
+  // "cn<i>"/"cd<i>" category i's header/description, "a" item annotation), so the
+  // client can write a category frame by index instead of guessing from text.
+  const push = (v, tag) => {
+    const s = String(v || "").replace(/\s+/g, " ").trim();
+    if (s.length < 3 || seen.has(s)) return;
+    if (/^[\d\s.,:%()\-]+$/.test(s)) return; // pure numbers / punctuation
+    seen.add(s);
+    out.push({ t: s, tag: String(tag || "a") });
+  };
+  if (row) {
+    const hb = row.hero_build || row;
+    push(hb.name, "n");
+    push(hb.description, "d");
+    const d = hb.details || null;
+    const walk = (arr) => {
+      for (const it of arr || []) if (it) push(it.annotation || it.notes, "a");
+    };
+    walk(hb.items);
+    if (d) {
+      walk(d.items);
+      const secs = d.mod_categories || [];
+      for (let ci = 0; ci < secs.length; ci += 1) {
+        const sec = secs[ci];
+        if (!sec) continue;
+        push(sec.name || sec.category_name, "cn" + ci);
+        push(sec.description || sec.category_description, "cd" + ci);
+        walk(sec.mods || sec.items);
+      }
+    }
+  }
+  buildCache.set(id, { t: now, texts: out });
+  return out;
+}
+
 function overridesFor(lg) {
   const offline = offlineMemory(lg);
   const out = [];
@@ -451,61 +507,40 @@ function start() {
       }));
     }
     if (p === "/api/v1/build") {
-      // v1.9.58: the details page shows the build id ("出装ID 317845"). Knowing
-      // it, the public build can be fetched once and every item annotation
-      // translated in a single batch, instead of waiting for each hover to
-      // create a tooltip that needs its own round trip.
+      // v1.9.76: the reply travels through document.title (~6 kB), and the raw
+      // build payload is 6-12 kB - so the in-game prefetch timed out every time
+      // (03:47:32 `build prefetch id=731832 ok=false err=timeout`). The bridge now
+      // resolves the texts itself and answers three at a time, already translated.
       const id = String(url.searchParams.get("build_id") || url.searchParams.get("id") || "").replace(/[^0-9]/g, "");
       if (!id) return send(400, "application/json", JSON.stringify({ ok: false, error: "bad_id" }));
+      const chunk = Math.max(0, parseInt(url.searchParams.get("chunk") || "0", 10) || 0);
       try {
-        const r = await fetch("https://api.deadlock-api.com/v1/builds?build_id=" + id + "&limit=1", {
-          signal: AbortSignal.timeout(8000),
-        });
-        const j = await r.json();
-        const row = Array.isArray(j) ? j[0] : j;
+        const texts = await buildTexts(id);
+        const from = chunk * 3;
+        const slice = texts.slice(from, from + 3);
         const items = [];
-        const walk = (arr) => {
-          for (const it of arr || []) {
-            if (!it) continue;
-            const note = it.annotation || it.notes || "";
-            if (note) items.push({ item_id: it.item_id, annotation: String(note) });
+        for (const entry of slice) {
+          const t = entry.t;
+          let zh = null;
+          const hit = table.lookup(t, TARGET);
+          if (hit) zh = hit.translation;
+          else {
+            const v = await translateOne(t, TARGET);
+            if (v) {
+              zh = v;
+              try { table.add(t, v, { source: "prefetch", explicit: true, lg: TARGET }); } catch (e) { /* noop */ }
+            }
           }
-        };
-        if (row) {
-          // The API wraps everything in hero_build; details.mod_categories[*].mods
-          // is where the author's per-item annotations live.
-          const hb = row.hero_build || row;
-          walk(hb.items);
-          const d = hb.details || null;
-          if (d) {
-            walk(d.items);
-            for (const sec of d.mod_categories || []) walk(sec.mods || sec.items);
-          }
-          // v1.9.69: the same payload already carries what the page body shows -
-          // the build name, the overview paragraph and every category header. Send
-          // them along so one prefetch batch covers the whole details page instead
-          // of leaving them to a later click round trip (user: "顺带做了不就好了").
-          const cats = [];
-          const secs = (d && (d.mod_categories || [])) || [];
-          for (const sec of secs) {
-            if (!sec) continue;
-            const nm = String(sec.name || sec.category_name || "");
-            const ds = String(sec.description || sec.category_description || "");
-            if (nm || ds) cats.push({ name: nm, description: ds });
-          }
-          if (row) {
-            return send(200, "application/json", JSON.stringify({
-              ok: true,
-              id: Number(id),
-              count: items.length,
-              name: hb.name || "",
-              description: hb.description || "",
-              categories: cats,
-              items,
-            }));
-          }
+          items.push([t, zh || "", entry.tag]);
         }
-        return send(200, "application/json", JSON.stringify({ ok: true, id: Number(id), count: 0, items: [] }));
+        return send(200, "application/json", JSON.stringify({
+          ok: items.some((p) => p[1]),
+          id: Number(id),
+          total: texts.length,
+          chunk,
+          items,
+          next: from + slice.length < texts.length,
+        }));
       } catch (e) {
         return send(200, "application/json", JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
       }
@@ -556,8 +591,19 @@ function start() {
   // table: a local translation for a text the VPK also has, but different.
   if (p === "/api/v1/tm/overrides") {
     const lg = String(url.searchParams.get("target") || url.searchParams.get("lg") || TARGET);
-    const list = overridesFor(lg);
-    return send(200, "application/json", JSON.stringify({ ok: true, overrides: list }));
+    // v1.9.76: the reply travels through document.title (~6 kB). The full override
+    // list is ~80 kB, so every fetch timed out and the corrections never reached
+    // the game. Page it: three rows per call.
+    const all = overridesFor(lg);
+    const chunk = Math.max(0, parseInt(url.searchParams.get("chunk") || "0", 10) || 0);
+    const from = chunk * 3;
+    const slice = all.slice(from, from + 3);
+    return send(200, "application/json", JSON.stringify({
+      ok: true,
+      overrides: slice,
+      total: all.length,
+      next: from + slice.length < all.length,
+    }));
   }
 
   // Lookup + translate the misses + grow the table. This is the button's request.
