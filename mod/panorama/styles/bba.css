@@ -13,6 +13,18 @@
    (原文/翻译/中英对照 modes) is gone; its static menu surfaced in game as a
    floating clipped list and was dropped. */
 
+/* v1.9.34 (user feedback 11/07 19:47 "概览描述也存在覆盖问题"): the author
+   overview and the category notes are long paragraphs inside fixed-height
+   panes. The Chinese text wraps to a different line count than the source, and
+   with the label's overflow left visible the spare lines drew straight over the
+   icons and category frames underneath. Clip the label to its own box - the
+   pane still scrolls, it just stops bleeding outside. */
+#BuildDetails_Overview .BuildDescription,
+.BuildDescription,
+.CategoryDescription {
+	overflow: clip;
+}
+
 /* In-game shop-page header button (citadel_shop_mods_build.xml, first child of
    #ControlButtons). Collapsed by default: the same layout is also embedded in
    the build browser, where the details toolbar already offers these buttons.
@@ -20,6 +32,12 @@
 #BBTTranslateButton3 { visibility: collapse; margin-right: 6px; }
 /* bba_translate.js adds .BBTShow on the standalone (in-game) instance only. */
 #BBTTranslateButton3.BBTShow { visibility: visible; }
+/* v1.9.34 (user feedback 11/07 19:45 "有遮挡，可以再往下调整一行"): the trigger
+   shared the engine's top row and its lower edge was clipped by the header
+   band. A transform moves the button (and its hit box) down one row without
+   reflowing the engine's row - margin would grow the row and push the info
+   icon with it. */
+#BBTTranslateButton3.BBTShow { transform: translatey(30px); }
 
 /* v1.9.28 (user feedback 11/06 21:31): the two-state trigger no longer shares
    the build-details title row (a long build name squeezed it off the edge).

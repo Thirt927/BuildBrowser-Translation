@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.32";
+  var VERSION = "1.9.33";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -92,23 +92,19 @@
   var LIVE_REQUEST_TIMEOUT = 6.0; // seconds per translation request
   var LIVE_POLL = 0.1; // title poll interval
   var LIVE_HARD_FAILS_MAX = 3; // give up after this many dead round trips
-  var LIVE_TEXT_MAX = 700; // per-text cap (the title channel is a few KB)
+  var LIVE_TEXT_MAX = 1800; // per-text cap (v1.9.33: was 700, which dropped
+  // the author overview - three paragraphs of build notes ran past it and the
+  // label was skipped without a word)
   var LIVE_BATCH_CHARS = 2500; // total source characters per batch request
   var LIVE_CACHE_MAX = 600; // session-only memory of live translations
 
   function realGlobal() {
-    try {
-      if (typeof globalThis !== "undefined" && globalThis) return globalThis;
-    } catch{}
-    // Required by the engine, not by choice: some Deadlock Panorama builds have
-    // no globalThis and throw on any reference to an undeclared identifier, so
-    // this is the only way left to reach the global object (see AGENTS.md 6.7).
-    // The source is a constant string with no input from the game or the bridge,
-    // so there is nothing to inject into it.
-    try {
-      // pi-lens-ignore: no-new-func
-      return Function("return this")();
-    } catch{}
+    // v1.9.34: the Function("return this") fallback is gone. It was the only
+    // way to reach the global object on builds without globalThis, but this
+    // engine has it (the BabelTower/BBA_* handshake and the mod's own shared
+    // two-state store both go through it in game), and a dynamic-code call in
+    // a mod that ships to players is not worth keeping for a build nobody runs.
+    try { if (typeof globalThis !== "undefined" && globalThis) return globalThis; } catch{}
     return {};
   }
   var G = realGlobal();
@@ -2683,6 +2679,15 @@
     if (!g) return;
     var want = m === "zh";
     if (g.on !== want) {
+      // v1.9.33: one physical click can reach two contexts (the details pane
+      // and the selector it is embedded in both carry a trigger). Each flipped
+      // the shared switch, so the pair cancelled out and the caption snapped
+      // back to 翻译 - the user's "按钮没有双状态". A flip inside 400ms of the
+      // previous one is the same click arriving twice.
+      var t0 = 0;
+      try { t0 = nowMs() || 0; } catch{ t0 = 0; }
+      if (t0 > 0 && g.flipAt && (t0 - g.flipAt) < 400) return;
+      g.flipAt = t0;
       g.on = want;
       g.ver = (g.ver || 0) + 1; // every context's tick() sees the bump on its next run
     }
