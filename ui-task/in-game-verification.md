@@ -99,3 +99,70 @@
 
 BLOCKED(保守)：以上 1/4 的像素几何、3/5 的点击链路仍需人工实机 30 秒：
 B 开出装 → 点 build 卡片 → Browse Builds → 点「出装选项」左侧的「翻译」→ 再看切换出装时右侧名称。
+
+## v1.9.29（2026-11-07 14:39 实测 → 两个根因）
+
+### 1. 桥从未连上，而且原因在"找面板"，不在桥
+14:39:17 一次启动里 9 个上下文（1× `CitadelShopModsBuild` + 8× `CitadelShopModsBuildCategory`）
+全部打 `live bridge: not available on 8792/8793 (8792:panel_unavailable, …)`。
+宿主侧 8792 在听、证书受信、health 200 —— 失败码 `panel_unavailable` 说明脚本根本没找到 `<HTML>` 面板。
+
+- 第一层：`liveRoot()` 只从 `$.GetContextPanel()` 向下 BFS；category 帧的上下文是深层节点，
+  `<HTML>` 面板在布局根附近（兄弟子树），向下永远搜不到。（v1.9.29 已改为先向上）
+- 第二层（14:39 实测仍失败）：向上走到了**全局 HUD 根**而不是布局根。shop 树有上千面板，
+  4000 的搜索预算在碰到我们布局之前就烧完。
+  修法：`isLayoutRootTag()`（`CitadelShopModsBuild` / `CitadelShopModsBuildCategory` /
+  `CitadelBuildDetails` / `CitadelHeroBuildsSelector`）——向上遇到布局根就停，再向下搜（预算 40000，
+  只在一个布局内）。
+
+### 2. 资源编译器不接受"根级带 id 的面板"
+`citadel_shop_mods_build_category.xml` 里 `<HTML id="BBTBridgePanelCategory">` 作为 `<root>` 的直接子节点时编译失败：
+
+```
+(28,3): RESOURCE COMPILE ERROR: Found root panel with 'id' attribute, which is not permitted.
+```
+
+该布局除了它以外只有一个顶层 `<CitadelShopModsBuildCategory>` 面板，于是这个 `<HTML>` 被当成"根面板"。
+修法：把 `<HTML>` 放进 `<CitadelShopModsBuildCategory>` 内部（首个子节点），这样它既不是根面板，
+也正好在该帧上下文自己的子树里——`liveRoot()` 不需要向上走就能命中。
+
+### 3. 诊断代码打死轮询（重要教训）
+`[BBT] PERF` 采样行初版引用 `layoutTag`（boot 内的局部变量，模块作用域没有）→ 14:39:28 起每 120 tick 抛
+`ReferenceError: layoutTag is not defined`，异常跳过 `$.Schedule(interval, tick)`，**整个轮询停摆**。
+现改为模块级 `bootLayoutTag` + `try/catch` 包裹：诊断永远不能杀死主循环。
+
+### 4. 大厅卡顿的处置（待实测量化）
+`liveDisarm()`：桥彻底失败后每上下文只把面板 park 到 `about:blank` 一次，不再导航；
+自愈重置上限 3 次（每次重置 = 一次完整 CEF 导航）。之前"每次无应答都重置面板"在 9 个上下文里循环，
+是大厅掉帧最可疑的来源。`BBT_DEBUG` 打开后每 120 tick 打 `[BBT] PERF tag= fps= frameMs= scanMs= interval=`
+——用户报"大厅极卡"时要这一行，才能分清是脚本扫描还是帧本身。
+
+### 5. 部署受阻（14:43）
+用户正在对局中，游戏进程锁住 `game/citadel/addons/pak13_dir.vpk`，`Copy-Item` 报 IOException。
+新 VPK 已构建在 `dist/`，等对局结束（或用户关游戏）后 `-Deploy` 一次即可。
+
+### 6. 桥连上的真正原因：标题只能从「面板事件」拿（v1.9.29 定案）
+18:21 的日志里页面明明跑起来了（桥侧记录到页面自己发的 `GET /api/v1/health`），但游戏侧
+`panel.title`、`GetAttributeString("title")`、`src` 三个回读口全是空串：
+
+```
+[BBT] live probe timeout on LCT r1: polls=41 lastTitle="(empty title) src="" want="https://localhost:8792/bridge?id=r1&op=health"
+```
+
+结论：这几个 `<HTML>` 面板不把页面标题暴露成属性。BabelTower 聊天翻译那套能工作是靠
+`$.RegisterForUnhandledEvent("HTMLChangedTitle", ...)`（另加 `HTMLTitle` / `HTMLContentLoaded` /
+`HTMLURLChanged` / `HTMLLoadPage` 兜底），`.title` 轮询只是它的次要通道。
+v1.9.29 照此补上事件订阅后，18:45:32 首次出现：
+
+```
+[BBT] live bridge: connected to DeadlockLingua Bridge (localhost:8792, provider=openai)
+```
+
+同时删掉「`actuallayoutwidth===0` 就不探测」的闸门——实测该属性在出装界面打开时仍是 0，
+闸门会让所有上下文永远不探测（18:29 那次 `deferred` 一直没连上就是这个原因）。
+
+### 7. 仍然要向前的两件事
+- 概览页按钮「点一下没反应」：`dispatch()` 与 v1.9.28 逐字节相同，症状需实机再取一行证据
+  （`[BBT] click translate via …` 之后没有 `[BBT] two-state global: 翻译`）。当前怀疑是桥连上后
+  后台 tick 已经把整页翻成中文，点击切换看不出来；也可能是 caption 状态键为空。
+- 已部署的 VPK 是 18:45 那份；之后的改动要等游戏关闭后 `-Deploy` 才会进游戏。
