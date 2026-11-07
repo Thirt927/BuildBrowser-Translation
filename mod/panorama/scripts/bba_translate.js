@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.62";
+  var VERSION = "1.9.63";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3476,8 +3476,24 @@
         }
       } catch{}
     }
-    var stack = [root];
-    var budget = 1200;
+    // v1.9.63: the details panel ("出装ID：411712") is its own layout instance
+    // under the HUD root, so a click that runs in the shop context can never see
+    // its label however deep the scan goes. Climb to the topmost panel first.
+    var roots = [root];
+    try { roots.push($.GetContextPanel()); } catch{}
+    try {
+      var up = $.GetContextPanel();
+      for (var d = 0; d < 12 && up; d += 1) {
+        var par = null;
+        try { par = up.GetParent ? up.GetParent() : null; } catch{ par = null; }
+        if (!par) break;
+        up = par;
+      }
+      if (up) roots.push(up);
+    } catch{}
+    var stack = [];
+    for (var ri = 0; ri < roots.length; ri += 1) if (roots[ri]) stack.push(roots[ri]);
+    var budget = 6000;
     var samples = [];
     while (stack.length && budget > 0) {
       budget -= 1;
