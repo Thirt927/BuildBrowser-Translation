@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.49";
+  var VERSION = "1.9.50";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2326,6 +2326,51 @@
   // surface only the build author's own annotation - rendered inside the
   // engine's .NotesContainer - is translated.
   var notesOnlySurface = false;
+
+  // v1.9.50: the tooltip surface shares the one physical two-state switch. It
+  // reads it every scan (each layout has its own JS context, so a module var is
+  // not shared); a version bump means the user flipped the page, and a flip back
+  // to 原文 must put the author's English back.
+  var annotVer = -1;
+
+  function annotZhOn() {
+    var g = null;
+    try { g = twoStateGlobal(); } catch{ g = null; }
+    return !!(g && g.on);
+  }
+
+  // Restore every label this context translated to the text it carried before.
+  // memo.in is the original string, so the tooltip needs no separate probe.
+  function revertAnnotCtx(root) {
+    var stack = [root];
+    var budget = 600;
+    while (stack.length && budget > 0) {
+      budget -= 1;
+      var p = stack.pop();
+      if (!p) continue;
+      var rec = memo.get(p);
+      if (rec && rec.k === 1 && typeof rec.in === "string") {
+        try { writeText(p, rec.in); } catch{}
+        memo.delete(p);
+      }
+      var n = 0;
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch{ n = 0; }
+      for (var i = 0; i < n; i += 1) {
+        try { var c = p.GetChild(i); if (c) stack.push(c); } catch{}
+      }
+    }
+  }
+
+  function syncAnnotMode(root) {
+    var g = null;
+    try { g = twoStateGlobal(); } catch{ g = null; }
+    var ver = g ? (g.ver || 0) : 0;
+    if (ver === annotVer) return;
+    var first = annotVer < 0;
+    annotVer = ver;
+    if (first) return; // nothing written yet
+    try { revertAnnotCtx(root); } catch{}
+  }
   function tooltipNeedsTranslation(t) {
     if (typeof t !== "string" || t.length < 2) return false;
     var hasCjk = false;
@@ -2340,6 +2385,11 @@
   }
 
   function scan(root) {
+    // v1.9.50: the item tooltip follows the page's two-state switch. Before this
+    // it translated unconditionally, so with the page back on 原文 the annotation
+    // bubble stayed Chinese and there was no way to read the author's original
+    // wording - the user's "物品注释不显示原文了".
+    if (notesOnlySurface) { try { syncAnnotMode(root); } catch{} }
     // T6 chunking: a walk is a persistent cycle. When carry is empty this is the
     // first tick of a cycle (push root); otherwise we resume mid-walk. A panel
     // has exactly one parent, so nothing is re-pushed; disposed panels die on the
@@ -2400,7 +2450,7 @@
           // (R1/R4), gated cross-context via G (scanCtx.tsGate).
           var origOn = false;
           try { origOn = scanCtx.tsGate || !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
-          if (!origOn && (!notesOnlySurface || tooltipNeedsTranslation(t))) translatePanel(p, t);
+          if (!origOn && (!notesOnlySurface || (annotZhOn() && tooltipNeedsTranslation(t)))) translatePanel(p, t);
           // v1.9.29 (lobby stutter, the real source): a page pinned to 原文
           // never reached translatePanel, so nothing ever memoed its labels -
           // every scan counted the whole page as "fresh" and re-armed the burst
