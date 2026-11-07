@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.42";
+  var VERSION = "1.9.43";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2392,33 +2392,50 @@
   // v1.9.41: the one-shot version ran during boot, when every panel still
   // reports NaN (nothing is laid out yet), so it never produced a usable
   // number. It now re-runs from tick() until the trigger has a real width.
+  // v1.9.43: pure diagnostics. The previous versions returned early and logged
+  // nothing when the API they assumed was missing (Panorama has no
+  // GetPositionWithinWindow on every build), so the log stayed empty for three
+  // builds. This prints what the trigger panel actually reports, six times per
+  // context, then disarms itself.
   function probeRects(ctx) {
-    var rectIds = ["ControlArea", "BBTTabBtnHost", "BBTTranslateButton2", "BuildControls", "BuildOptionButton", "ControlButtons", "BuildHeader"];
-    var hostRect = null;
-    var hp = uiPanelIn(ctx, "BBTTabBtnHost");
-    if (hp) { try { hostRect = hp.GetPositionWithinWindow(); } catch{ hostRect = null; } }
-    if (!hostRect || !(hostRect.w > 0)) return false; // not laid out yet (NaN fails >)
+    if (!ctx) return false;
+    var tries = G.__BBT_RECT_TRY || 0;
+    if (tries >= 6 || G.__BBT_RECT_DONE) return true;
+    var host = uiPanelIn(ctx, "BBTTabBtnHost");
+    if (!host) return false;
+    G.__BBT_RECT_TRY = tries + 1;
+    var api = "none";
+    var rect = null;
+    try { api = typeof host.GetPositionWithinWindow; } catch{}
+    try { rect = host.GetPositionWithinWindow(); } catch{}
+    var lw = -1;
+    var lh = -1;
+    try { lw = host.actuallayoutwidth; lh = host.actuallayoutheight; } catch{}
+    $.Msg(
+      "[BBT] rect diag " + (tries + 1) + "/6 api=" + api +
+        " lw=" + lw + " lh=" + lh +
+        " rect=" + (rect ? (rect.x + "," + rect.y + "," + rect.w + "," + rect.h) : "null")
+    );
+    if (!(lw > 0)) return false; // still not laid out
     G.__BBT_RECT_DONE = true;
-    var paneForRect = layoutRoot(ctx);
-    if (paneForRect) {
-      try {
-        var pp = paneForRect.GetPositionWithinWindow();
-        if (pp && pp.w > 0) $.Msg("[BBT] rect <layoutRoot> x=" + Math.round(pp.x) + " y=" + Math.round(pp.y) + " w=" + Math.round(pp.w) + " h=" + Math.round(pp.h));
-      } catch{}
+    var ids = ["ControlArea", "BBTTabBtnHost", "BBTTranslateButton2", "BuildControls", "BuildOptionButton", "BuildHeader"];
+    var pane = layoutRoot(ctx);
+    if (pane) {
+      var pr = null;
+      try { pr = pane.GetPositionWithinWindow(); } catch{}
+      var pw = -1;
+      try { pw = pane.actuallayoutwidth; } catch{}
+      $.Msg("[BBT] rectPane " + (pr ? (pr.x + "," + pr.y + "," + pr.w + "," + pr.h) : "null") + " w=" + pw);
     }
-    for (var ri = 0; ri < rectIds.length; ri += 1) {
-      var rp = uiPanelIn(ctx, rectIds[ri]);
-      if (!rp) continue;
-      // Panorama panels have no actualx/actualy (that logged undefined since
-      // this probe was added); GetPositionWithinWindow() is the real API.
-      var rq = null;
-      try { rq = rp.GetPositionWithinWindow(); } catch{}
-      $.Msg(
-        "[BBT] rect " + rectIds[ri] +
-          (rq && rq.w > 0
-            ? " x=" + Math.round(rq.x) + " y=" + Math.round(rq.y) + " w=" + Math.round(rq.w) + " h=" + Math.round(rq.h)
-            : " (no rect)")
-      );
+    for (var i = 0; i < ids.length; i += 1) {
+      var el = uiPanelIn(ctx, ids[i]);
+      if (!el) continue;
+      var r = null;
+      try { r = el.GetPositionWithinWindow(); } catch{}
+      var w = -1;
+      var h = -1;
+      try { w = el.actuallayoutwidth; h = el.actuallayoutheight; } catch{}
+      $.Msg("[BBT] rect " + ids[i] + " " + (r ? (r.x + "," + r.y + "," + r.w + "," + r.h) : "null") + " lw=" + w + " lh=" + h);
     }
     return true;
   }
