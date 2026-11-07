@@ -52,10 +52,10 @@
 	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
-	/* v1.9.36: 30px moved it straight out of the clip box - the button vanished
-	   from the overview page entirely. The header row itself clips, so the host
-	   has to be allowed to draw past it. */
-	transform: translatey(30px);
+	/* v1.9.37 (user feedback 11/07 20:11 "太往右了"): the host is laid out at
+	   the far right of the details pane, past the visible edge. Shifting left by
+	   70px brings it back inside the pane while keeping the 30px drop. */
+	transform: translate(-70px, 30px);
 }
 /* The wrapper that was cutting the trigger off (v1.9.35/36 field reports: a
    sliver of 翻译 above the row, then nothing at all once it moved). `noclip`
