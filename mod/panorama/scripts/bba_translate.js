@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.66";
+  var VERSION = "1.9.67";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -416,16 +416,40 @@
   }
 
   // Write the status text onto a panel inside `root` (default: our own instance).
+  function uiWriteCaption(p, text) {
+    if (!p) return false;
+    try { p.text = text; if (p.text === text) return true; } catch{}
+    try { if (p.SetText) { p.SetText(text); if (!p.text || p.text === text) return true; } } catch{}
+    // A CitadelButton keeps its caption on an inner label; write that too.
+    var stack = [p];
+    var budget = 40;
+    while (stack.length && budget > 0) {
+      budget -= 1;
+      var q = stack.shift();
+      if (q !== p) {
+        try { if (typeof q.text === "string") { q.text = text; if (q.text === text) return true; } } catch{}
+      }
+      var n = 0;
+      try { n = q.GetChildCount ? q.GetChildCount() : 0; } catch{ n = 0; }
+      for (var i = 0; i < n; i += 1) { try { var c = q.GetChild(i); if (c) stack.push(c); } catch{} }
+    }
+    return false;
+  }
+
   function uiSetText(ids, text, root) {
     var scope = root || contextPanel();
     var p = uiPanelIn(scope, ids);
-    if (!p) return false;
-    try {
-      p.text = text;
-      return true;
-    } catch{
+    if (!p) {
+      // v1.9.67: the caption used to fail silently, which reads as "clicked and
+      // nothing happened". Say which side lost it.
+      try { $.Msg("[BBT] caption: control not found (", text, ") in " + instTag(scope)); } catch{}
       return false;
     }
+    if (!uiWriteCaption(p, text)) {
+      try { $.Msg("[BBT] caption: could not set '", text, "' on #", p.id || "?"); } catch{}
+      return false;
+    }
+    return true;
   }
 
   // Names of layout handlers that failed to export (normally empty). Kept so the
@@ -2059,10 +2083,41 @@
     return translated;
   }
 
+  // v1.9.67: the value of these labels does not live in `.text` - the layout
+  // carries a token whose localization template is `{s:var}` and the engine
+  // renders the variable. Writing `.text` wipes the template, and then every
+  // category header falls back to whichever `SetDialogVariable` ran last (the
+  // user's "多了一个奇怪的翻译": all headers showing one category's description).
+  // Writing the variable keeps each panel's own binding.
+  var DLG_VARS = {
+    "#Citadel_HeroBuilds_CategoryName": "category_name",
+    "#Citadel_HeroBuilds_CategoryDescription": "category_description",
+    "#Citadel_HeroBuilds_BuildName": "selected_hero_build_name",
+    "#Citadel_HeroBuilds_BuildDescription": "selected_hero_build_description",
+  };
+  function dlgVarFor(panel) {
+    var tk = null;
+    try { tk = tokenFor(panel); } catch { tk = null; }
+    if (!tk) return null;
+    return DLG_VARS[tk] || null;
+  }
+  var dlgLast = new WeakMap();
+
   function writeText(panel, value) {
     var current;
     try { current = panel.text; } catch{ return false; }
     if (typeof current === "string" && current === value) return false;
+    var v = dlgVarFor(panel);
+    if (v) {
+      var prev = dlgLast.get(panel);
+      if (prev === value) return false;
+      try {
+        panel.SetDialogVariable(v, String(value));
+        dlgLast.set(panel, value);
+        if (written.length < 400 && written.indexOf(panel) < 0) written.push(panel);
+        return true;
+      } catch{}
+    }
     try {
       panel.text = value;
       if (written.length < 400 && written.indexOf(panel) < 0) written.push(panel);
@@ -2240,6 +2295,9 @@
         }
       } else if (seen.k === 1) {
         if (raw === seen.out) return;
+        // A template label never reports the rendered value in .text, so the
+        // comparison above cannot fire; its last write is the authority.
+        if (dlgLast.get(panel) === seen.out) return;
       }
     }
     if (HAS_CJK.test(raw) && !COPY_SUFFIX.test(raw)) {
