@@ -1,6 +1,6 @@
 # Build UI 汉化（BuildBrowser Translation）— 交付报告 buildui-report
 
-版本 v1.9.27 · 2026-11-06 · 对应任务 `ui-task/`（RALPH R1–R5 + 3 个实机 bug 修复）
+版本 v1.9.27 · 2026-11-06 · 对应当时的 RALPH 任务台账（已归档）（RALPH R1–R5 + 3 个实机 bug 修复）
 
 ## 需求 R1–R5 实现状态
 
@@ -10,7 +10,7 @@
 | R2 | 点「翻译」后当前页内容刷新时保持已翻状态 | v1.9.27 双态全局化（`G.__BBT_TWO_STATE.on` 单一开关 + ver 计数），任意 ctx 点击翻转所有 ctx；`ui_button_simtest` R2 段全绿 |
 | R3 | 内嵌分类框保持折叠/不影响引擎 | 维持 v1.9.26 行为（browser 面展开、游戏内嵌框折叠） |
 | R4 | 作者注释/分类注释补翻 | 走 `[BBT] MISS` → `collect_new_texts` → TM 管线；双态开关 ON 时 resyncAll 覆盖 BuildDescription 等角色标签 |
-| R5 | 游戏内实机验证 | 日志级证据齐（`console.log` [BBT] 行）；**实机点击验证 BLOCKED（保守）——模型无读图能力 + 盲驱动无法稳定打开出装浏览器页**，见 `ui-task/in-game-verification.md` 与 `ui-task/OPEN_QUESTIONS.md`（已打 [保守]） |
+| R5 | 游戏内实机验证 | 日志级证据齐（`console.log` [BBT] 行）；**实机点击验证 BLOCKED（保守）——模型无读图能力 + 盲驱动无法稳定打开出装浏览器页**，见 `console.log` 中 `[BBT]` 行（原任务台账已归档） 与 原任务台账（已归档）（已打 [保守]） |
 
 ## v1.9.27 修复内容（3 个实机 bug）
 

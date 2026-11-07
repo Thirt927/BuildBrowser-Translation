@@ -27,7 +27,7 @@
 
 部署：`dist/pak13_dir.vpk` md5 `6d0d6792`（10 套离线测试 + layout tokens 全绿）。
 
-## v1.9.27（2026-11-06）— 实机三 bug 修复（ui-task GOAL 收口）
+## v1.9.27（2026-11-06）— 实机三 bug 修复（RALPH GOAL 收口，台账已归档
 
 实机（v1.9.26 部署后）反馈 3 个问题，全部定位 + 修复 + 离线回归 + 干净版部署：
 
@@ -43,7 +43,7 @@
   离线 `ui_button_simtest` R1/R2/R4 段全绿（逐帧全翻/全回、caption 跟踪下一步动作、启动默认原文）。
 - 【待验】实机点击级终验（人工）：模型无读图 + 盲驱动无法稳定打开出装浏览器详情页，
   R1 几何 / R2 点击翻转 / R4 作者说明翻中 记 BLOCKED(保守)，步骤见 `docs/buildui-report.md` §实机验证步骤；
-  日志级代理证据见 `ui-task/in-game-verification.md`（干净版 0 CSS 警告 / 0 探针行 / 双态 ver 行）。
+  日志级代理证据见 `console.log` 中 `[BBT]` 行（原任务台账已归档）（干净版 0 CSS 警告 / 0 探针行 / 双态 ver 行）。
 - 取证临时补丁（`debugOn||true`、FOCUS/geom3/posprobe 探针）已全部 revert，NO_FORENSICS_RESIDUE；
   VPK `dist/pak13_dir.vpk`（md5 48eb5151b88e37978ee1f7db5d41fb44）重打部署。
 

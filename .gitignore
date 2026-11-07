@@ -20,3 +20,9 @@ logs/
 # local investigation scratch (session mining dumps, ad-hoc probes)
 tests/_scratch_livefix/
 
+
+# agent/runner state (regenerated locally, never part of the mod)
+.pi/
+.ralph-runner/
+.screenshots/
+ui-task/
