@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.67";
+  var VERSION = "1.9.68";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2799,9 +2799,13 @@
     // click (R2). The bump resets the backoff so the flip lands ~150ms on
     // every context. Revert runs once per flip (tsRevertDone, per context).
     try {
-      var gts = G.__BBT_TWO_STATE;
-      if (gts && gts.ver !== tsVer) {
-        tsVer = gts.ver;
+      // v1.9.68: the switch is shared through a class on the topmost panel, so a
+      // context learns about a flip from that class - its own `G.__BBT_TWO_STATE`
+      // copy never changes, and before this every context except the one that was
+      // clicked kept its stale memos and its slow interval.
+      var tsOnNow = tsSharedOn();
+      if (tsOnNow !== tsOnLast) {
+        tsOnLast = tsOnNow;
         var tsSyncKey = "";
         try { tsSyncKey = tsKeyOf(ctx); } catch{ tsSyncKey = ""; }
         if (tsSyncKey) {
@@ -2995,7 +2999,7 @@
   // NEXT action (翻译 | 原文) on every surface: browser toolbar, embedded
   // trigger, in-game header button.
   var TWO_STATE_PAGES = ["CitadelHeroBuildsSelector", "CitadelBuildDetails", "CitadelShopModsBuild"];
-  var tsVer = 0; // this context's copy of the shared version counter
+  var tsOnLast = null; // this context's last seen value of the shared switch (null = never synced)
   var tsRevertDone = Object.create(null); // this context: page key -> already reverted since the last flip
   // v1.9.27 (field bugs ②③): the two-state display is a SINGLE GLOBAL switch
   // (on = translated, off = original), shared by every JS context through the
