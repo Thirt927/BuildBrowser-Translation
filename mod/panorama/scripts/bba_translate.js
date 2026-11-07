@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.44";
+  var VERSION = "1.9.45";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -2246,6 +2246,23 @@
   // zero-work walk with a handful of `.text` reads (the "不拖帧" target).
   var stableRoots = new WeakMap(); // root -> { probes: [[panel, text]], children: n }
 
+  // v1.9.45 (user feedback 11/07 20:45): the item tooltip already shows
+  // Chinese for everything the game localises (name, cost, stat lines, passive
+  // text). Translating those again produced doubled/mixed copy, so on that one
+  // surface only the build author's own annotation - rendered inside the
+  // engine's .NotesContainer - is translated.
+  var notesOnlySurface = false;
+  function inAuthorNotes(p) {
+    var up = p;
+    for (var i = 0; i < 12 && up; i += 1) {
+      var has = false;
+      try { has = up.HasClass ? !!up.HasClass("NotesContainer") : false; } catch{ has = false; }
+      if (has) return true;
+      try { up = up.GetParent ? up.GetParent() : null; } catch{ up = null; }
+    }
+    return false;
+  }
+
   function scan(root) {
     // T6 chunking: a walk is a persistent cycle. When carry is empty this is the
     // first tick of a cycle (push root); otherwise we resume mid-walk. A panel
@@ -2307,7 +2324,7 @@
           // (R1/R4), gated cross-context via G (scanCtx.tsGate).
           var origOn = false;
           try { origOn = scanCtx.tsGate || !!(scanCtx.root && displayOrig.get(scanCtx.root)); } catch{}
-          if (!origOn) translatePanel(p, t);
+          if (!origOn && (!notesOnlySurface || inAuthorNotes(p))) translatePanel(p, t);
           // v1.9.29 (lobby stutter, the real source): a page pinned to 原文
           // never reached translatePanel, so nothing ever memoed its labels -
           // every scan counted the whole page as "fresh" and re-armed the burst
@@ -3526,6 +3543,7 @@
       if (!layoutTag && ctx && ctx.paneltype) layoutTag = String(ctx.paneltype);
     } catch{}
     bootLayoutTag = layoutTag;
+    notesOnlySurface = layoutTag === "CitadelTooltipModDetails";
     // The build-details layout is reused as a hover tooltip (hittest=false).
     // A toolbar there can never be clicked, it would only sit on top of the
     // tooltip, so hide it.
