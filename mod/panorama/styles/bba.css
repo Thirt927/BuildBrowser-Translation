@@ -52,12 +52,16 @@
 	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
-	/* v1.9.35 (user feedback 11/07 20:02, screenshot: only the top of 翻译
-	   shows above 快速购买/出装浏览器): this is the OVERVIEW page's trigger, and
-	   what clipped it was the pane's top edge, not the row. Moving the host
-	   itself down one row keeps the button and its hit box together; a
-	   margin-top would grow #ControlArea and push the whole header. */
+	/* v1.9.36: 30px moved it straight out of the clip box - the button vanished
+	   from the overview page entirely. The header row itself clips, so the host
+	   has to be allowed to draw past it. */
 	transform: translatey(30px);
+}
+/* The wrapper that was cutting the trigger off (v1.9.35/36 field reports: a
+   sliver of 翻译 above the row, then nothing at all once it moved). `noclip`
+   lets the shifted host paint outside the row it belongs to. */
+#ControlArea {
+	overflow: noclip;
 }
 #BBTTranslateButton2 {
 	min-width: 52px;
