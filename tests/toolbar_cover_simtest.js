@@ -75,17 +75,22 @@ function parentOf(xml, targetId) {
     detailsFile + ": trigger uses the native Medium Fill style",
     /<TextButton id="BBTTranslateButton2"[^>]*class="[^"]*Medium[^"]*Fill/.test(xml)
   );
-  // v1.9.27 (field bug ①): the trigger moved OUT of the engine's #BuildControls
-  // row (the Medium Fill squeeze overlapped 复制出装/BuildOptions on the browser
-  // overview) into the #BBTTabBtnHost anchor at the right edge of the
-  // .AuthoringInfo title row - the engine only puts the build name on the LEFT
-  // of that row, so the button can no longer stack over an engine control.
+  // v1.9.28 (user feedback 11/06 21:31): sharing the title row meant a long
+  // build name squeezed the trigger off the edge, so it now sits beside the
+  // engine's own 出装选项 control: a plain flow child of #ControlArea placed
+  // immediately before the engine's #BuildControls row (still NOT a child of
+  // that row - the v1.9.26 Medium Fill squeeze overlapped 复制出装).
   const triggerHost = parentOf(xml, "BBTTranslateButton2");
   check(detailsFile + ": trigger lives in #BBTTabBtnHost", triggerHost === "BBTTabBtnHost", "host=" + triggerHost);
   check(
-    detailsFile + ": host sits after .AuthoringInfo's build-name label",
+    detailsFile + ": host sits inside #ControlArea, just left of #BuildControls",
+    xml.indexOf('id="ControlArea"') < xml.indexOf('id="BBTTabBtnHost"') &&
+      xml.indexOf('id="BBTTabBtnHost"') < xml.indexOf('id="BuildControls"')
+  );
+  check(
+    detailsFile + ": host left the build-name title row (no squeeze by long names)",
     xml.indexOf('class="BuildName"') < xml.indexOf('id="BBTTabBtnHost"') &&
-      xml.indexOf('id="BBTTabBtnHost"') < xml.indexOf('id="ControlArea"')
+      xml.indexOf('id="BBTTabBtnHost"') > xml.indexOf('id="AuthoringInfo"')
   );
   check(detailsFile + ": trigger no longer in #BuildControls", triggerHost !== "BuildControls");
 

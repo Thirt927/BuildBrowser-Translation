@@ -43,21 +43,12 @@
 			<Panel class="AuthoringInfo">
 				<!-- engine-owned (text="#Token" whose value is {s:selected_hero_build_name}) -->
 				<Label class="BuildName" text="#Citadel_HeroBuilds_BuildName" html="true" />
-				<!-- v1.9.27 (field bug ①): the two-state trigger moved OUT of the
-					 engine's #BuildControls row (the Medium Fill squeeze overlapped
-					 复制出装/BuildOptions on the browser overview) into the RIGHT edge
-					 of this title row. The engine only puts the build name on the
-					 LEFT of the row, so the top-right corner is clear and the button
-					 can no longer stack over an engine control. #BBTTabBtnHost is the
-					 absolute-positioning anchor (bba.css); BBTActMark2 (the uiGuard
-					 ledger) rides with the button so it stays out of scanner view.
-					 The in-game embedded category frames keep the header button #3 as
-					 their two-state control; #2 only shows on the browser surfaces
-					 (wireToolbar: inBuildBrowser -> visible, else collapse). -->
-				<Panel id="BBTTabBtnHost" class="BBTTabBtnHost BBTNoTranslate">
-					<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
-					<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
-				</Panel>
+				<!-- v1.9.28 (user feedback 11/06 21:31): the two-state trigger moved out
+					 of this title row. Sharing the row with the build name meant a long
+					 title squeezed the button off the edge. It now sits in #ControlArea
+					 immediately left of the engine's own 出装选项 control, which is where
+					 the user asked for it (and where it competes with nothing: the row
+					 belongs to the engine, we only add one plain flow child). -->
 			</Panel>
 				<Panel id="ControlArea">
 					<Panel class="ExtraInfo">
@@ -98,6 +89,20 @@
 					 in the XML; this row keeps only the engine's own controls.
 					 BBTActivate/BTNActivate handlers are still exported for the
 					 moved button. -->
+					<!-- v1.9.28: two-state trigger, immediately left of 出装选项.
+					     A plain flow child of #ControlArea (NOT a child of
+					     #BuildControls): v1.9.26 put it inside the engine's row and the
+					     Medium Fill squeeze overlapped 复制出装/BuildOptions. As a
+					     sibling the row keeps its own width and our trigger is laid out
+					     beside it. #BBTActMark2 is the uiGuard ledger marker and rides
+					     with the button so it stays out of scanner view. #2 only shows
+					     on the browser surfaces (wireToolbar: inBuildBrowser -> visible,
+					     else collapse); the in-game category frames keep header
+					     button #3 as their two-state control. -->
+					<Panel id="BBTTabBtnHost" class="BBTTabBtnHost BBTNoTranslate">
+						<TextButton id="BBTTranslateButton2" class="Medium Fill BBTNoTranslate" text="翻译" hittest="true" onactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" onmouseactivate="BBTActivate(&apos;translate&apos;, $.GetContextPanel());" />
+						<Label id="BBTActMark2" class="BBTActMark BBTNoTranslate" hittest="false" />
+					</Panel>
 					<Panel id="BuildControls">
 						<Button />
 						<TextButton id="BuildOptionButton" class="Medium Fill" text="#Citadel_HeroBuilds_BuildOptions" onactivate="$.GetContextPanel().ToggleClass(&apos;ShowBuildControlsContainer&apos;)">

@@ -3,6 +3,30 @@
 > 2026-10-30 代码审查整理。标记:【已修】= 本次已在仓库中修复并有测试;【待修】= 已确认的问题,尚未改;
 > 【新增】= 计划中 / 等待新增的功能。
 
+## v1.9.28（2026-11-07）— 实机第二轮反馈：按钮位置/字高、切换出装名称不更新、在线桥诊断
+
+用户实机（v1.9.27）四条反馈，逐条处置：
+
+- 【已修】**翻译按钮上下太窄、汉字下沿被裁**：`#BBTTranslateButton2` 由 22px 改 28px、
+  `padding:3px 10px`、`overflow:visible`、`line-height:1.2`、`font-size:16px`（Medium 字号的 CJK 需要 ~28px）。
+- 【已修】**按钮位置（长标题会把按钮挤掉）**：`#BBTTabBtnHost` 从 `.AuthoringInfo` 标题行
+  迁到引擎 `#ControlArea` 内、`#BuildControls` **之前**（即游戏自带「出装选项」左侧），
+  宿主 `flow-children:right + horizontal-align:right`（v1.9.12 同款形状，与标题同行的挤压无关）。
+  仍**不是** `#BuildControls` 的子节点——v1.9.26 在那行里被 Medium Fill 挤压重合（bug ①）。
+  回归：`toolbar_cover_simtest` 断言改「host 在 #ControlArea 内、#BuildControls 之前、已离开标题行」。
+- 【已修】**切换出装后右侧出装名称不更新**：根因是「写了 `.text` 就等于拆掉 `{s:var}` 模板」——
+  引擎之后 `SetDialogVariable` 无处落地，标签永远停在上一条译文。v1.9.28 在 `translatePanel`
+  的「标签仍显示我们的译文」分支里先 `$.Localize(token, panel)` 问引擎要**当前**值：
+  发现新值就 `applyResync()` 重译，否则才回退到 `rec0.in`。这样即使身份探针没触发，
+  下一次 tick 也能拿到新出装名。
+- 【诊断】**在线桥「连不上」的判定变可自助排查**：`liveProbeTargets` 现在把每个端口的失败码
+  附在总结行上——`[BBT] live bridge: not available on 8792/8793 (8792:panel_unavailable, 8793:timeout); …`。
+  本机实测：8792（BabelTower 桥，node PID 9924）**在听**、证书 `CN=BabelTower-localhost`
+  （SHA1 `294616BA…`）已在 `CurrentUser\Root`、`https://localhost:8792/bridge?...&op=health`
+  返回 200 —— 桥与证书都没问题，问题在游戏侧能否加载 `<HTML>` 面板（下次实机看失败码即可区分）。
+
+部署：`dist/pak13_dir.vpk` md5 `6d0d6792`（10 套离线测试 + layout tokens 全绿）。
+
 ## v1.9.27（2026-11-06）— 实机三 bug 修复（ui-task GOAL 收口）
 
 实机（v1.9.26 部署后）反馈 3 个问题，全部定位 + 修复 + 离线回归 + 干净版部署：

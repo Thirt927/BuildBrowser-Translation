@@ -21,30 +21,34 @@
 /* bba_translate.js adds .BBTShow on the standalone (in-game) instance only. */
 #BBTTranslateButton3.BBTShow { visibility: visible; }
 
-/* v1.9.27 (field bug ①): the two-state trigger anchor for the build-details
-   title row. The button used to sit in the engine's #BuildControls row where
-   the Medium Fill squeeze overlapped 复制出装/BuildOptions on the browser
-   overview; it now lives in #BBTTabBtnHost at the RIGHT edge of the
-   .AuthoringInfo row (the engine only puts the build name on the left of
-   that row). Absolute positioning inside the row, pinned to its top-right.
-   The button inside keeps the engine's Medium Fill look; the host adds a
-   small padding so it never bleeds into the row edge.
-   v1.9.27 fix (in-game evidence, pid 15140): the child `#BBTTranslateButton2`
-   reported actuallayoutwidth=0 even with vis=true - the engine's absolute
-   positioning + `flow:none` on the child gave it no laid-out size, so the
-   翻译 trigger was a zero-width, unclickable box (the real geometry behind
-   field bug ①). The host now keeps a laid-out (relative) box pinned to the
-   row's right edge and the child gets explicit content sizing. */
+/* v1.9.28 (user feedback 11/06 21:31): the two-state trigger no longer shares
+   the build-details title row (a long build name squeezed it off the edge).
+   It is now a plain flow child of the engine's #ControlArea, placed
+   immediately left of #BuildControls, so it sits beside the native
+   出装选项 control. Deliberately NOT a child of #BuildControls: v1.9.26 put
+   it inside that row and the Medium Fill squeeze made it overlap
+   复制出装/BuildOptions (field bug ①).
+   The button keeps the engine's Medium Fill look. v1.9.27 evidence (pid
+   15140): `flow:none` / absolute hosts gave the child actuallayoutwidth=0, so
+   the box must stay a normal laid-out flow item - no absolute positioning. */
 #BBTTabBtnHost {
-	position: relative;
-	float: right;
+	flow-children: right;
+	horizontal-align: right;
+	vertical-align: center;
+	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
 }
 #BBTTranslateButton2 {
-	min-width: 40px;
-	padding: 2px 10px;
-	height: 22px;
+	min-width: 52px;
+	padding: 3px 10px;
+	height: 28px;
+	/* v1.9.28 (user feedback 11/06 21:14): the 22px box clipped the CJK
+	   glyph bottoms (下面的汉字显示不清) - the Medium font needs
+	   ~28px; let any overflow escape instead of being cut. */
+	overflow: visible;
+	line-height: 1.2;
+	font-size: 16px;
 }
 
 /* De-duplication marker: carries "<action>@<ms>" as text for uiGuard in

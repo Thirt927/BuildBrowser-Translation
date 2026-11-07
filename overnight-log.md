@@ -219,3 +219,18 @@ CJK 判定不一致(前者不含 Hangul/假名)。另有 `BuildName`/`BuildDescr
   gate 首次 PASS pre-push SHA = `5bf15d29e2f952a72207a9b5a27fd4f0633964b0`；
   记录本行后追加 commit 并推送，最终 gate PASS 的 pre-push SHA = 该追加 commit（PUSH_OK 文件存档）。
   推后终态 HEAD：fix(gate) conv-check 修复 + 本记录；远端与本地一致，工作区干净。
+
+## v1.9.28（2026-11-07）实机第二轮反馈处置
+
+- 用户四条反馈（21:16 / 21:31）：①按钮上下太窄汉字被裁 ②作者概览长文偶发不翻
+  ③切出装后右侧名称不更新 ④按钮位置想放到「出装选项」旁边 + 问在线桥是否连不上。
+- ②：21:14 点击时 11 条 `[BBT] MISS` 全量走 collect_new_texts → build_tm 并入
+  （TM 58648 条，含 "UPDATED 11/01 - With antiheal meta…" 长文）。
+- ①③④：CSS 28px + `overflow:visible`；`#BBTTabBtnHost` 迁到 `#ControlArea` 内
+  `#BuildControls` 之前；`translatePanel` 在「仍显示我们的译文」时先 `$.Localize(token,p)`
+  取引擎当前值再 `applyResync`（修「拆模板 → SetDialogVariable 无处落地」导致的名称卡死）。
+- 桥诊断：本机 8792 在听（BabelTower 桥 node PID 9924）、证书 `CN=BabelTower-localhost`
+  已在 CurrentUser\Root、health 返回 200；游戏侧失败码现打进总结行
+  `live bridge: not available on 8792/8793 (8792:panel_unavailable, 8793:timeout)`。
+- 发现 addons 里 `pak13_dir.vpk` 已被改名（仅剩 .bak-20261106-213241 / vpk1）→ mod 实际未加载；
+  已按 bak 惯例备份并重新部署 dist（md5 `6d0d6792`）。

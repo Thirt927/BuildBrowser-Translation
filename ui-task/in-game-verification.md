@@ -86,3 +86,16 @@
   → 人工路径 30 秒：B 打开 shop → 点任意 build 卡片 → 点 header “Browse Builds” → 详情页出现，
   点右上“翻译”按钮即验证 ②③（caption 变“原文”、全页含 BuildDescription 与类别框同翻）。
 - 该会话后 geom4 已 revert 重打（dist md5 14e2d5d7），探针行 = 0。
+
+## v1.9.28（2026-11-07）实机第二轮反馈
+
+| # | 反馈 | 处置 | 结论 |
+|---|---|---|---|
+| 1 | 翻译按钮上下太窄、汉字下沿被裁 | `#BBTTranslateButton2` 22px→28px + `overflow:visible` + `line-height:1.2` + `font-size:16px` | 待实机肉眼确认（可离线判定的是 CSS 值；像素级需人工 30 秒） |
+| 2 | 作者概览长文偶发不翻 | 21:14 会话 11 条 `[BBT] MISS` → `collect_new_texts` + `build_tm` 并入（TM 58648） | 离线 PASS（库内已有该长文），实机需重启后确认 |
+| 3 | 切出装后右侧名称不更新 | `translatePanel` 「仍显示我们的译文」分支先 `$.Localize(token, panel)` 取引擎当前值 → `applyResync` | 代码级 PASS（`ui_button_simtest` R1/R2/R4 绿），实机待点击确认 |
+| 4 | 按钮位置想放在「出装选项」旁边 | `#BBTTabBtnHost` 迁入 `#ControlArea`（`#BuildControls` 之前），`flow-children:right` | 结构级 PASS（`toolbar_cover_simtest`），几何待人工 |
+| 5 | 在线桥连不上？ | 本机 8792 在听 + 证书受信 + health 200；失败码现已打进总结行 | PASS（宿主侧），游戏侧 `panel_unavailable`/`timeout` 下次日志可判 |
+
+BLOCKED(保守)：以上 1/4 的像素几何、3/5 的点击链路仍需人工实机 30 秒：
+B 开出装 → 点 build 卡片 → Browse Builds → 点「出装选项」左侧的「翻译」→ 再看切换出装时右侧名称。

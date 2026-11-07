@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.27";
+  var VERSION = "1.9.28";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = false;
@@ -898,18 +898,27 @@
     }
   }
 
+  var liveProbeNotes = []; // v1.9.28: per-target failure reason for the summary line
   function liveProbeTargets(index) {
     index = index || 0;
     if (index >= LIVE_TARGETS.length) {
       live.state = "off";
+      // v1.9.28 (user report 11/06 21:31 "bing的桥连接不上吗？"): the plain
+      // "not available" line cannot tell a dead bridge from an unreachable
+      // HTML panel. Print the failure code per port (panel_unavailable =
+      // the <HTML> panel was not found from this context; timeout = the
+      // page never answered, i.e. cert/CEF or the bridge itself).
       $.Msg("[BBT] live bridge: not available on " +
         LIVE_TARGETS.map(function (t) { return t.port; }).join("/") +
+        (liveProbeNotes.length ? " (" + liveProbeNotes.join(", ") + ")" : "") +
         "; offline memory only");
+      liveProbeNotes = [];
       liveProbeSettled();
       return;
     }
     var t = LIVE_TARGETS[index];
     liveSend({ kind: "health" }, LIVE_PROBE_TIMEOUT, function (ok, err, payload) {
+      if (!ok) liveProbeNotes.push(t.port + ":" + (err || "fail"));
       if (!ok && debugOn()) $.Msg("[BBT] live probe failed on " + t.port + ": " + err);
       if (ok && payload && (payload.ok || payload.translations)) {
         LIVE_TARGET = t;
@@ -1734,6 +1743,25 @@
       // "show the original": never write; if we had written before, put it back.
       var rec0 = memo.get(panel);
       if (rec0 && rec0.k >= 1 && raw === rec0.out) {
+        // The label still shows OUR translation. If it is engine-driven, the
+        // engine may already hold a newer value for it (the user switched
+        // builds) that never reached the label: writing .text replaced the
+        // dialog-variable template, so SetDialogVariable had nowhere to land.
+        // Ask the engine directly via $.Localize before falling back to the
+        // English we translated (v1.9.28: the right-hand build name stayed on
+        // the previous build's Chinese after a switch).
+        var fresh0 = null;
+        var tk0 = tokenFor(panel);
+        if (tk0) {
+          var lv0 = null;
+          try { lv0 = $.Localize(tk0, panel); } catch{ lv0 = null; }
+          lv0 = resolvedText(lv0, tk0);
+          if (lv0 && lv0 !== rec0.in) fresh0 = lv0;
+        }
+        if (fresh0) {
+          applyResync(panel, fresh0);
+          return;
+        }
         try { panel.text = rec0.in; } catch{}
         memo.delete(panel);
       }
