@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.31";
+  var VERSION = "1.9.32";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -638,7 +638,16 @@
           if (ok && res && (res.translations || res.translation)) {
             var got = res.translations || [res.translation];
             var appliedCount = 0;
-            for (var k = 0; k < chunk.length; k += 1) {
+            // v1.9.32: a per-text request must only ever claim the FIRST answer.
+            // BabelTower's bridge answers with its own array, so reading got[k]
+            // for a chunk we sent one text at a time attached the previous
+            // text's translation to this one (observed in game: category name
+            // "Laning Phase" rendered as the build name's translation).
+            var take = batchable ? chunk.length : 1;
+            if (!batchable && got.length > 1 && debugOn()) {
+              try { $.Msg("[BBT] live: per-text answer carried " + got.length + " translations; taking the first"); } catch{}
+            }
+            for (var k = 0; k < take && k < chunk.length; k += 1) {
               if (got[k]) {
                 results[chunk[k]] = String(got[k]);
                 liveCachePut(chunk[k], String(got[k]));
@@ -683,9 +692,15 @@
       if (typeof t === "string") {
         var tr = results[t] || liveCacheGet(t);
         if (tr) {
-          if (writeText(p, present(t, tr))) {
-            applied += 1;
-            remember(p, 1, t, present(t, tr));
+          // v1.9.32: do not rewrite a label that already shows this translation
+          // (the tick re-scans constantly; 23 identical writes per click showed
+          // up in the log as flicker).
+          var rec0 = memo.get(p);
+          if (!(rec0 && rec0.k === 1 && rec0.in === t && rec0.out === present(t, tr))) {
+            if (writeText(p, present(t, tr))) {
+              applied += 1;
+              remember(p, 1, t, present(t, tr));
+            }
           }
         }
       }
