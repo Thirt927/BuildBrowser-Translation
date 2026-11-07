@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.48";
+  var VERSION = "1.9.49";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -604,17 +604,24 @@
     }
     // Chunk by count *and* by characters: eight long descriptions would blow the
     // document.title budget and come back as "too_large".
+    // v1.9.49: protect game terms before the bridge sees them, remember what we
+    // swapped so the answer can be restored to the official Chinese names.
+    var items = [];
+    for (var pi = 0; pi < texts.length; pi += 1) {
+      var pr = protectTerms(texts[pi]);
+      items.push({ orig: texts[pi], send: pr ? pr.out : texts[pi], map: pr ? pr.map : null });
+    }
     var chunks = [];
     var cur = [];
     var chars = 0;
-    for (var i = 0; i < texts.length; i += 1) {
-      var len = String(texts[i]).length;
+    for (var i = 0; i < items.length; i += 1) {
+      var len = String(items[i].send).length;
       if (cur.length && (cur.length >= UI_BATCH || chars + len > LIVE_BATCH_CHARS)) {
         chunks.push(cur);
         cur = [];
         chars = 0;
       }
-      cur.push(texts[i]);
+      cur.push(items[i]);
       chars += len;
     }
     if (cur.length) chunks.push(cur);
@@ -631,9 +638,11 @@
       // Our bridge translates the whole chunk in one round trip; BabelTower's API
       // takes one text at a time, so it gets them one by one.
       var batchable = LIVE_TARGET.tag === "BBT" && chunk.length > 1;
+      var sendTexts = [];
+      for (var si = 0; si < chunk.length; si += 1) sendTexts.push(chunk[si].send);
       var req = batchable
-        ? { kind: "batch", texts: chunk, target: TARGET_LANG }
-        : { kind: "text", text: chunk[0], target: TARGET_LANG };
+        ? { kind: "batch", texts: sendTexts, target: TARGET_LANG }
+        : { kind: "text", text: sendTexts[0], target: TARGET_LANG };
       liveSend(
         req,
         LIVE_REQUEST_TIMEOUT,
@@ -652,8 +661,10 @@
             }
             for (var k = 0; k < take && k < chunk.length; k += 1) {
               if (got[k]) {
-                results[chunk[k]] = String(got[k]);
-                liveCachePut(chunk[k], String(got[k]));
+                var item = chunk[k];
+                var restored = restoreTerms(String(got[k]), item.map);
+                results[item.orig] = restored;
+                liveCachePut(item.orig, restored);
                 appliedCount += 1;
               }
             }
@@ -1327,13 +1338,15 @@
       applyLiveUpgrade(job, cached);
       return;
     }
-    liveSend({ kind: "text", text: job.text, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    var prJob = protectTerms(job.text);
+    liveSend({ kind: "text", text: prJob ? prJob.out : job.text, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) { liveMarkFailure(err || "no_answer"); return; }
       var out = payload && payload.translations ? payload.translations[0] : null;
       if (payload && payload.ok && out) {
         live.hardFails = 0;
-        liveCachePut(job.text, String(out));
-        applyLiveUpgrade(job, String(out));
+        var trJob = restoreTerms(String(out), prJob ? prJob.map : null);
+        liveCachePut(job.text, trJob);
+        applyLiveUpgrade(job, trJob);
       }
     });
   }
@@ -1441,7 +1454,8 @@
       live.triedCount = 1;
       live.tried[raw] = 1;
     }
-    liveSend({ kind: "text", text: raw, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    var prRaw = protectTerms(raw);
+    liveSend({ kind: "text", text: prRaw ? prRaw.out : raw, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) {
         stats.liveLastError = err || "no_answer";
         liveMarkFailure(err || "no_answer");
@@ -1451,13 +1465,14 @@
       if (payload && payload.ok && out) {
         live.hardFails = 0;
         noteTableSize(payload.table);
-        liveCachePut(raw, String(out));
+        var trRaw = restoreTerms(String(out), prRaw ? prRaw.map : null);
+        liveCachePut(raw, trRaw);
         stats.live += 1;
         // Re-read the label: it may have been repainted meanwhile.
         var cur;
         try { cur = panel.text; } catch{ cur = null; }
         if (cur === raw) {
-          var shownLive = present(raw, String(out));
+          var shownLive = present(raw, trRaw);
           writeText(panel, shownLive);
           remember(panel, 1, raw, shownLive);
         } else {
@@ -1474,12 +1489,13 @@
     if (liveCacheGet(next)) return;
     // No panel reference any more: the label is re-scanned anyway, so just ask
     // for the text and let the cache serve it next tick.
-    liveSend({ kind: "text", text: next, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
+    var prNext = protectTerms(next);
+    liveSend({ kind: "text", text: prNext ? prNext.out : next, target: TARGET_LANG }, LIVE_REQUEST_TIMEOUT, function (ok, err, payload) {
       if (!ok) { liveMarkFailure(err || "no_answer"); return; }
       var out = payload && payload.translations ? payload.translations[0] : null;
       if (payload && payload.ok && out) {
         live.hardFails = 0;
-        liveCachePut(next, String(out));
+        liveCachePut(next, restoreTerms(String(out), prNext ? prNext.map : null));
       }
     });
   }
@@ -1516,6 +1532,57 @@
     });
     // No lookbehind: ECMAScript engines inside Panorama do not reliably support it.
     TERM_RE = new RegExp("(^|[^A-Za-z0-9])(" + terms.map(escapeRe).join("|") + ")(?![A-Za-z0-9])", "gi");
+  }
+
+  // v1.9.49: bridge-side term protection. The offline pipeline has protected
+  // proper nouns with ⟦N⟧ placeholders since day one; the bridge path sent raw
+  // English, so the online model was free to render "Aura" or "Monster Rounds"
+  // its own way and the two paths disagreed. Protect before sending, restore
+  // after: one glossary, both paths. Items/heroes/ranks only - ability names are
+  // ordinary English words ("Move", "Jump") and forcing the official name into
+  // a sentence reads worse than letting the model pick a wording.
+  var TERM_PROTECT_RE = null;
+
+  function buildProtectRegex() {
+    if (TERM_PROTECT_RE || !TERM_RE) return;
+    var terms = [];
+    for (var k in TERM_MAP) {
+      if (!Object.prototype.hasOwnProperty.call(TERM_MAP, k)) continue;
+      if (k.length < 3) continue;
+      terms.push(k);
+    }
+    if (!terms.length) return;
+    terms.sort(function (a, b) { return b.length - a.length; });
+    TERM_PROTECT_RE = new RegExp("(^|[^A-Za-z0-9])(" + terms.map(escapeRe).join("|") + ")(?![A-Za-z0-9])", "gi");
+  }
+
+  function protectTerms(raw) {
+    if (!TERM_RE) return null;
+    buildProtectRegex();
+    if (!TERM_PROTECT_RE) return null;
+    var used = [];
+    var out = String(raw).replace(TERM_PROTECT_RE, function (all, lead, term) {
+      var lower = term.toLowerCase();
+      var cn = TERM_MAP[lower];
+      if (!cn) return all;
+      if (TERM_CASED[lower]) {
+        var first = term.charAt(0);
+        if (first !== first.toUpperCase() || first === first.toLowerCase()) return all;
+      }
+      var idx = used.length;
+      used.push(cn);
+      return lead + "\u27e6" + idx + "\u27e7";
+    });
+    return used.length ? { out: out, map: used } : null;
+  }
+
+  function restoreTerms(text, mapArr) {
+    if (!mapArr || !mapArr.length) return String(text);
+    return String(text).replace(/\u27e6(\d+)\u27e7/g, function (m, d) {
+      var i = parseInt(d, 10);
+      if (i >= 0 && i < mapArr.length) return mapArr[i];
+      return m;
+    });
   }
 
   function substituteTerms(raw) {

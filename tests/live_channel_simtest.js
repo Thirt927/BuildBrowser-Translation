@@ -33,8 +33,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "bbt-live-"));
 fs.writeFileSync(path.join(TMP, "tm.js"), tmFormat.emitScript(map, { generated_at: "test" }));
 
 const FAKE_TRANSLATIONS = {
-  "Key item for Drifter early game.": "孤猎前期的重要装备。",
+  // v1.9.49: the bridge sees protected text, so hero/item names arrive as ⟦N⟧.
+  "Key item for ⟦0⟧ early game.": "孤猎前期的重要装备。",
   "Buy this before the team fight.": "团战前先买这个。",
+  // v1.9.49: the bridge now sees game terms as ⟦N⟧ placeholders, so the fixture
+  // is keyed by the protected text and answers with the placeholder intact.
+  "Grab ⟦0⟧ now.": "现在拿⟦0⟧。",
 };
 
 function makeLabel(text, cls) {
@@ -196,7 +200,7 @@ function check(name, cond, detail) {
   check("live: unknown text translated through the bridge", label.text === "孤猎前期的重要装备。", JSON.stringify(label.text));
   check(
     "live: request carries the text (JSON payload)",
-    opts.urls.some((u) => u.indexOf("op=translate") > 0 && decodeURIComponent(u).indexOf("Key item for Drifter") > 0),
+    opts.urls.some((u) => u.indexOf("op=translate") > 0 && decodeURIComponent(u).indexOf("Key item for ⟦0⟧") > 0),
     JSON.stringify(opts.urls),
   );
   check(
@@ -212,7 +216,21 @@ function check(name, cond, detail) {
   check("live: stat counted", ctx.sandbox.BBT_STATS.live >= 1, String(ctx.sandbox.BBT_STATS.live));
   check("live: log announces the channel", ctx.log.some((l) => l.indexOf("live bridge: connected") >= 0), JSON.stringify(ctx.log.slice(0, 3)));
 
-  // second label with the same text must be served from the session cache
+  // ------------------------------------------------------------------
+// 1b. game terms are protected before the bridge sees them (v1.9.49)
+// ------------------------------------------------------------------
+{
+  const label = makeLabel("Grab Infuser now.", "ModifiesLabel");
+  const opts = { urls: [], timers: [], dead: false };
+  const ctx = boot([label], opts);
+  pump(ctx, 200);
+  const sent = opts.urls.map((u) => decodeURIComponent(u)).join("\n");
+  check("terms: item name becomes a placeholder before sending", sent.indexOf("⟦0⟧") >= 0, sent.slice(0, 400));
+  check("terms: the raw English term never reaches the bridge", sent.indexOf("Infuser") < 0, sent.slice(0, 400));
+  check("terms: the official Chinese name is restored into the answer", label.text === "现在拿灵力灌注。", JSON.stringify(label.text));
+}
+
+// second label with the same text must be served from the session cache
   const l2 = makeLabel("Key item for Drifter early game.", "ModifiesLabel");
   const ctx2 = boot([l2], { urls: [], timers: [], dead: false });
   pump(ctx2, 200);

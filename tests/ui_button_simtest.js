@@ -39,7 +39,8 @@ function hashKey(text) {
 }
 
 const NEW_TEXTS = {
-  "Key item for Drifter early game.": "孤猎前期的重要装备。",
+  // v1.9.49: the bridge sees protected text - hero/item names arrive as ⟦N⟧.
+  "Key item for ⟦0⟧ early game.": "孤猎前期的重要装备。",
   "Buy two more copies later.": "之后再买两份。",
 };
 
