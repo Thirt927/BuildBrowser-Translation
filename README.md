@@ -116,6 +116,11 @@ powershell -ExecutionPolicy Bypass -File scripts\install_bridge_autostart.bat
 想临时关掉实时通道(不改包、不重启游戏):控制台执行 `BBT_LIVE = "off"`;
 恢复自动探测:`BBT_LIVE = "auto"`。当前使用的服务商可从 `BBT_STATS.liveProvider` 读到。
 
+**翻译主链路是桥**(v1.9.29 起):离线译文库默认关闭,启动日志会写
+`offline memory: disabled (bridge-first mode)`。桥没连上时只翻术语表和整句兜底,属于预期行为。
+想回到"离线库优先"的老行为:控制台执行 `BBT_TM = "on"`(不用重打包,重进界面即生效);
+`BBT_TM = "off"` 再关回去。`BBT_STATS.offline` 读到当前开关状态。
+
 > 代价提醒:如果 lingua 里配的是**付费**服务商(OpenAI / DeepL),实时通道翻 UI 文本也会走它。
 > 不想花额度就把 `BBT_LIVE` 设为 `"off"`,或把 lingua 的 provider 设为 `bing`(免 Key)。
 

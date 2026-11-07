@@ -146,8 +146,12 @@ dist/                         gitignore：pak13_dir.vpk 等产物
   裸 flag 恒为 true。
 - **本地库容量闸（`tools/tm_table.js`）**：五道闸（准入/别名折叠≤8/译文去重/预算淘汰 15 万条 32MB/
   占位符校验）+ SimHash 阈值按句长自适应（`distanceFor`）——改匹配逻辑必须过 `tm_table_simtest`。
-- 游戏内日志统一 `[BBT]` 前缀写 console.log；`BBT_STATS` / `BBT_DEBUG` / `BBT_LIVE` 挂 globalThis，
-  游戏内可运行时改（`BBT_LIVE="off"` 关实时通道，不用重打包）。
+- 游戏内日志统一 `[BBT]` 前缀写 console.log；`BBT_STATS` / `BBT_DEBUG` / `BBT_LIVE` / `BBT_TM` 挂 globalThis，
+  游戏内可运行时改（`BBT_LIVE="off"` 关实时通道，`BBT_TM="on"` 打开离线译文库，都不用重打包）。
+- **v1.9.29 起默认 bridge-first**：离线译文库（`bba_tm.js` 那 5.8 万条）默认关闭，启动行写
+  `[BBT] vX.Y.Z loaded (tm=…, glossary=1, offline=off)` + `[BBT] offline memory: disabled (bridge-first mode)`；
+  桥没连上时只剩术语表/整句兜底，这是有意为之（要的是"整页真的经桥翻"，不是"半截旧库"）。
+  桥连上的唯一证据行：`[BBT] live bridge: connected to <名> (localhost:8792, provider=…)`。
 - **提交前**（对齐 BabelTower 的纪律）：跑全量离线测试 + `build_layout_tokens.js --check`；
   不得提交 `tools/cache/`、`dist/*.vpk`、`config/certs/`、`logs/`、任何 API Key / SteamID 原文
   （`fetch_builds --author` 的 SteamID 出现在 README 示例里是占位符，别把真实 64 位 ID 写进文档）。
