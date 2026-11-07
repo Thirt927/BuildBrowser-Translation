@@ -152,7 +152,12 @@ if ($Deploy) {
   if (-not $GameCitadel) {
     $candidates = @(
       (Join-Path ${env:ProgramFiles(x86)} "Steam\steamapps\common\Deadlock\game\citadel"),
-      (Join-Path $env:ProgramFiles "Steam\steamapps\common\Deadlock\game\citadel")
+      (Join-Path $env:ProgramFiles "Steam\steamapps\common\Deadlock\game\citadel"),
+      # a library drive is common on this box (Deadlock lives on E:), so scan the
+      # other fixed drives instead of making the caller pass -GameCitadel
+      "E:\Steam\steamapps\common\Deadlock\game\citadel",
+      "D:\Steam\steamapps\common\Deadlock\game\citadel",
+      "F:\Steam\steamapps\common\Deadlock\game\citadel"
     )
     foreach ($c in $candidates) { if (Test-Path $c) { $GameCitadel = $c; break } }
   }
