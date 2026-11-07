@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.60";
+  var VERSION = "1.9.61";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -914,6 +914,10 @@
     if (req.kind === "overrides") {
       return base + "&op=health&api=" + encodeURIComponent("/api/v1/tm/overrides") +
         "&target=" + encodeURIComponent(req.target || "zh-Hans");
+    }
+    if (req.kind === "build") {
+      // Raw GET passthrough (our bridge only): the build's item annotations.
+      return base + "&op=health&api=" + encodeURIComponent("/api/v1/build?build_id=" + req.id);
     }
     var payload;
     var extra = "";
@@ -3446,25 +3450,40 @@
   // translated in a single batch, so the first hover hits the cache instead of
   // paying a round trip while the tooltip is already on screen.
   var buildPrefetchDone = {};
+  var buildIdTried = 0;
 
   function buildIdOf(root) {
     var stack = [root];
-    var budget = 900;
+    var budget = 1200;
+    var samples = [];
     while (stack.length && budget > 0) {
       budget -= 1;
       var p = stack.pop();
       if (!p) continue;
       var t = "";
+      var pid = "";
       try { t = p.text; } catch{ t = ""; }
-      if (typeof t === "string" && t.length < 40) {
+      try { pid = p.id; } catch{ pid = ""; }
+      if (typeof pid === "string" && pid) {
+        var mi = /([0-9]{5,9})/.exec(pid);
+        if (mi) return mi[1];
+      }
+      if (typeof t === "string" && t.length && t.length < 40) {
         var m = /ID[^0-9]{0,6}([0-9]{5,9})/i.exec(t);
         if (m) return m[1];
+        if (samples.length < 6 && /[0-9]{5,9}/.test(t)) samples.push(t);
       }
       var n = 0;
       try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch{ n = 0; }
       for (var i = 0; i < n; i += 1) {
         try { var c = p.GetChild(i); if (c) stack.push(c); } catch{}
       }
+    }
+    // Nothing matched: keep one line of evidence so the next session knows what
+    // the page actually renders (v1.9.61 - the first version returned silently).
+    if (buildIdTried !== samples.join("|") ) {
+      buildIdTried = samples.join("|");
+      $.Msg("[BBT] build id not found; number labels: " + JSON.stringify(samples));
     }
     return "";
   }
@@ -3476,6 +3495,10 @@
     if (LIVE_TARGET.tag !== "BBT") return;
     var id = "";
     try { id = buildIdOf(root); } catch{ id = ""; }
+    if (!id) {
+      // The id often sits in the category frame, not in the details root.
+      try { id = buildIdOf($.GetContextPanel()); } catch{ id = ""; }
+    }
     if (!id || buildPrefetchDone[id]) return;
     buildPrefetchDone[id] = 1;
     liveSend(
@@ -3504,7 +3527,6 @@
         }
       },
       LIVE_TARGET,
-      "/api/v1/build?build_id=" + id,
     );
   }
 
