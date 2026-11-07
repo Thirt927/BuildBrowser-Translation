@@ -291,7 +291,7 @@ function bridgePage(query) {
   // ?api= is a raw GET passthrough for whitelisted endpoints (used by the
   // overrides fetch, which needs a query string of its own).
   const rawApi = String(query.get("api") || "");
-  if (/^\/api\/v1\/(tm\/(lookup|overrides|stats|translate|remember)|translate)(\?[^\s]*)?$/.test(rawApi)) {
+  if (/^\/api\/v1\/(tm\/(lookup|overrides|stats|translate|remember)|translate|build)(\?[^\s]*)?$/.test(rawApi)) {
     // Raw passthrough with its own query string; a ?d= body turns it into a POST.
     let rawBody = null;
     const rawD = query.get("d");
@@ -449,6 +449,40 @@ function start() {
       return send(200, "application/json", JSON.stringify({
         ok: true, version: "1.0.0", target: TARGET, name: "bbt-bridge", table: entries,
       }));
+    }
+    if (p === "/api/v1/build") {
+      // v1.9.58: the details page shows the build id ("出装ID 317845"). Knowing
+      // it, the public build can be fetched once and every item annotation
+      // translated in a single batch, instead of waiting for each hover to
+      // create a tooltip that needs its own round trip.
+      const id = String(url.searchParams.get("build_id") || url.searchParams.get("id") || "").replace(/[^0-9]/g, "");
+      if (!id) return send(400, "application/json", JSON.stringify({ ok: false, error: "bad_id" }));
+      try {
+        const r = await fetch("https://api.deadlock-api.com/v1/builds?build_id=" + id + "&limit=1", {
+          signal: AbortSignal.timeout(8000),
+        });
+        const j = await r.json();
+        const row = Array.isArray(j) ? j[0] : j;
+        const items = [];
+        const walk = (arr) => {
+          for (const it of arr || []) {
+            if (!it) continue;
+            const note = it.annotation || it.notes || "";
+            if (note) items.push({ item_id: it.item_id, annotation: String(note) });
+          }
+        };
+        if (row) {
+          walk(row.items);
+          const d = row.details || null;
+          if (d) {
+            walk(d.items);
+            for (const sec of d.mod_categories || []) walk(sec.mods || sec.items);
+          }
+        }
+        return send(200, "application/json", JSON.stringify({ ok: true, id: Number(id), count: items.length, items }));
+      } catch (e) {
+        return send(200, "application/json", JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+      }
     }
     if (p === "/api/v1/tm/stats") {
     return send(200, "application/json", JSON.stringify({ ok: true, table: table.summary() }));

@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.57";
+  var VERSION = "1.9.58";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3437,8 +3437,74 @@
     $.Schedule(3.5, function () { uiResetLabel(scope); });
   }
 
+  // v1.9.58: the details page shows "出装ID 317845". With that id the public
+  // build can be fetched once through the bridge and every item annotation
+  // translated in a single batch, so the first hover hits the cache instead of
+  // paying a round trip while the tooltip is already on screen.
+  var buildPrefetchDone = {};
+
+  function buildIdOf(root) {
+    var stack = [root];
+    var budget = 900;
+    while (stack.length && budget > 0) {
+      budget -= 1;
+      var p = stack.pop();
+      if (!p) continue;
+      var t = "";
+      try { t = p.text; } catch{ t = ""; }
+      if (typeof t === "string" && t.length < 40) {
+        var m = /ID[^0-9]{0,6}([0-9]{5,9})/i.exec(t);
+        if (m) return m[1];
+      }
+      var n = 0;
+      try { n = p.GetChildCount ? p.GetChildCount() : 0; } catch{ n = 0; }
+      for (var i = 0; i < n; i += 1) {
+        try { var c = p.GetChild(i); if (c) stack.push(c); } catch{}
+      }
+    }
+    return "";
+  }
+
+  function prefetchBuildAnnotations(root) {
+    if (!root) return;
+    if (live.state !== "on" || !LIVE_TARGET) return;
+    // Only our bridge knows /api/v1/build; BabelTower's does not.
+    if (LIVE_TARGET.tag !== "BBT") return;
+    var id = "";
+    try { id = buildIdOf(root); } catch{ id = ""; }
+    if (!id || buildPrefetchDone[id]) return;
+    buildPrefetchDone[id] = 1;
+    liveSend(
+      { kind: "build", id: id },
+      12,
+      function (ok, err, res) {
+        try {
+          var items = (res && res.items) || [];
+          var texts = [];
+          for (var i = 0; i < items.length; i += 1) {
+            var a = items[i] && items[i].annotation;
+            if (a && !liveCacheGet(a)) texts.push(a);
+          }
+          $.Msg("[BBT] build prefetch id=" + id + " ok=" + ok + " annotations=" + items.length +
+            " todo=" + texts.length + (err ? " err=" + err : ""));
+          if (texts.length) {
+            uiRequestBatch(texts, function (results) {
+              var n = results ? Object.keys(results).length : 0;
+              $.Msg("[BBT] build prefetch cached " + n + "/" + texts.length);
+            });
+          }
+        } catch (e) {
+          $.Msg("[BBT] build prefetch failed: " + e);
+        }
+      },
+      LIVE_TARGET,
+      "/api/v1/build?build_id=" + id,
+    );
+  }
+
   // The main button: "translate everything on this page that we do not know yet".
   function translatePage(root) {
+    try { prefetchBuildAnnotations(root); } catch{}
     if (ui.busy) {
       // v1.9.18 self-heal: a lost bridge callback must not block the button
       // forever - the lock expires after 15s.
