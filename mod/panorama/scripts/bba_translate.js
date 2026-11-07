@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.54";
+  var VERSION = "1.9.55";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3485,6 +3485,17 @@
           if (live.state === "on") {
             uiRequestBatch(texts, function (results, err) {
               var applied = results ? uiApplyResults(results) : 0;
+              // v1.9.55 diag: which of the requested texts came back empty. Without
+              // this the "wrote=2 miss=8" line cannot distinguish a bridge miss
+              // from our own key mapping or a truncated reply.
+              try {
+                var missList = [];
+                for (var mi = 0; mi < texts.length && missList.length < 6; mi += 1) {
+                  if (!results || !results[texts[mi]]) missList.push(String(texts[mi]).slice(0, 40));
+                }
+                $.Msg("[BBT] batch diag: asked=" + texts.length + " got=" +
+                  (results ? Object.keys(results).length : 0) + " missing=" + missList.join(" | "));
+              } catch{}
               if (err) {
                 uiSetLabel("桥不可用(" + err + ")", scope);
               } else {
@@ -3761,6 +3772,11 @@
     } catch{}
     bootLayoutTag = layoutTag;
     notesOnlySurface = layoutTag === "CitadelTooltipModDetails";
+    // v1.9.55 diag: the item tooltip must reach the shop page through GetParent()
+    // for the ancestor-class switch to work; print the chain once per context.
+    if (notesOnlySurface) {
+      try { $.Msg("[BBT] tooltip ctx chain: " + instTag(ctx) + " tag=" + layoutTag); } catch{}
+    }
     // The build-details layout is reused as a hover tooltip (hittest=false).
     // A toolbar there can never be clicked, it would only sit on top of the
     // tooltip, so hide it.
