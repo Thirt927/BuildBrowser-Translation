@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.47";
+  var VERSION = "1.9.48";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -561,7 +561,14 @@
           var translatedAlready = rec && rec.k === 1 && rec.in === t;
           if (translatedAlready) {
             already += 1;
-          } else if (!lookup(t) && !liveCacheGet(t) && !overrideFor(t)) {
+          } else if (!(offlineOn() && lookup(t)) && !liveCacheGet(t) && !overrideFor(t)) {
+            // v1.9.48: the bundled offline table must only count as "already
+            // translated" while offline mode is ON. With bridge-first (offline
+            // default off) a hit here made the overview paragraph - which the
+            // offline era had already learned - skip the bridge batch AND skip
+            // the offline write path, so it stayed English forever while the
+            // category descriptions (absent from the table) went through the
+            // bridge fine. The user's "概览页的翻译怎么不生效" + "已翻译 0 条".
             seen[t] = 1;
             out.push(t);
             if (limit && out.length >= limit) break;
