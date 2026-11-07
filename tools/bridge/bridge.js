@@ -481,14 +481,29 @@ function start() {
             walk(d.items);
             for (const sec of d.mod_categories || []) walk(sec.mods || sec.items);
           }
-          return send(200, "application/json", JSON.stringify({
-            ok: true,
-            id: Number(id),
-            count: items.length,
-            name: hb.name || "",
-            description: hb.description || "",
-            items,
-          }));
+          // v1.9.69: the same payload already carries what the page body shows -
+          // the build name, the overview paragraph and every category header. Send
+          // them along so one prefetch batch covers the whole details page instead
+          // of leaving them to a later click round trip (user: "顺带做了不就好了").
+          const cats = [];
+          const secs = (d && (d.mod_categories || [])) || [];
+          for (const sec of secs) {
+            if (!sec) continue;
+            const nm = String(sec.name || sec.category_name || "");
+            const ds = String(sec.description || sec.category_description || "");
+            if (nm || ds) cats.push({ name: nm, description: ds });
+          }
+          if (row) {
+            return send(200, "application/json", JSON.stringify({
+              ok: true,
+              id: Number(id),
+              count: items.length,
+              name: hb.name || "",
+              description: hb.description || "",
+              categories: cats,
+              items,
+            }));
+          }
         }
         return send(200, "application/json", JSON.stringify({ ok: true, id: Number(id), count: 0, items: [] }));
       } catch (e) {

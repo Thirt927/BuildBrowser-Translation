@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.68";
+  var VERSION = "1.9.69";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -3667,15 +3667,27 @@
       function (ok, err, res) {
         try {
           var items = (res && res.items) || [];
+          var cats = (res && res.categories) || [];
           var texts = [];
           var desc = res && res.description ? String(res.description) : "";
           if (desc.length > 12 && !liveCacheGet(desc)) texts.push(desc);
+          // v1.9.69: the page body is not only item annotations - the build name and
+          // every category header/description ride in the same payload, so prefetch
+          // them together instead of making the user click and wait for each.
+          var bname = res && res.name ? String(res.name) : "";
+          if (bname && !liveCacheGet(bname)) texts.push(bname);
+          for (var ci = 0; ci < cats.length; ci += 1) {
+            var cn = cats[ci] && cats[ci].name ? String(cats[ci].name) : "";
+            var cd = cats[ci] && cats[ci].description ? String(cats[ci].description) : "";
+            if (cn && !liveCacheGet(cn)) texts.push(cn);
+            if (cd && !liveCacheGet(cd)) texts.push(cd);
+          }
           for (var i = 0; i < items.length; i += 1) {
             var a = items[i] && items[i].annotation;
             if (a && !liveCacheGet(a)) texts.push(a);
           }
           $.Msg("[BBT] build prefetch id=" + id + " ok=" + ok + " annotations=" + items.length +
-            " todo=" + texts.length + (err ? " err=" + err : ""));
+            " categories=" + cats.length + " todo=" + texts.length + (err ? " err=" + err : ""));
           if (texts.length) {
             uiRequestBatch(texts, function (results) {
               var n = results ? Object.keys(results).length : 0;
