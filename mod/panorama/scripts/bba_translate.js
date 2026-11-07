@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.53";
+  var VERSION = "1.9.54";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -927,6 +927,18 @@
   }
 
   function liveSend(req, timeoutSec, cb, target) {
+    // v1.9.54 timing: one line per bridge request. LiveSend allows a single
+    // request in flight, so 20 missing texts sent one by one cost 20 latencies.
+    var reqT0 = nowMs();
+    var reqCb = cb;
+    cb = function (ok, err, payload) {
+      try {
+        $.Msg("[BBT] live req kind=" + ((req && req.kind) || "?") + " n=" +
+          (req && req.texts ? req.texts.length : 1) + " ok=" + ok +
+          " ms=" + Math.round(nowMs() - reqT0));
+      } catch{}
+      try { reqCb(ok, err, payload); } catch{}
+    };
     // Only one request may be in flight: document.title is a single channel and
     // a second job would clobber the first one's pending slot (losing its reply).
     if (live.pending) {
@@ -3403,7 +3415,7 @@
     $.Schedule(0.5, function () {
       var done = stats.translated + stats.fallback - before;
       $.Msg("[BBT] translate: scanned=" + counts.scanned + " wrote=" + done + " already=" + counts.already +
-        " miss=" + miss + " scope=" + instTag(scope) +
+        " miss=" + miss + " scope=" + instTag(scope) + " ms=" + Math.round(nowMs() - tPage) +
         (noBridge ? " (bridge unavailable)" : (texts.length ? "" : " (no bridge configured)")));
       if (noBridge && done === 0 && miss > 0) {
         uiSetLabel("桥未连接(" + miss + " 条缺)", scope);
@@ -3421,6 +3433,10 @@
 
   // The main button: "translate everything on this page that we do not know yet".
   function translatePage(root) {
+    // v1.9.54 timing: total wall time from the click to the write-back, so the
+    // "page translation feels slow" report can be split into engine-side scan
+    // cost, serial bridge requests, or one slow batch.
+    var tPage = nowMs();
     if (ui.busy) {
       // v1.9.18 self-heal: a lost bridge callback must not block the button
       // forever - the lock expires after 15s.
