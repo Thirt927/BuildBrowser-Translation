@@ -47,11 +47,15 @@
    the box must stay a normal laid-out flow item - no absolute positioning. */
 #BBTTabBtnHost {
 	flow-children: right;
-	horizontal-align: right;
+	/* v1.9.44: `horizontal-align: right` pushed the host to the END of
+	   #ControlArea, which is wider than the visible pane - the trigger rendered
+	   past the right edge (field screenshots 20:30 / 20:36). In flow it sits
+	   immediately before #BuildControls, i.e. just left of 出装选项 and inside
+	   the pane. The 34px drop then puts it on the line under 出装选项. */
 	vertical-align: center;
-	margin-right: 6px;
 	margin-top: 2px;
 	z-order: 2000;
+	transform: translate3d(0px, 34px, 0px);
 	/* v1.9.39 (user feedback 11/07 20:20 "还是这样"): with 62px the trigger
 	   dropped but kept overlapping the 出装选项 row and still had its right
 	   edge (the "翻译 53" badge) past the pane border. One more row down and
