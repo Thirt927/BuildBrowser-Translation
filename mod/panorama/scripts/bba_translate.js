@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.9.55";
+  var VERSION = "1.9.57";
   // Debug logging is a runtime switch: set `BBT_DEBUG = true` in the game
   // console (`-condebug`) to see every write without rebuilding the VPK.
   var DEBUG = true;
@@ -1810,6 +1810,11 @@
   // different #tokens, so it carries a candidate list and resyncLabel tries
   // them until one resolves (a wrong candidate just fails resolvedText).
   var RESYNC_TOKENS = [
+    // v1.9.57: the in-game build page header uses class "SelectedBuildName"
+    // (citadel_shop_mods_build.xml:27), which panelHasClass() never matched as
+    // "BuildName" - so after switching builds the header kept the previous
+    // build's text while vanilla updated it. Same token, one more class.
+    ["SelectedBuildName", "#Citadel_HeroBuilds_BuildName"],
     ["BuildDescription", "#Citadel_HeroBuilds_BuildDescription"],
     ["BuildName", "#Citadel_HeroBuilds_BuildName"],
     ["CategoryName", "#Citadel_HeroBuilds_CategoryName"],
@@ -1982,7 +1987,7 @@
   // The header/overview labels are handled first: the budget must never be spent
   // on list rows and leave the overview on the previous build's translation.
   function primaryRole(panel) {
-    return panelHasClass(panel, "BuildName") || panelHasClass(panel, "BuildDescription");
+    return panelHasClass(panel, "BuildName") || panelHasClass(panel, "SelectedBuildName") || panelHasClass(panel, "BuildDescription");
   }
 
   function resyncAll(limit, origin) {
