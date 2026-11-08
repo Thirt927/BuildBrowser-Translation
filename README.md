@@ -96,6 +96,26 @@ powershell -ExecutionPolicy Bypass -File scripts\install_bridge_autostart.bat
 - 限流与失败：同一时刻只有一条请求在飞（标题回传是单通道），会话内缓存结果，连续 3 次硬失败即放弃本会话。
 - 隐私：只发送当前页面上"没有译文"的英文文本，不发账号/战绩。
 
+### 证书（为什么必须有）
+
+游戏用 WebKit 渲染 mod 里那个 `<HTML id="BBTBridgePanel">` 面板。它对 **http 一律拒绝**，对
+**不受信的 https 也拒绝**（`ERR_CERT_AUTHORITY_INVALID` / `neterror -202`），所以桥必须走 HTTPS，
+且证书要被引擎信任。引擎**只在启动时**读一次系统信任库（`CurrentUser\Root`）。
+
+- **形状**：`CN=BBT-localhost`，`SAN = DNS:localhost, IP:127.0.0.1, IP:::1`，EKU `serverAuth`。
+  SAN 是硬要求——只有 CN 的证书会被 Chromium 判为域名不匹配（本机踩过这个坑）。
+- **生成**：`gen_bridge_cert.ps1 -Trust` 生成并装进 `CurrentUser\Root`（**不需要管理员**，
+  Windows 可能弹一次安全警告，确认即可）；文件落在 `config/certs/`（已被 gitignore）：
+  `bbt.pfx` 私钥包、`bbt.pass` 口令、`bbt.cer` 公钥证书。有效期 5 年。
+- **复用**：脚本会先找已受信的 `BabelTower-localhost` / `BBT-localhost`，有就跳过；
+  桥也会自动检测 BabelTower 的 `bridge.pfx`。想强制另建一张加 `-Force`。
+- **生效**：装/换证书后必须**完全重启 Steam**（含托盘图标），只重启游戏不够。
+- **验证**：`certutil -user -store Root | findstr BBT-localhost` 应能看到主题；
+  或 `node tools\bridge\check.js` 输出 `8793 ready`。
+- **卸载**：`gen_bridge_cert.ps1 -Untrust`（只移除信任，不删 `config/certs/` 里的文件）。
+- **安全**：私钥只在本机 `config/certs/`，桥只监听 `127.0.0.1`/`localhost`；
+  证书只是让游戏肯加载本地页面，不对外提供任何服务。
+
 桥的协议（`document.title` 回传，正文上限 6 KB）：
 
 | 端点 | 用途 |
