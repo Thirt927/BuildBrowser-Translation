@@ -623,7 +623,9 @@ check(
 );
 
 pump(h3, 400);
-checkEq(cTrig.text, "原文", "v1.9.17 双态触发器：刷新后复位文案 = 下一个显示状态（已译 → 原文）");
+// v1.9.25: 刷新不再自己翻转状态。这一份页面从没被翻译过（tsMode 未设），
+// so the resting caption is still the next action: 翻译.
+checkEq(cTrig.text, "翻译", "刷新后复位文案 = 下一个动作（未翻译的页面仍是 翻译）");
 
 /* ------------------------------------------------------------------ */
 /* [4] missing export is visible                                       */
@@ -675,7 +677,9 @@ const h6 = newHarness();
 const F = bootTree(h6, {});
 const fTrig = F.byId.get("BBTTranslateButton2");
 checkEq((fTrig._events.onactivate || []).length, 1, "有 SetPanelEvent 时触发器被脚本绑定一次");
-checkEq(countEvents(F.root), 1, "脚本共绑定 1 个 onactivate 事件");
+// v1.9.25: the single dropdown was replaced by the two-state trigger, and the
+// in-game build page got its own copy (#BBTTranslateButton3), so three ids bind.
+checkEq(countEvents(F.root), 3, "脚本共绑定 3 个 onactivate 事件（三处触发器）");
 checkEq(globalOf(h6, "typeof BBTActivate"), "function", "有 SetPanelEvent 时全局入口已导出");
 
 advanceClock(h6);
@@ -753,15 +757,15 @@ console.log("== [7] v1.9.16 single trigger beside the engine row + no token writ
 // below the tall .HeroBuildsExtraInfo), and v1.9.10/v1.9.11 tried an overlay
 // that compressed the overview. v1.9.13/14 tried three buttons in the control
 // row. v1.9.15/16 fold them into one single trigger (#BBTTranslateButton2,
-// inside the engine's own #BuildControls row) — v1.9.16 T1 removed the
-// #BBTMenu2 dropdown: a click goes straight to the bridge-batch translate,
-// and the trigger is hidden on overview pages (T2).
+// inside #BBTTabBtnHost in the engine's #ControlArea, v1.9.25/26) — v1.9.16 T1
+// removed the #BBTMenu2 dropdown: a click goes straight to the bridge-batch
+// translate, and the browser page carries its own two-state copy (v1.9.26 R1).
 const g7 = newHarness();
 const G7 = bootTree(g7, {}, true);
 const tBtn = G7.byId.get("BBTTranslateButton2");
 const tParent = tBtn ? tBtn.GetParent() : null;
 check(G7.byId.get("BBTControls2") === undefined, "没有 BBTControls2 包裹层");
-checkEq(tParent && tParent.id, "BuildControls", "触发器挂在引擎自己的 #BuildControls 行里");
+checkEq(tParent && tParent.id, "BBTTabBtnHost", "触发器挂在 #BBTTabBtnHost（#ControlArea 内、#BuildControls 之前）");
 check(G7.byId.get("BBTMenu2") === undefined, "BBTMenu2 下拉已删（v1.9.16 T1，点击直接走桥批量翻译）");
 checkEq(G7.byId.get("BBTTranslateButton2").text, "翻译", "触发器初始为 翻译");
 

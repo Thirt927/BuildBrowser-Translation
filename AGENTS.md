@@ -7,8 +7,9 @@
 
 Source 2 **Panorama** 模组（不是 C#/Unity/Lua，不读内存，不挂 MelonLoader）：
 覆盖 6 个布局（出装浏览器/详情/商城/分类/两个 tooltip），注入 `bba_translate.js`，
-把玩家撰写的英文出装文本查**打包进 VPK 的离线译文库（TM，~5.8 万条）**翻成中文；
-查不到走"整句兜底 → 术语表兜底 →（可选）本地 bridge 实时翻译"。装好即用，默认完全离线。
+把玩家撰写的英文出装文本翻成中文。**桥优先**（v1.9.29 起）：本机 bridge 在线翻译是主链路，
+打包进 VPK 的离线译文库（TM，~5.8 万条）默认关闭（`BBT_TM="on"` 才开）；
+桥不可用时只剩整句兜底 / 术语表兜底。界面只有一个两态按钮（`翻译` ⇄ `原文`）。
 
 ## 2. 技术栈
 
@@ -19,14 +20,19 @@ Source 2 **Panorama** 模组（不是 C#/Unity/Lua，不读内存，不挂 Melon
 | 编译打包 | Reduced CSDK 12 的 `resourcecompiler.exe` + `tools/vpkeditcli.exe`（仅 Windows） |
 | 布局反编译 | Source 2 Viewer（S2V）导出/反编译 `*.vxml_c` |
 | 数据 | deadlock-api 公开出装 + Bing 免 Key 机翻（`tools/providers/bing.js`） |
-| 实时通道（可选） | `<HTML>` 面板 + 受信自签 HTTPS：先探 8792（DeadlockLingua 桥）再探 8793（本仓库 `tools/bridge/bridge.js`），都不通则永久离线 |
+| 实时通道（可选） | `<HTML>` 面板 + 受信自签 HTTPS：先探 **8793**（本仓库 `tools/bridge/bridge.js`，支持整批 + `/api/v1/build`），再探 8792（DeadlockLingua 桥，逐条兜底），都不通则本会话永久离线 |
 
 ## 3. 关键路径（写死，不用再搜）
 
 - 项目根：`F:\agents\deadlockfanyi\出装翻译`
 - CSDK12（与 BabelTower-fork 同源）：`E:\dealoc-mod\Reduced_CSDK_12`
 - Deadlock 安装（如有本体）：`E:\Steam\steamapps\common\Deadlock`，mod 部署到 `game\citadel\addons\`
-- ⚠️ **本项目当前按"无游戏本体"工作**（TODO §11–13）：布局来源 = 原生 pak01 反编译 **或** 第三方 mod VPK 里解出的 Valve 原生副本（`citadel_shop_mods_build_category.xml` 即来自第三方 mod，拿到本体后应重新生成）；术语表冻结在 2026-10-29（`glossary.json` 里）。
+- **实机验证已常态化**：本机有游戏本体，v1.9.29 起每轮改动都部署后进游戏取证（`console.log` 的 `[BBT]` 行）。
+  布局仍有两个来源：原生 pak01 反编译 **或** 第三方 mod VPK 里解出的 Valve 原生副本
+  （`citadel_shop_mods_build_category.xml` 来自第三方 mod，游戏大版本更新后应重新生成）；
+  官方术语表基线冻结在 2026-10-29，类型词/常用词走 `tools/glossary_extra.json` 增量。
+- 部署前必须 `Get-Process deadlock` 为空，否则 pak13 被占用 → `build.ps1 -Deploy` 抛 `IOException`，
+  日志看着成功、实际跑的还是旧包。
 - 编译产物：`dist/pak13_dir.vpk`（**pak 编号 13 决定 addons 优先级**，与别的 mod 冲突时改 `-PakName`，别改源码）
 - 游戏运行期文件（有本体才存在）：`game/citadel/console.log`（需启动项 `-condebug`）、`game/citadel/gameinfo.gi` 的 SearchPaths 必须含 `Mod citadel` + `Game citadel/addons`（**随游戏更新会被重置**）
 
@@ -78,19 +84,19 @@ mod/panorama/scripts/
   bba_tm.js                   翻译记忆（**生成物**，~4–5MB，勿手改）
   bba_glossary.js             官方术语表（**生成物**，build_glossary.js 产出）
   bba_layout_tokens.js        布局 class/id → #Token 对照（**生成物**，build_layout_tokens.js 产出）
-mod/panorama/styles/bba.css   样式（BBTSrc/BBTProbe/工具条等）
+mod/panorama/styles/bba.css   样式（两态按钮 #BBTTabBtnHost / 桥面板 .BBTBridgePanel 等）
 tools/                        离线流水线（fetch_builds / build_tm / build_code / collect_new_texts
                               / tm_table / tm_export / inject_scripts / get_layouts.ps1
                               / find_layouts / vpk_list / bridge/bridge.js）
 scripts/                      build.ps1 / refresh_tm.ps1 / gen_bridge_cert.ps1 / 自启 bat/vbs
-tests/                        12 个离线套件（全部不需要游戏）
+tests/                        14 个套件（CI 跑 10 个，全部不需要游戏）
 tools/cache/                  gitignore：builds.json / translations.json(断点) / extra_texts.json
                               / live_seen.json / tm_table.jsonl(本地会长大的库)
 dist/                         gitignore：pak13_dir.vpk 等产物
 ```
 
 流水线：`fetch_builds`（deadlock-api 周榜/历史榜/最近 45 天/作者）→ `build_tm`（装备/英雄名先置换占位符 → Bing 机翻 → 还原 → 双哈希累积并入）→ `bba_tm.js` → `build.ps1` → `pak13_dir.vpk` → addons。
-游戏内：扫 Label（`#token`/中文/输入框早退）→ 离线库 → 整句兜底（≥55% 才混合）→ 术语兜底（≤160 字符）→ 实时 bridge（可选）；
+游戏内：扫 Label（`#token`/中文/输入框早退）→ **桥整批**（`kind=batch`）→ 离线库（默认关）→ 整句兜底（≥55% 才混合）→ 术语兜底（≤160 字符）；
 实时结果落 `live_seen.json` → 下次 `build_tm` 并入，逐步变"开箱即离线"。
 游戏内未翻译文本：`-condebug` 下 `console.log` 打印 `[BBT] MISS <key> <原文>` → `collect_new_texts.js` → 自动并入 TM。
 
@@ -98,21 +104,25 @@ dist/                         gitignore：pak13_dir.vpk 等产物
 
 1. **`$.AsyncWebRequest` 已被引擎移除**——游戏 JS 不能发起 HTTP；唯一游戏内联网通道是
    `<HTML>` 面板，且必须 **HTTPS + 证书链受信**（自签进 `CurrentUser\Root`；引擎**只在启动时**读信任库
-   → 改证书后必须完全重启 Steam）。面板在 XML 里声明、1px + `opacity:0.01`（`display:none` 不加载页面）。
+   → 改证书后必须完全重启 Steam）。证书**必须有 SAN**（`DNS:localhost` + `IP:127.0.0.1`），只有 CN 会被拒绝。
+   面板在 XML 里声明，必须是 **8x8 + `opacity:1`**（1px 会被引擎舍入成不渲染，`display:none` 不加载页面）；
+   页面没渲染出尺寸时 `SetURL` 返回成功但桥收到 0 个请求（日志 `live probe deferred: actiualayoutwidth=0`）。
 2. **Label 文本两个来源**：A. 引擎直接赋值 `label.text`；B. 布局写 `text="#Token"`，token 本地化值
    是 `{s:var}` 模板，引擎用 `SetDialogVariable` 灌值。**对 `.text` 写译文会摧毁模板**，之后
    `SetDialogVariable` 无处落地 → 标签永远停在第一条译文（"换出装不更新"三连根因）。
-3. **共享根面板上写 dialog variable 会"串味"**：没有自己值的行标签全部继承 → 列表每行显示当前选中名。
-   两条路都试过、都失败 → **现行模型（v1.8.1，不要再回退）：源标签 + 1px 探针**：
-   `BBTSrc`（可见、引擎驱动、我们翻完写它）/ `BBTProbe`（同 token 副本，1px、**必须正常渲染**，
-   任何代码不写它，专用于读引擎最新英文）/ 探针拿不到值时降级显示引擎自己的英文。
+3. **共享根面板上写 dialog variable 会"串味"**：没有自己值的行标签全部继承 → 每行显示当前选中名。
+   **现行模型（v1.9.25 起，别再回退）**：就地写 `.text` 为默认路径；对**引擎驱动的模板标签**
+   分级放行——`SelectedBuildName`（商城标题栏出装名）交还引擎（保持英文、永远正确），
+   `CategoryDescription` 由预取数据按「出装 ID + 分类序号」写入（v1.9.77）。
+   试过并已删除的方案：影子标签（v1.8.0 隐藏后 `{s:var}` 不解析）、1px 探针（v1.8.1/v1.9.72，
+   布局注入拿不到引擎 token 值），**仓库里现在没有 `BBTProbe`/`BBTSrc`**。
 4. **`visibility: collapse` 的 Label 不被渲染 → `{s:var}` 不解析 → `.text` 停在原始 `#Token`**。
    所以探针不能折叠，用"可见 + 1px + `opacity:0.01` + `overflow: clip`"。
 5. **`onactivate="BBTTranslatePage()"` 全局函数名解析会静默失败**（IIFE + 严格模式）→
    一律 `panel.SetPanelEvent("onactivate", cb)` 直接绑定（`wireToolbar()`，带重试 + null 检查）。
 6. **Label 默认吞点击**：按钮内 `<Label>` 加 `hittest="false"`，控件面板 `hittest="true"`。
-7. 部分引擎**没有 `globalThis` 且引用未声明标识符直接抛错** → 用 `Function("return this")()` 兜底
-   （TM 格式生成器同规则）。
+7. 引擎上下文里**引用未声明标识符会直接抛错**：一律先从 `globalThis` 取，取不到就跳过，
+   **不要用 `Function("return this")()` 兜底**（v1.9.34 已全部移除，它与 CSP/严格模式的交互不可靠）。
 8. **多 JS 上下文**：每个布局一份独立 JS 上下文，`bba_tm.js` 等共享库必须带"每上下文只构建一次"早退守卫
    （`if (globalThis.BBA_TM) return;` 一类）；新增共享脚本遵守同一约定。
 9. **addons pak 优先级 = 小编号优先**：别的 mod 用 `pak11` 提供同名布局会**整份**压住我们的 `pak13`
@@ -151,7 +161,7 @@ dist/                         gitignore：pak13_dir.vpk 等产物
 - **v1.9.29 起默认 bridge-first**：离线译文库（`bba_tm.js` 那 5.8 万条）默认关闭，启动行写
   `[BBT] vX.Y.Z loaded (tm=…, glossary=1, offline=off)` + `[BBT] offline memory: disabled (bridge-first mode)`；
   桥没连上时只剩术语表/整句兜底，这是有意为之（要的是"整页真的经桥翻"，不是"半截旧库"）。
-  桥连上的唯一证据行：`[BBT] live bridge: connected to <名> (localhost:8792, provider=…)`。
+  桥连上的唯一证据行：`[BBT] live bridge: connected to bbt-bridge (localhost:8793)`。
 - **提交前**（对齐 BabelTower 的纪律）：跑全量离线测试 + `build_layout_tokens.js --check`；
   不得提交 `tools/cache/`、`dist/*.vpk`、`config/certs/`、`logs/`、任何 API Key / SteamID 原文
   （`fetch_builds --author` 的 SteamID 出现在 README 示例里是占位符，别把真实 64 位 ID 写进文档）。
@@ -160,18 +170,21 @@ dist/                         gitignore：pak13_dir.vpk 等产物
 ## 8. 与 BabelTower-fork 的关系
 
 `F:\agents\deadlockfanyi\BabelTower-fork`（DeadlockLingua 聊天翻译 mod）是经验来源，不共享代码：
-- 本仓库实时通道**优先复用它的桥**（8792，证书也是它那份——已装 DeadlockLingua 就什么都不用做）；
+- 本仓库先探自己的桥 **8793**，不通才回落到它的 **8792**（复用它的 provider / Key / 词典 / 缓存）；
+  两张证书互不影响——只装 lingua 时本 mod 仍可工作；
 - 引擎坑清单（HTML 面板证书链、`AsyncWebRequest` 移除等）见它根的 `AGENTS.md`；
 - 但两边**协议、脚本、构建互不相干**，别往本仓库合它的代码。
 
 ## 9. 经验教训（改代码时注意）
 
-- `bba_translate.js` 的写入路径改过三轮（`.text` → `SetDialogVariable` → 源+探针，v1.8.1 定型）。
-  **不要再加回任何 `SetDialogVariable` 写入路径**（TODO §十四：含 k:2 校验状态机已全部删除）。
-- "翻译不刷新 / 一直覆盖"类 bug 先查：探针是否失效、身份标签（`.BuildID` 等）是否还在 token 表里、
-  addons 里有没有更小 pak 压住同名布局、`gameinfo.gi` 是否被更新重置。
+- `bba_translate.js` 的写入路径改过四代：就地 `.text`（v1.0）→ 影子/探针（v1.8.0/1.8.1）→
+  `SetDialogVariable`（v1.9.67，串台后撤回）→ **就地写 + 模板标签分级放行（v1.9.25/1.9.77 定型）**。
+  **不要再加回 `SetDialogVariable` 写入路径，也不要写引擎驱动的模板标签**（`SelectedBuildName`）。
+- "翻译不刷新 / 一直覆盖"类 bug 先查：该标签是不是引擎驱动模板（`tokenFor(panel)` → `#Citadel_HeroBuilds_*`）、
+  身份标签是否还在 token 表里、addons 里有没有更小 pak 压住同名布局、`gameinfo.gi` 是否被更新重置。
 - 实机信号（有本体时，`-condebug` 后看 `console.log` 的 `[BBT]`）：启动行
   `[BBT] vX.Y.Z loaded (tm=..., glossary=1) in layout: <面板>`、`[BBT] toolbar wired: N control(s)`、
   `[BBT] MISS <key> <原文>`；`BBT_STATS`（`translated / writes / rebinds / live / ms / interval`）可直接读。
-- **无本体也能推进的范围**（TODO §十一）：`tools/vpk_list.js` 解析第三方 mod VPK、S2V 反编译布局、
-  数据流水线、全部离线测试、重打包。实机验证（换出装刷新/工具栏/帧率）必须有游戏。
+- **离线能验证的范围**：全部 10 套 CI 测试、`build_layout_tokens --check`、重打包、`tools/vpk_list.js`
+  解析 addons、数据流水线。实机才看得出的（换出装刷新、按钮可点性、帧率、桥回包）必须进游戏取证，
+  且**只能由用户启动游戏**（代理不代开）。

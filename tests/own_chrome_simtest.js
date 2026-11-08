@@ -87,10 +87,14 @@ check("no BBTControls2 wrapper left", !attrsOf("BBTControls2"));
 // #BuildOptionButton). Its caption is our CJK literal (翻译), never a game
 // #Token.
 var buildControlsIdx = xml.indexOf('id="BuildControls"');
+// v1.9.25: the trigger moved out of #BuildControls into #BBTTabBtnHost
+// (#ControlArea, right before #BuildControls) — see toolbar_cover_simtest.
 var triggerIdx = xml.indexOf('id="BBTTranslateButton2"');
 check(
-  "trigger is inside #BuildControls",
-  buildControlsIdx >= 0 && triggerIdx > buildControlsIdx && triggerIdx < xml.indexOf('id="BuildControlsContainer"')
+  "trigger sits in #ControlArea before #BuildControls (v1.9.25)",
+  xml.indexOf('id="BBTTabBtnHost"') >= 0 &&
+    buildControlsIdx >= 0 &&
+    xml.indexOf('id="BBTTabBtnHost"') < buildControlsIdx
 );
 check(
   "trigger caption is our literal (翻译), no #Token",

@@ -1,5 +1,8 @@
 # Build UI 汉化（BuildBrowser Translation）— 交付报告 buildui-report
 
+> **历史快照**：本文件记录当时的状态，不再更新。当前实现与版本以 [README](../README.md) 和
+> [docs/TECH_NOTES.md](TECH_NOTES.md) 为准。
+
 版本 v1.9.27 · 2026-11-06 · 对应当时的 RALPH 任务台账（已归档）（RALPH R1–R5 + 3 个实机 bug 修复）
 
 ## 需求 R1–R5 实现状态
